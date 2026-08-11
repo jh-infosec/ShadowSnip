@@ -156,6 +156,23 @@ class SettingsDialog(QDialog):
         self.dim.setRange(0, 255)
         self.dim.setValue(cfg["dim_opacity"])
 
+        self.lab_root_edit = QLineEdit(cfg["lab_root"])
+        self.lab_root_edit.setPlaceholderText("Default: a 'labs' folder inside the save folder")
+        lab_browse = QPushButton("Browse...")
+        lab_browse.clicked.connect(self._pick_lab_root)
+        lab_row = QWidget()
+        lab_layout = QHBoxLayout(lab_row)
+        lab_layout.setContentsMargins(0, 0, 0, 0)
+        lab_layout.addWidget(self.lab_root_edit, 1)
+        lab_layout.addWidget(lab_browse)
+
+        self.lab_index_check = QCheckBox("Write a lab.md index next to the images")
+        self.lab_index_check.setChecked(cfg["lab_index"])
+        self.lab_caption_check = QCheckBox("Offer a caption box after each snip in a lab")
+        self.lab_caption_check.setChecked(cfg["lab_caption"])
+        self.lab_index_check.toggled.connect(self.lab_caption_check.setEnabled)
+        self.lab_caption_check.setEnabled(cfg["lab_index"])
+
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("Snip hotkey", self.hotkey_edit)
@@ -172,6 +189,9 @@ class SettingsDialog(QDialog):
         form.addRow(self.dib_check)
         form.addRow(self.preview_check)
         form.addRow("Overlay dimming", self.dim)
+        form.addRow("Labs folder", lab_row)
+        form.addRow(self.lab_index_check)
+        form.addRow(self.lab_caption_check)
 
         note = QLabel(
             "The clipboard always receives a compressed PNG. The file format "
@@ -194,6 +214,13 @@ class SettingsDialog(QDialog):
 
     def _sync_quality(self) -> None:
         self.quality.setEnabled(self.format_combo.currentData() != "png")
+
+    def _pick_lab_root(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self, "Choose the labs folder", self.lab_root_edit.text()
+        )
+        if folder:
+            self.lab_root_edit.setText(folder)
 
     def _pick_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(
@@ -221,4 +248,7 @@ class SettingsDialog(QDialog):
         cfg["clipboard_dib_fallback"] = self.dib_check.isChecked()
         cfg["show_preview"] = self.preview_check.isChecked()
         cfg["dim_opacity"] = self.dim.value()
+        cfg["lab_root"] = self.lab_root_edit.text().strip()
+        cfg["lab_index"] = self.lab_index_check.isChecked()
+        cfg["lab_caption"] = self.lab_caption_check.isChecked()
         return cfg

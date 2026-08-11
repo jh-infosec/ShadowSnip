@@ -13,6 +13,7 @@ overlay.py           the dimmed selection windows
 imageops.py          QImage -> Pillow, compression, DIB encoding
 clipboard.py         Win32 clipboard writer (PNG + CF_DIB), Qt fallback
 storage.py           latest-file replacement, history, atomic writes
+lab.py               lab sessions: numbering, lab.json state, lab.md index
 preview.py           post-snip window
 settings_dialog.py   settings form and hotkey recorder
 ```
@@ -39,7 +40,8 @@ imageops.process()          downscale -> quantise -> PNG
         |
         +--> clipboard.copy()      PNG + optional CF_DIB
         +--> storage.save_latest() atomic replace
-        +--> storage.save_history()optional, pruned
+        +--> lab.save()            when a lab is engaged, numbered copy
+        +--> storage.save_history()otherwise, optional and pruned
         |
         v
 preview.PreviewWindow       optional; every control here is opt-in
@@ -79,6 +81,30 @@ cannot leave a half-written `latest.png` for something else to read.
 when the format switches to `latest.jpg`), so the folder never holds two files
 claiming to be the current snip.
 
+**A lab is a second destination, not a second mode.** Engaging a lab does not
+change the pipeline: the clipboard copy and the standing `latest.png` still
+happen first, and `lab.save()` runs after them. If the lab write fails, the
+snip is already safe. The generic history folder is skipped for the duration
+so the same image is not written three times.
+
+**lab.json is the source of truth, lab.md is a render.** The index is
+regenerated from the recorded entries on every change rather than appended to.
+That is what makes a caption typed after the snip cheap: it edits one field
+and re-renders, instead of trying to patch markdown in place.
+
+**Numbering comes from the filenames.** `_next_number()` reads the highest
+`NNN_` prefix in the folder rather than trusting a counter in `lab.json`, so
+resuming a lab, deleting the state file, or dropping images in by hand all
+still produce a sensible next number.
+
+**Lab names are not validated.** The name is used as the folder name exactly
+as typed. Windows rejects a few characters and a handful of reserved device
+names, and pathlib rejects a null byte before the OS is even asked, so
+`lab.start()` catches both and reports the name as unusable. The choice is
+deliberate: fail loudly on the name the user actually typed rather than
+silently create a folder they did not ask for. The catch is what stops it
+being a silent failure.
+
 **RegisterHotKey, not a keyboard hook.** A low-level hook would see every
 keystroke in the system, needs to stay responsive to avoid being silently
 unhooked by Windows, and looks exactly like a keylogger to endpoint security.
@@ -95,8 +121,14 @@ combination, needs no elevation, and fails loudly if the combination is taken.
   copy still happened.
 - Second launch: hands off over `QLocalServer` and exits rather than starting
   a competing tray icon and a second hotkey registration.
+- Lab folder unusable: reported when the lab is started, and no lab is
+  engaged, so snips carry on going to the normal save folder.
+- Lab index unwritable: swallowed. The image is already on disk and on the
+  clipboard, which is not worth losing over a failed index write.
+- Lab left engaged: the tray badge, the tooltip snip count and the menu entry
+  reading `Stop lab (name)` all make it visible. Nothing stops it on its own.
 
 ## What is not here yet
 
-Freeform and window-mode capture, delayed capture, annotation, and OCR — see
-`ROADMAP.md`.
+Run at login, upload targets, freeform and window-mode capture, delayed
+capture, annotation, and encryption at rest for lab folders. See `ROADMAP.md`.

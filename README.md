@@ -45,17 +45,63 @@ the tray icon) to snip.
 | Cancel | `Esc` or right mouse button |
 | Save a permanent copy (preview window) | `Ctrl+S` |
 | Copy again (preview window) | `Ctrl+C` |
+| Start or stop a lab | tray menu |
 
 Selections can cross monitors, including monitors on different scale factors.
+
+## Lab mode
+
+A lab is a named folder that collects a whole session's worth of snips. Click
+**Start lab...** in the tray menu, type a name, and every snip from then on is
+also written into that lab, numbered in the order it was taken. Everything
+else behaves exactly as before: the clipboard still gets the compressed PNG,
+and `latest.png` is still replaced each time.
+
+```
+tray menu -> Start lab... -> "htb-lame"
+snip, snip, snip
+tray menu -> Stop lab (htb-lame)
+```
+
+While a lab is engaged the tray icon carries a green badge, the tooltip shows
+the lab name and how many snips it holds, and **Open save folder** becomes
+**Open lab folder**. **Open a lab** lists recent labs so an old one is one
+click away.
+
+Each lab folder holds the images plus two files:
+
+| File | What it is |
+| --- | --- |
+| `lab.json` | the record: name, start time, one entry per snip |
+| `lab.md` | rendered from `lab.json`, every image embedded in order |
+
+`lab.md` is meant to be pasted straight into a writeup. If the caption box is
+switched on, whatever is typed in the preview window after a snip appears in
+the index above that image.
+
+Starting a lab with a name that already exists resumes it and carries on
+numbering, so a crash or a restart costs nothing. The name is used as the
+folder name exactly as typed; if Windows will not accept it as a folder,
+ShadowSnip says so rather than failing quietly.
 
 ## Where files go
 
 ```
 %USERPROFILE%\Pictures\ShadowSnip\
 ├─ latest.png              replaced by every snip
-└─ history\                only when history is switched on
-   └─ snip_2026-08-09_14-31-07-482.png
+├─ history\                only when history is switched on
+│  └─ snip_2026-08-09_14-31-07-482.png
+└─ labs\
+   ├─ .gitignore           written on first use
+   └─ htb-lame\
+      ├─ 001_2026-08-11_14-31-07.png
+      ├─ 002_2026-08-11_14-33-52.png
+      ├─ lab.json
+      └─ lab.md
 ```
+
+The history folder is skipped while a lab is engaged, so a snip never lands in
+three places at once.
 
 Settings live in `%APPDATA%\ShadowSnip\config.json`.
 
@@ -74,6 +120,9 @@ Right-click the tray icon → **Settings**.
 | PNG effort | zlib level 0–9 |
 | Also copy a plain bitmap | Adds `CF_DIB` for apps that cannot read PNG from the clipboard |
 | Show the preview window | Off means a tray notification instead |
+| Labs folder | Where labs live. Blank means a `labs` folder inside the save folder |
+| Write a lab.md index | Keeps `lab.json` and the rendered `lab.md` up to date |
+| Offer a caption box | Shows a caption field in the preview window during a lab |
 
 ## Building a standalone .exe
 
@@ -103,3 +152,7 @@ shell:startup
   keeps working from the tray menu.
 - Windows only. The capture, overlay and image code are cross-platform, but
   the hotkey and clipboard layers are Win32.
+- Lab folders are not encrypted. Screenshots taken during a lab routinely
+  contain hashes, tokens and internal hostnames, and they sit on disk in plain
+  sight. A `.gitignore` is written into the labs root so none of it reaches a
+  repository by accident, but that is the only protection there is so far.

@@ -81,6 +81,20 @@ def suggested_name(ext: str) -> str:
     return f"snip_{datetime.now():%Y-%m-%d_%H-%M-%S}.{ext}"
 
 
+def open_folder(path: Path) -> None:
+    """Open a folder itself, rather than selecting it in its parent."""
+    import sys
+
+    path = Path(path)
+    if sys.platform == "win32":
+        os.startfile(str(path))  # noqa: S606 - opening the user's own folder
+        return
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+
+    QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+
 def reveal(path: Path) -> None:
     """Open the containing folder, selecting the file where possible."""
     import subprocess

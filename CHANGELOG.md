@@ -4,6 +4,37 @@ All notable changes to ShadowSnip are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-08-11
+
+Lab sessions.
+
+### Added
+- Lab mode: **Start lab...** in the tray menu asks for a name, and every snip
+  taken while the lab is engaged is also written into that lab's folder,
+  numbered in capture order (`003_2026-08-11_14-31-07.png`).
+- Starting a lab with a name that already exists resumes it and carries on
+  numbering from where it left off, which doubles as crash recovery.
+- `lab.json` per lab holding the record of every snip, and a `lab.md` index
+  rendered from it with each image embedded in order, ready to paste into a
+  writeup.
+- Optional caption box in the preview window while a lab is engaged; what is
+  typed lands in the lab index next to that snip.
+- **Open a lab** submenu listing recent labs, one click to open the folder.
+- The active lab is stored in the config, so a restart resumes it instead of
+  quietly dropping back to normal mode.
+- A tray icon badge, a tray tooltip showing the lab name and snip count, and
+  an **Open lab folder** menu entry while a lab is engaged.
+- A `.gitignore` written into the labs root on creation, since lab folders
+  collect credentials and internal hostnames by design.
+- Settings: labs folder location, lab index on/off, caption box on/off.
+
+### Changed
+- The timestamped history folder is skipped while a lab is engaged; the lab
+  folder is the history for that period, so a snip never lands in three
+  places at once.
+- The preview window's **Open folder** button follows the lab when one is
+  active, and **Save as...** starts in the same folder.
+
 ## [0.1.0] - 2026-08-09
 
 First working version.

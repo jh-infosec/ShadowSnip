@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 
 
 def config_dir() -> Path:
@@ -55,6 +55,12 @@ DEFAULTS = {
     "show_preview": True,
     # 0-255 dimming of the frozen screen behind the selection.
     "dim_opacity": 110,
+    # Lab sessions. Empty active_lab means no lab is engaged; empty lab_root
+    # means <save_dir>/labs.
+    "active_lab": "",
+    "lab_root": "",
+    "lab_index": True,
+    "lab_caption": True,
 }
 
 
@@ -106,7 +112,14 @@ def _sanitise(cfg: dict) -> dict:
     cfg["dim_opacity"] = _clamp(cfg.get("dim_opacity"), 0, 255, 110)
     if cfg.get("disk_format") not in ("png", "webp", "jpeg"):
         cfg["disk_format"] = "png"
-    for flag in ("keep_history", "quantize", "clipboard_dib_fallback", "show_preview"):
+    for flag in (
+        "keep_history",
+        "quantize",
+        "clipboard_dib_fallback",
+        "show_preview",
+        "lab_index",
+        "lab_caption",
+    ):
         cfg[flag] = bool(cfg.get(flag))
     if not str(cfg.get("hotkey", "")).strip():
         cfg["hotkey"] = DEFAULTS["hotkey"]
@@ -114,4 +127,7 @@ def _sanitise(cfg: dict) -> dict:
         cfg["save_dir"] = DEFAULTS["save_dir"]
     name = str(cfg.get("latest_name", "")).strip() or DEFAULTS["latest_name"]
     cfg["latest_name"] = Path(name).stem or DEFAULTS["latest_name"]
+    # Lab names are kept as typed; only surrounding whitespace is trimmed.
+    cfg["active_lab"] = str(cfg.get("active_lab", "") or "").strip()
+    cfg["lab_root"] = str(cfg.get("lab_root", "") or "").strip()
     return cfg

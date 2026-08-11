@@ -6,6 +6,9 @@ Pipeline for one snip:
 
 The clipboard and disk writes both happen automatically. Everything in the
 preview window afterwards is optional.
+
+When a lab is engaged the same snip also lands in that lab's folder, numbered
+in capture order. Nothing else about the pipeline changes.
 """
 
 from __future__ import annotations
@@ -14,13 +17,19 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QRect, QTimer, Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QMenu, QMessageBox, QSystemTrayIcon
+from PySide6.QtWidgets import (
+    QInputDialog,
+    QMenu,
+    QMessageBox,
+    QSystemTrayIcon,
+)
 
 import capture
 import clipboard
 import config
 import hotkey as hotkey_mod
 import imageops
+import lab
 import storage
 from overlay import SelectionController
 from preview import PreviewWindow
@@ -58,9 +67,18 @@ class ShadowSnipApp(QObject):
         self.action_new.triggered.connect(self.request_snip)
         menu.addAction(self.action_new)
 
-        action_folder = QAction("Open save folder", self)
-        action_folder.triggered.connect(self._open_save_folder)
-        menu.addAction(action_folder)
+        self.action_folder = QAction("Open save folder", self)
+        self.action_folder.triggered.connect(self._open_save_folder)
+        menu.addAction(self.action_folder)
+
+        menu.addSeparator()
+        self.action_lab = QAction("Start lab...", self)
+        self.action_lab.triggered.connect(self.toggle_lab)
+        menu.addAction(self.action_lab)
+
+        self.labs_menu = QMenu("Open a lab", menu)
+        self.labs_menu.aboutToShow.connect(self._fill_labs_menu)
+        menu.addMenu(self.labs_menu)
 
         menu.addSeparator()
         action_settings = QAction("Settings...", self)
@@ -77,7 +95,19 @@ class ShadowSnipApp(QObject):
     def _refresh_menu_text(self) -> None:
         label = hotkey_mod.describe(self.cfg["hotkey"])
         self.action_new.setText(f"New snip\t{label}")
-        self.tray.setToolTip(f"ShadowSnip - press {label} to snip")
+
+        name = lab.active_name(self.cfg)
+        if name:
+            self.action_lab.setText(f"Stop lab ({name})")
+            self.action_folder.setText("Open lab folder")
+            self.tray.setToolTip(
+                f"ShadowSnip - lab: {name} ({lab.count(self.cfg)} snips)"
+            )
+        else:
+            self.action_lab.setText("Start lab...")
+            self.action_folder.setText("Open save folder")
+            self.tray.setToolTip(f"ShadowSnip - press {label} to snip")
+        self.tray.setIcon(build_icon(active=bool(name)))
 
     def _on_tray_activated(self, reason) -> None:
         if reason in (
@@ -87,8 +117,86 @@ class ShadowSnipApp(QObject):
             self.request_snip()
 
     def _open_save_folder(self) -> None:
+        target = lab.active_folder(self.cfg)
+        if target is not None:
+            storage.open_folder(target)
+            return
         folder = storage.save_dir(self.cfg)
         storage.reveal(folder / f"{self.cfg['latest_name']}.{self.cfg['disk_format']}")
+
+    # -- labs --------------------------------------------------------------
+    def toggle_lab(self) -> None:
+        if lab.is_active(self.cfg):
+            self.stop_lab()
+        else:
+            self.start_lab()
+
+    def start_lab(self) -> None:
+        """Ask for a name, then send every following snip to that folder.
+
+        An existing name resumes that lab and carries on numbering from where
+        it stopped, which doubles as crash recovery.
+        """
+        name, ok = QInputDialog.getText(
+            None, "Start lab", "Lab name:", text=lab.active_name(self.cfg)
+        )
+        if not ok or not name.strip():
+            return
+        try:
+            folder = lab.start(self.cfg, name)
+        except lab.LabError as exc:
+            self._warn(str(exc))
+            return
+
+        self.cfg["active_lab"] = name.strip()
+        self._persist()
+        self._refresh_menu_text()
+
+        existing = lab.count(self.cfg)
+        state = f"resumed, {existing} snips already in it" if existing else "new lab"
+        self.tray.showMessage(
+            "ShadowSnip",
+            f"Lab '{self.cfg['active_lab']}' engaged ({state})\n{folder}",
+            build_icon(active=True),
+            4000,
+        )
+
+    def stop_lab(self) -> None:
+        name = lab.active_name(self.cfg)
+        total = lab.count(self.cfg)
+        lab.stop(self.cfg)
+        self._persist()
+        self._refresh_menu_text()
+        if name:
+            self.tray.showMessage(
+                "ShadowSnip",
+                f"Lab '{name}' closed with {total} snips. Snips go back to the "
+                "normal save folder.",
+                build_icon(),
+                3000,
+            )
+
+    def _fill_labs_menu(self) -> None:
+        """Rebuilt each time it opens, so new labs appear without a restart."""
+        self.labs_menu.clear()
+        names = lab.recent(self.cfg)
+        if not names:
+            empty = self.labs_menu.addAction("No labs yet")
+            empty.setEnabled(False)
+            return
+        for name in names:
+            action = self.labs_menu.addAction(name)
+            action.triggered.connect(
+                lambda _checked=False, n=name: storage.open_folder(
+                    lab.folder(self.cfg, n)
+                )
+            )
+
+    def _persist(self) -> None:
+        try:
+            config.save(self.cfg)
+        except OSError as exc:
+            self._warn(f"Settings could not be written: {exc}")
 
     # -- hotkey ------------------------------------------------------------
     def _register_hotkey(self, startup: bool = False) -> None:
@@ -162,15 +270,25 @@ class ShadowSnipApp(QObject):
             notes.append(f"clipboard failed ({exc})")
 
         latest_path: Path | None = None
+        lab_path: Path | None = None
         try:
             latest_path = storage.save_latest(
                 result.disk.data, result.disk.ext, self.cfg
             )
-            storage.save_history(result.disk.data, result.disk.ext, self.cfg)
+            if lab.is_active(self.cfg):
+                # The lab folder is the history for as long as it is engaged,
+                # so the same snip does not land in three places at once.
+                lab_path = lab.save(result.disk.data, result.disk.ext, self.cfg)
+            else:
+                storage.save_history(result.disk.data, result.disk.ext, self.cfg)
         except OSError as exc:
             notes.append(f"could not write to the save folder ({exc})")
 
-        status = self._status_line(result, latest_path, notes)
+        caption_cb = None
+        if lab_path is not None and self.cfg["lab_index"] and self.cfg["lab_caption"]:
+            caption_cb = self._caption_setter(lab_path.name)
+
+        status = self._status_line(result, latest_path, lab_path, notes)
         if self.cfg["show_preview"]:
             self.preview.show_snip(
                 image=image,
@@ -179,11 +297,24 @@ class ShadowSnipApp(QObject):
                 latest_path=latest_path,
                 status=status,
                 copy_again=self._copy_again,
+                folder_path=lab_path.parent if lab_path else None,
+                caption_cb=caption_cb,
             )
         else:
-            self.tray.showMessage("ShadowSnip", status, build_icon(), 3000)
+            self.tray.showMessage(
+                "ShadowSnip", status, build_icon(active=lab_path is not None), 3000
+            )
 
-    def _status_line(self, result, latest_path, notes) -> str:
+        if lab_path is not None:
+            self._refresh_menu_text()
+
+    def _caption_setter(self, filename: str):
+        def apply(text: str) -> bool:
+            return lab.set_caption(self.cfg, filename, text)
+
+        return apply
+
+    def _status_line(self, result, latest_path, lab_path, notes) -> str:
         width, height = result.source_size
         out_w, out_h = result.image.size
         size_part = f"{width} x {height}"
@@ -202,6 +333,8 @@ class ShadowSnipApp(QObject):
         ]
         if latest_path is not None:
             parts.append(f"saved to {latest_path}")
+        if lab_path is not None:
+            parts.append(f"lab {lab.active_name(self.cfg)}: {lab_path.name}")
         if notes:
             parts.append("; ".join(notes))
         return "   |   ".join(parts)
@@ -221,6 +354,7 @@ class ShadowSnipApp(QObject):
         if dialog.exec() != SettingsDialog.DialogCode.Accepted:
             return
         new_cfg = dialog.values()
+        new_cfg["active_lab"] = self.cfg.get("active_lab", "")
         hotkey_changed = new_cfg["hotkey"] != self.cfg["hotkey"]
         self.cfg = new_cfg
         try:
@@ -241,8 +375,12 @@ class ShadowSnipApp(QObject):
         self.qapp.quit()
 
 
-def build_icon(size: int = 64) -> QIcon:
-    """Draw the tray icon so the app ships without any image assets."""
+def build_icon(size: int = 64, active: bool = False) -> QIcon:
+    """Draw the tray icon so the app ships without any image assets.
+
+    `active` adds a badge dot, so a lab that has been left engaged is visible
+    at a glance instead of quietly collecting screenshots for three days.
+    """
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
@@ -264,5 +402,11 @@ def build_icon(size: int = 64) -> QIcon:
     painter.setBrush(QColor(10, 99, 196))
     dot = size // 5
     painter.drawEllipse(size - inset - dot // 2, size - inset - dot // 2, dot, dot)
+
+    if active:
+        badge = size // 4
+        painter.setBrush(QColor(46, 204, 113))
+        painter.drawEllipse(size - badge - 3, 3, badge, badge)
+
     painter.end()
     return QIcon(pixmap)

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -28,6 +29,10 @@ QWidget#Root { background: #1b1b1f; }
 QLabel { color: #e6e6ec; }
 QLabel#Status { color: #9a9aa6; font-size: 11px; }
 QLabel#Canvas { background: #101013; border: 1px solid #2c2c33; }
+QLineEdit {
+    background: #232329; color: #e6e6ec; border: 1px solid #3a3a44;
+    border-radius: 4px; padding: 5px 8px;
+}
 QPushButton {
     background: #2a2a31; color: #e6e6ec; border: 1px solid #3a3a44;
     border-radius: 4px; padding: 6px 14px;
@@ -48,7 +53,9 @@ class PreviewWindow(QWidget):
         self._disk_bytes = b""
         self._disk_ext = "png"
         self._latest_path: Path | None = None
+        self._folder_path: Path | None = None
         self._copy_again = None
+        self._caption_cb = None
 
         self.setObjectName("Root")
         self.setWindowTitle("ShadowSnip")
@@ -59,6 +66,14 @@ class PreviewWindow(QWidget):
         self.canvas.setObjectName("Canvas")
         self.canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.canvas.setMinimumSize(QSize(320, 200))
+
+        # Only shown while a lab is engaged. What is typed here goes into the
+        # lab index next to this snip.
+        self.caption = QLineEdit()
+        self.caption.setPlaceholderText("Caption for the lab index (optional)")
+        self.caption.setVisible(False)
+        self.caption.returnPressed.connect(self._save_caption)
+        self.caption.editingFinished.connect(self._save_caption)
 
         self.status = QLabel()
         self.status.setObjectName("Status")
@@ -90,6 +105,7 @@ class PreviewWindow(QWidget):
         layout.setSpacing(10)
         layout.addLayout(bar)
         layout.addWidget(self.canvas, 1)
+        layout.addWidget(self.caption)
         layout.addWidget(self.status)
 
         QShortcut(QKeySequence.StandardKey.Save, self, self.save_as)
@@ -98,12 +114,24 @@ class PreviewWindow(QWidget):
 
     # -- content -----------------------------------------------------------
     def show_snip(self, image: QImage, disk_bytes: bytes, ext: str,
-                  latest_path: Path | None, status: str, copy_again) -> None:
+                  latest_path: Path | None, status: str, copy_again,
+                  folder_path: Path | None = None, caption_cb=None) -> None:
         self._image = image
         self._disk_bytes = disk_bytes
         self._disk_ext = ext
         self._latest_path = latest_path
+        # A lab folder takes precedence over the plain save folder for the
+        # "Open folder" button, so it follows wherever the snips are going.
+        self._folder_path = folder_path or (
+            latest_path.parent if latest_path is not None else None
+        )
         self._copy_again = copy_again
+        self._caption_cb = caption_cb
+
+        self.caption.clear()
+        self.caption.setVisible(caption_cb is not None)
+        self.btn_folder.setText("Open lab" if folder_path is not None else "Open folder")
+
         self.status.setText(status)
         self._render()
         self.show()
@@ -132,8 +160,8 @@ class PreviewWindow(QWidget):
         if not self._disk_bytes:
             return
         start = storage.suggested_name(self._disk_ext)
-        if self._latest_path is not None:
-            start = str(self._latest_path.parent / start)
+        if self._folder_path is not None:
+            start = str(self._folder_path / start)
         filters = "PNG image (*.png);;WebP image (*.webp);;JPEG image (*.jpg);;All files (*)"
         path, _ = QFileDialog.getSaveFileName(self, "Save snip", start, filters)
         if not path:
@@ -156,12 +184,27 @@ class PreviewWindow(QWidget):
         self.status.setText("Copied to the clipboard again")
 
     def open_folder(self) -> None:
-        if self._latest_path is None:
+        if self._folder_path is None:
             return
         try:
-            storage.reveal(self._latest_path)
+            if self._latest_path is not None and self._folder_path == self._latest_path.parent:
+                storage.reveal(self._latest_path)
+            else:
+                storage.open_folder(self._folder_path)
         except OSError as exc:
             QMessageBox.warning(self, "ShadowSnip", f"Could not open the folder: {exc}")
+
+    def _save_caption(self) -> None:
+        if self._caption_cb is None:
+            return
+        text = self.caption.text().strip()
+        if not text:
+            return
+        try:
+            if self._caption_cb(text):
+                self.status.setText("Caption written to the lab index")
+        except Exception as exc:  # noqa: BLE001 - surfaced to the user
+            self.status.setText(f"Caption not saved: {exc}")
 
     def center_on_cursor_screen(self) -> None:
         screen = QGuiApplication.screenAt(QGuiApplication.primaryScreen().geometry().center())
