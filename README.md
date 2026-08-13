@@ -2,7 +2,7 @@
 
 A Snipping Tool work-alike for Windows that copies a **compressed** PNG to the
 clipboard the instant a snip finishes, and writes the same snip to disk in the
-background. Saving a permanent copy afterwards is optional — the next snip
+background. Saving a permanent copy afterwards is optional. the next snip
 simply replaces the standing file.
 
 ```
