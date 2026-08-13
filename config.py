@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 
 
 def config_dir() -> Path:
@@ -44,6 +44,12 @@ DEFAULTS = {
     "max_dimension": 0,
     "quantize": True,
     "quantize_colors": 256,
+    # Skip quantising when the grab holds more distinct colours than this;
+    # text and photographs lose visible detail to a 256-entry palette.
+    # 0 disables the check.
+    "quantize_max_source_colors": 4096,
+    # And only keep the palette version when it is at least this much smaller.
+    "quantize_min_saving": 25,
     "png_compress_level": 9,
     # Disk format: png, webp or jpeg. Clipboard always gets PNG.
     "disk_format": "png",
@@ -105,6 +111,10 @@ def _clamp(value, low, high, fallback):
 def _sanitise(cfg: dict) -> dict:
     cfg["max_dimension"] = _clamp(cfg.get("max_dimension"), 0, 30000, 0)
     cfg["quantize_colors"] = _clamp(cfg.get("quantize_colors"), 2, 256, 256)
+    cfg["quantize_max_source_colors"] = _clamp(
+        cfg.get("quantize_max_source_colors"), 0, 16_777_216, 4096
+    )
+    cfg["quantize_min_saving"] = _clamp(cfg.get("quantize_min_saving"), 0, 90, 25)
     cfg["png_compress_level"] = _clamp(cfg.get("png_compress_level"), 0, 9, 9)
     cfg["webp_quality"] = _clamp(cfg.get("webp_quality"), 1, 100, 90)
     cfg["jpeg_quality"] = _clamp(cfg.get("jpeg_quality"), 1, 100, 90)

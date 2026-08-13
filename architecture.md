@@ -68,10 +68,15 @@ the list and take the first they recognise. There is no way to put a
 specification — so the fallback is the one thing that stays large, and it can
 be switched off.
 
-**Quantise only when it wins.** Screenshots are mostly flat colour, so a
-256-colour palette PNG is usually much smaller with no visible difference.
-Gradients and photographs are the exception, so `imageops.process()` encodes
-both and keeps whichever is smaller.
+**Quantise only when it wins, and only where it is safe.** Screenshots are
+mostly flat colour, so a 256-colour palette PNG is usually much smaller with
+no visible difference. Text is the case where that reasoning breaks: anti-
+aliased glyph edges are hundreds of near-identical colours, and a 256-entry
+palette turns them to mush at exactly the sizes people need to read. So the
+source is counted first with `getcolors()`, which returns None past a ceiling
+and costs one pass; past it the image is kept truecolour. Under the ceiling
+both versions are still encoded and the palette one has to be a set percentage
+smaller before it is kept, rather than merely one byte smaller.
 
 **Every disk write is atomic.** Config and images are written to a temp file
 in the destination directory and then `os.replace`d, so an interrupted write

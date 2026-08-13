@@ -46,9 +46,11 @@ class ShadowSnipApp(QObject):
         self._grabs = []
         self._last_png = b""
         self._last_image = None
+        self._last_disk: tuple[bytes, str] | None = None
 
         self.preview = PreviewWindow()
         self.preview.new_snip_requested.connect(self.request_snip)
+        self.preview.lab_toggle_requested.connect(self.toggle_lab)
 
         self.tray = QSystemTrayIcon(build_icon(), self)
         self.tray.setToolTip("ShadowSnip")
@@ -108,6 +110,7 @@ class ShadowSnipApp(QObject):
             self.action_folder.setText("Open save folder")
             self.tray.setToolTip(f"ShadowSnip - press {label} to snip")
         self.tray.setIcon(build_icon(active=bool(name)))
+        self.preview.set_lab_name(name)
 
     def _on_tray_activated(self, reason) -> None:
         if reason in (
@@ -137,8 +140,9 @@ class ShadowSnipApp(QObject):
         An existing name resumes that lab and carries on numbering from where
         it stopped, which doubles as crash recovery.
         """
+        parent = self.preview if self.preview.isVisible() else None
         name, ok = QInputDialog.getText(
-            None, "Start lab", "Lab name:", text=lab.active_name(self.cfg)
+            parent, "Start lab", "Lab name:", text=lab.active_name(self.cfg)
         )
         if not ok or not name.strip():
             return
@@ -154,11 +158,34 @@ class ShadowSnipApp(QObject):
 
         existing = lab.count(self.cfg)
         state = f"resumed, {existing} snips already in it" if existing else "new lab"
+
+        # Starting a lab while looking at a snip means that snip belongs in it.
+        if self.preview.isVisible() and self._last_disk is not None:
+            self._file_current_snip_into_lab()
+
         self.tray.showMessage(
             "ShadowSnip",
             f"Lab '{self.cfg['active_lab']}' engaged ({state})\n{folder}",
             build_icon(active=True),
             4000,
+        )
+
+    def _file_current_snip_into_lab(self) -> None:
+        data, ext = self._last_disk
+        try:
+            lab_path = lab.save(data, ext, self.cfg)
+        except OSError as exc:
+            self.preview.set_status(f"Could not write into the lab: {exc}")
+            return
+        if lab_path is None:
+            return
+        caption_cb = None
+        if self.cfg["lab_index"] and self.cfg["lab_caption"]:
+            caption_cb = self._caption_setter(lab_path.name)
+        self.preview.attach_lab(lab_path.parent, caption_cb)
+        self.preview.set_status(
+            f"Lab {lab.active_name(self.cfg)} started; this snip filed as "
+            f"{lab_path.name}"
         )
 
     def stop_lab(self) -> None:
@@ -167,6 +194,7 @@ class ShadowSnipApp(QObject):
         lab.stop(self.cfg)
         self._persist()
         self._refresh_menu_text()
+        self.preview.attach_lab(None, None)
         if name:
             self.tray.showMessage(
                 "ShadowSnip",
@@ -258,6 +286,7 @@ class ShadowSnipApp(QObject):
         result = imageops.process(image, self.cfg)
         self._last_png = result.png
         self._last_image = result.image
+        self._last_disk = (result.disk.data, result.disk.ext)
 
         notes = []
         try:

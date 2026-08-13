@@ -2,7 +2,7 @@
 
 A Snipping Tool work-alike for Windows that copies a **compressed** PNG to the
 clipboard the instant a snip finishes, and writes the same snip to disk in the
-background. Saving a permanent copy afterwards is optional. the next snip
+background. Saving a permanent copy afterwards is optional — the next snip
 simply replaces the standing file.
 
 ```
@@ -40,27 +40,29 @@ the tray icon) to snip.
 | Action | Key |
 | --- | --- |
 | Start a snip | `Ctrl+Shift+S`, tray click, or `python main.py --snip` |
+| Start or stop a lab | **Start lab** in the preview window, or the tray menu |
 | Drag a region | left mouse button |
 | Grab the whole screen under the cursor | `F` or `Space` |
 | Cancel | `Esc` or right mouse button |
 | Save a permanent copy (preview window) | `Ctrl+S` |
 | Copy again (preview window) | `Ctrl+C` |
-| Start or stop a lab | tray menu |
 
 Selections can cross monitors, including monitors on different scale factors.
 
 ## Lab mode
 
 A lab is a named folder that collects a whole session's worth of snips. Click
-**Start lab...** in the tray menu, type a name, and every snip from then on is
-also written into that lab, numbered in the order it was taken. Everything
+**Start lab** in the preview window (or **Start lab...** in the tray menu),
+type a name, and every snip from then on is also written into that lab,
+numbered in the order it was taken. Starting a lab while a snip is on screen
+files that snip into it too. Everything
 else behaves exactly as before: the clipboard still gets the compressed PNG,
 and `latest.png` is still replaced each time.
 
 ```
-tray menu -> Start lab... -> "htb-lame"
+Start lab -> "htb-lame"
 snip, snip, snip
-tray menu -> Stop lab (htb-lame)
+Stop lab (htb-lame)
 ```
 
 While a lab is engaged the tray icon carries a green badge, the tooltip shows
@@ -116,7 +118,9 @@ Right-click the tray icon → **Settings**.
 | Keep a timestamped copy | Turns on the `history` folder, pruned to a fixed count |
 | File format | What goes to disk: PNG, WebP or JPEG. The clipboard always gets PNG |
 | Longest edge | Downscale anything larger, in pixels. `Full size` disables it |
-| Reduce the colour palette | Palette-quantise when it produces a smaller PNG; the truecolour version wins if it does not |
+| Reduce the colour palette | Palette-quantise when it produces a much smaller PNG; the truecolour version wins if it does not |
+| Skip above | Colour count past which palette reduction is skipped. Keeps small text sharp. `Never skip` disables the check |
+| Only if it saves | How much smaller the palette version has to be before it is kept |
 | PNG effort | zlib level 0–9 |
 | Also copy a plain bitmap | Adds `CF_DIB` for apps that cannot read PNG from the clipboard |
 | Show the preview window | Off means a tray notification instead |
@@ -142,6 +146,11 @@ shell:startup
 
 ## Known limits
 
+- **Compression is lossless apart from one step.** PNG throws nothing away;
+  palette reduction does. It is skipped automatically on text-heavy and
+  photographic grabs, so a code screenshot stays sharp and lands at roughly
+  four times the size of the old palette version. Raise **Skip above** if you
+  want the smaller files back.
 - **PNG on the clipboard is not universal.** Chrome, Edge, Firefox, Word,
   Outlook, Slack, Teams, Discord, GIMP and Paint.NET all read it. A few older
   programs only understand `CF_DIB`, which is uncompressed by definition —

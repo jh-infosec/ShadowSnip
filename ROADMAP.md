@@ -39,6 +39,6 @@
 - Whether to add a second registered clipboard format some paste targets
   prefer (`image/png` is already offered; `DIBV5` would add alpha support but
   is inconsistently handled by receiving apps).
-- Whether quantisation should be automatic based on measured colour count
-  rather than the current encode-both-and-compare approach, which costs one
-  extra PNG encode per snip.
+- Whether the colour-count ceiling should adapt to the grab rather than being
+  a fixed number, and whether the extra PNG encode under the ceiling is worth
+  keeping now that the count is measured anyway.

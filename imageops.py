@@ -2,8 +2,15 @@
 
 Screenshots are mostly flat colour, so a palette-quantised PNG is usually a
 fraction of the size of the raw grab with no visible difference. The pipeline
-is: optional downscale, optional quantise, then PNG. If quantising ever makes
-the file bigger, the truecolour version wins.
+is: optional downscale, optional quantise, then PNG.
+
+Quantising is the one lossy step, and it is the wrong call on text. Anti-
+aliased small text is made of hundreds of near-identical colours, and
+flattening those into a 256-entry palette is what makes a code or terminal
+screenshot look mushy. So the source is counted first: past a colour ceiling
+the image is treated as photographic or text-heavy and kept truecolour, and
+even under the ceiling the palette version has to win by a real margin before
+it is kept.
 """
 
 from __future__ import annotations
@@ -67,8 +74,9 @@ def process(qimage: QImage, cfg: dict) -> Result:
     level = int(cfg.get("png_compress_level", 9))
     png = _to_png(image, level)
 
-    if cfg.get("quantize"):
+    if cfg.get("quantize") and _worth_quantising(image, cfg):
         colours = int(cfg.get("quantize_colors", 256))
+        margin = 1.0 - _clamp_percent(cfg.get("quantize_min_saving", 25)) / 100.0
         try:
             reduced = image.quantize(
                 colors=colours,
@@ -76,7 +84,7 @@ def process(qimage: QImage, cfg: dict) -> Result:
                 dither=Image.Dither.NONE,
             )
             reduced_png = _to_png(reduced, level)
-            if len(reduced_png) < len(png):
+            if len(reduced_png) <= len(png) * margin:
                 png = reduced_png
                 image = reduced
         except (ValueError, OSError):
@@ -90,6 +98,26 @@ def process(qimage: QImage, cfg: dict) -> Result:
         raw_bytes=raw_bytes,
         source_size=source_size,
     )
+
+
+def _worth_quantising(image: Image.Image, cfg: dict) -> bool:
+    """False when the image holds more distinct colours than the ceiling.
+
+    `getcolors` returns None once the count passes the limit, which is exactly
+    the test wanted and costs a single pass. Photographs and anti-aliased text
+    blow past it; flat UI panels do not.
+    """
+    ceiling = int(cfg.get("quantize_max_source_colors", 4096) or 0)
+    if ceiling <= 0:
+        return True
+    return image.getcolors(maxcolors=ceiling) is not None
+
+
+def _clamp_percent(value) -> float:
+    try:
+        return max(0.0, min(90.0, float(value)))
+    except (TypeError, ValueError):
+        return 25.0
 
 
 def _to_png(image: Image.Image, level: int) -> bytes:

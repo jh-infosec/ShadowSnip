@@ -1,8 +1,25 @@
 # Changelog
 
-All notable changes to ShadowSnip are recorded here. Format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.2.1] - 2026-08-11
+
+Readability over size, and a lab button where people look for it.
+
+### Added
+- **Start lab** button on the preview window toolbar, which toggles to
+  **Stop lab (name)** while one is engaged. Starting a lab while a snip is on
+  screen files that snip into the new lab straight away.
+- `quantize_max_source_colors`: palette reduction is skipped once a grab holds
+  more distinct colours than this (4096 by default).
+- `quantize_min_saving`: the palette version has to be at least this much
+  smaller before it is kept (25% by default).
+
+### Changed
+- Palette reduction no longer applies to text-heavy or photographic grabs.
+  Anti-aliased small text is made of hundreds of near-identical colours, and
+  flattening those into a 256-entry palette is what made code and terminal
+  screenshots look mushy. Those now stay truecolour, which makes them roughly
+  four times larger and actually readable. Flat UI panels still quantise and
+  are unaffected.
 
 ## [0.2.0] - 2026-08-11
 

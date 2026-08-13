@@ -46,6 +46,7 @@ QPushButton#Primary:hover { background: #1273da; }
 
 class PreviewWindow(QWidget):
     new_snip_requested = Signal()
+    lab_toggle_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -80,12 +81,14 @@ class PreviewWindow(QWidget):
 
         self.btn_new = QPushButton("New snip")
         self.btn_new.setObjectName("Primary")
+        self.btn_lab = QPushButton("Start lab")
         self.btn_save = QPushButton("Save as...")
         self.btn_copy = QPushButton("Copy again")
         self.btn_folder = QPushButton("Open folder")
         self.btn_close = QPushButton("Close")
 
         self.btn_new.clicked.connect(self.new_snip_requested.emit)
+        self.btn_lab.clicked.connect(self.lab_toggle_requested.emit)
         self.btn_save.clicked.connect(self.save_as)
         self.btn_copy.clicked.connect(self.copy_again)
         self.btn_folder.clicked.connect(self.open_folder)
@@ -94,6 +97,7 @@ class PreviewWindow(QWidget):
         bar = QHBoxLayout()
         bar.setSpacing(8)
         bar.addWidget(self.btn_new)
+        bar.addWidget(self.btn_lab)
         bar.addWidget(self.btn_save)
         bar.addWidget(self.btn_copy)
         bar.addWidget(self.btn_folder)
@@ -120,17 +124,10 @@ class PreviewWindow(QWidget):
         self._disk_bytes = disk_bytes
         self._disk_ext = ext
         self._latest_path = latest_path
-        # A lab folder takes precedence over the plain save folder for the
-        # "Open folder" button, so it follows wherever the snips are going.
-        self._folder_path = folder_path or (
-            latest_path.parent if latest_path is not None else None
-        )
         self._copy_again = copy_again
-        self._caption_cb = caption_cb
 
         self.caption.clear()
-        self.caption.setVisible(caption_cb is not None)
-        self.btn_folder.setText("Open lab" if folder_path is not None else "Open folder")
+        self.attach_lab(folder_path, caption_cb)
 
         self.status.setText(status)
         self._render()
@@ -154,6 +151,29 @@ class PreviewWindow(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._render()
+
+    def set_status(self, text: str) -> None:
+        self.status.setText(text)
+
+    # -- lab state ---------------------------------------------------------
+    def set_lab_name(self, name: str) -> None:
+        """Reflect the engaged lab on the toolbar button."""
+        self.btn_lab.setText(f"Stop lab ({name})" if name else "Start lab")
+
+    def attach_lab(self, folder_path: Path | None, caption_cb=None) -> None:
+        """Point the folder button and the caption box at a lab, or clear them."""
+        self._caption_cb = caption_cb
+        self.caption.setVisible(caption_cb is not None)
+        if caption_cb is None:
+            self.caption.clear()
+        if folder_path is not None:
+            self._folder_path = folder_path
+            self.btn_folder.setText("Open lab")
+        else:
+            self._folder_path = (
+                self._latest_path.parent if self._latest_path is not None else None
+            )
+            self.btn_folder.setText("Open folder")
 
     # -- actions -----------------------------------------------------------
     def save_as(self) -> None:

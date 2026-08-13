@@ -142,6 +142,21 @@ class SettingsDialog(QDialog):
         self.quantize_check.toggled.connect(self.quantize_colors.setEnabled)
         self.quantize_colors.setEnabled(cfg["quantize"])
 
+        self.quantize_ceiling = QSpinBox()
+        self.quantize_ceiling.setRange(0, 16777216)
+        self.quantize_ceiling.setSingleStep(1024)
+        self.quantize_ceiling.setSpecialValueText("Never skip")
+        self.quantize_ceiling.setValue(cfg["quantize_max_source_colors"])
+
+        self.quantize_saving = QSpinBox()
+        self.quantize_saving.setRange(0, 90)
+        self.quantize_saving.setSuffix(" %")
+        self.quantize_saving.setValue(cfg["quantize_min_saving"])
+
+        for widget in (self.quantize_ceiling, self.quantize_saving):
+            self.quantize_check.toggled.connect(widget.setEnabled)
+            widget.setEnabled(cfg["quantize"])
+
         self.png_level = QSpinBox()
         self.png_level.setRange(0, 9)
         self.png_level.setValue(cfg["png_compress_level"])
@@ -185,6 +200,8 @@ class SettingsDialog(QDialog):
         form.addRow("Longest edge", self.max_dimension)
         form.addRow(self.quantize_check)
         form.addRow("Colours", self.quantize_colors)
+        form.addRow("Skip above", self.quantize_ceiling)
+        form.addRow("Only if it saves", self.quantize_saving)
         form.addRow("PNG effort", self.png_level)
         form.addRow(self.dib_check)
         form.addRow(self.preview_check)
@@ -195,7 +212,10 @@ class SettingsDialog(QDialog):
 
         note = QLabel(
             "The clipboard always receives a compressed PNG. The file format "
-            "setting applies to what is written to disk."
+            "setting applies to what is written to disk. Palette reduction is "
+            "the only lossy step: it is skipped once a grab holds more "
+            "distinct colours than the limit above, which keeps small text on "
+            "code and terminal screenshots sharp at the cost of a larger file."
         )
         note.setWordWrap(True)
 
@@ -244,6 +264,8 @@ class SettingsDialog(QDialog):
         cfg["max_dimension"] = self.max_dimension.value()
         cfg["quantize"] = self.quantize_check.isChecked()
         cfg["quantize_colors"] = self.quantize_colors.value()
+        cfg["quantize_max_source_colors"] = self.quantize_ceiling.value()
+        cfg["quantize_min_saving"] = self.quantize_saving.value()
         cfg["png_compress_level"] = self.png_level.value()
         cfg["clipboard_dib_fallback"] = self.dib_check.isChecked()
         cfg["show_preview"] = self.preview_check.isChecked()
