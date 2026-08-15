@@ -164,6 +164,22 @@ class SettingsDialog(QDialog):
         self.dib_check = QCheckBox("Also copy a plain bitmap for older programs")
         self.dib_check.setChecked(cfg["clipboard_dib_fallback"])
 
+        self.auto_copy_check = QCheckBox(
+            "Copy highlighted text as soon as the drag ends"
+        )
+        self.auto_copy_check.setChecked(cfg["auto_copy"])
+        self.auto_copy_skip = QCheckBox(
+            "Skip consoles, Explorer and the desktop"
+        )
+        self.auto_copy_skip.setChecked(cfg["auto_copy_skip_consoles"])
+        self.auto_copy_drag = QSpinBox()
+        self.auto_copy_drag.setRange(1, 200)
+        self.auto_copy_drag.setSuffix(" px")
+        self.auto_copy_drag.setValue(cfg["auto_copy_min_drag"])
+        for widget in (self.auto_copy_skip, self.auto_copy_drag):
+            self.auto_copy_check.toggled.connect(widget.setEnabled)
+            widget.setEnabled(cfg["auto_copy"])
+
         self.preview_check = QCheckBox("Show the preview window after a snip")
         self.preview_check.setChecked(cfg["show_preview"])
 
@@ -204,6 +220,9 @@ class SettingsDialog(QDialog):
         form.addRow("Only if it saves", self.quantize_saving)
         form.addRow("PNG effort", self.png_level)
         form.addRow(self.dib_check)
+        form.addRow(self.auto_copy_check)
+        form.addRow(self.auto_copy_skip)
+        form.addRow("Shortest drag that counts", self.auto_copy_drag)
         form.addRow(self.preview_check)
         form.addRow("Overlay dimming", self.dim)
         form.addRow("Labs folder", lab_row)
@@ -268,6 +287,9 @@ class SettingsDialog(QDialog):
         cfg["quantize_min_saving"] = self.quantize_saving.value()
         cfg["png_compress_level"] = self.png_level.value()
         cfg["clipboard_dib_fallback"] = self.dib_check.isChecked()
+        cfg["auto_copy"] = self.auto_copy_check.isChecked()
+        cfg["auto_copy_skip_consoles"] = self.auto_copy_skip.isChecked()
+        cfg["auto_copy_min_drag"] = self.auto_copy_drag.value()
         cfg["show_preview"] = self.preview_check.isChecked()
         cfg["dim_opacity"] = self.dim.value()
         cfg["lab_root"] = self.lab_root_edit.text().strip()

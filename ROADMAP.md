@@ -1,6 +1,6 @@
 # ShadowSnip roadmap
 
-## v0.3 - integration (next)
+## v0.4 - integration (next)
 
 - Run at login toggle in Settings, writing the shortcut itself and reading
   back the real state rather than a stored flag.
@@ -12,7 +12,7 @@
   route to different projects.
 - Signed release binaries so SmartScreen stops warning on first run.
 
-## v0.4 - capture modes
+## v0.5 - capture modes
 
 - Window mode: highlight and grab the window under the cursor.
 - Freeform (lasso) selection, matching Snipping Tool's freeform mode.
@@ -20,7 +20,7 @@
 - Snap the selection to detected UI element edges while dragging.
 - Magnifier loupe near the cursor for pixel-exact edges.
 
-## v0.5 - after the snip
+## v0.6 - after the snip
 
 - Lightweight annotation: pen, arrow, rectangle, highlighter, and a redaction
   block for screenshots that carry credentials or client data.
@@ -28,6 +28,18 @@
 - Clipboard history strip: the last N snips, one click to re-copy.
 - "Copy as" menu: PNG, JPEG, WebP, or a data URI.
 - Reorder or drop entries in a lab index without editing `lab.json` by hand.
+
+## Copy on select, still open
+
+- Word selection by double-click is not caught; only drags are. The hook sees
+  the double-click, so this is a small addition once the guards are trusted.
+- UI Automation `TextPattern` could read a selection without synthesising a
+  keystroke at all, which would remove the whole class of misfire risk. It
+  needs `comtypes`, and support is patchy: good in Office and native controls,
+  partial in Chromium, absent in terminals. Worth measuring before adopting.
+- Copy on select silently replaces a snip on the clipboard. Whether the two
+  should share a small history, rather than one overwriting the other, is the
+  question the clipboard history strip in v0.6 would answer.
 
 ## Open questions
 

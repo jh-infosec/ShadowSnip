@@ -14,6 +14,7 @@ imageops.py          QImage -> Pillow, compression, DIB encoding
 clipboard.py         Win32 clipboard writer (PNG + CF_DIB), Qt fallback
 storage.py           latest-file replacement, history, atomic writes
 lab.py               lab sessions: numbering, lab.json state, lab.md index
+autocopy.py          copy on select: mouse hook, guards, clipboard read-back
 preview.py           post-snip window
 settings_dialog.py   settings form and hotkey recorder
 ```
@@ -110,6 +111,30 @@ deliberate: fail loudly on the name the user actually typed rather than
 silently create a folder they did not ask for. The catch is what stops it
 being a silent failure.
 
+**A mouse hook for copy on select, and only for that.** The hotkey argument
+below still holds: a keyboard hook would see every keystroke typed anywhere,
+which is not a thing this application should be trusted with. A mouse hook
+sees coordinates and button states, and it is the only way to know a drag
+finished, since Windows has no notification for "the user highlighted
+something". The feature is off by default and engaged deliberately, because a
+hook plus synthetic keystrokes plus automatic clipboard reads is a combination
+worth opting into rather than inheriting.
+
+**The synthetic Ctrl+C is the dangerous part, not the hook.** Reading mouse
+events changes nothing; sending a keystroke into an arbitrary window does.
+Consoles are skipped because Ctrl+C with no selection is a break, Explorer
+because a rubber-band drag there selects files, ShadowSnip because its own
+overlay is dragged with the same button, and any window at all while a
+modifier is held. `GetClipboardSequenceNumber` is read before and after, so a
+drag that selected nothing is detected as such rather than assumed.
+
+**The hook callback records, the event loop acts.** Windows silently unhooks a
+low-level hook whose callback overruns `LowLevelHooksTimeout`, so
+`_on_mouse_event` stores two coordinates and returns. Everything else happens
+from `QTimer.singleShot`, after the callback has already returned. The
+callback object is kept on the instance as well, since a garbage-collected
+ctypes callback takes the process with it.
+
 **RegisterHotKey, not a keyboard hook.** A low-level hook would see every
 keystroke in the system, needs to stay responsive to avoid being silently
 unhooked by Windows, and looks exactly like a keylogger to endpoint security.
@@ -124,6 +149,8 @@ combination, needs no elevation, and fails loudly if the combination is taken.
   menu keeps working.
 - Save folder unwritable: reported in the preview status line; the clipboard
   copy still happened.
+- Mouse hook refused: reported as a tray notification and the toggle goes
+  back off; nothing else about the application changes.
 - Second launch: hands off over `QLocalServer` and exits rather than starting
   a competing tray icon and a second hotkey registration.
 - Lab folder unusable: reported when the lab is started, and no lab is

@@ -49,6 +49,35 @@ the tray icon) to snip.
 
 Selections can cross monitors, including monitors on different scale factors.
 
+## Copy on select
+
+Toggle **Copy on select** in the preview window or the tray menu. While it is
+on, highlighting text anywhere copies it, with no Ctrl+C and no right-click.
+This is what Linux gives you for free with the PRIMARY selection.
+
+Windows has no API for "the user just highlighted something", so what happens
+underneath is a mouse hook watching for a finished left-button drag, a
+synthesised Ctrl+C into the focused window, and a check of the clipboard
+sequence number to see whether anything actually moved. If nothing was
+selected, nothing was copied and nothing on the clipboard was disturbed.
+
+Because a stray Ctrl+C can do real damage, some windows are left alone:
+
+| Window | Why |
+| --- | --- |
+| Consoles | Ctrl+C with nothing selected is a break, and cancelling a running scan by accident is not a good trade. Windows Terminal has `copyOnSelect` built in, which is the better answer there |
+| Explorer and the desktop | A rubber-band drag selects files, and Ctrl+C would put those files on the clipboard |
+| ShadowSnip itself | The selection overlay is dragged with the same button |
+
+Nothing fires while Ctrl, Shift, Alt or Win is held, since Ctrl+Shift+C means
+other things in browsers and IDEs, and nothing fires for a drag shorter than
+8 pixels, which is a click.
+
+It is off by default, and worth knowing why: it needs a system-wide mouse
+hook, and a hook plus synthetic keystrokes plus automatic clipboard reads is
+the same combination an infostealer uses. On your own machine that is fine.
+On a managed machine, expect endpoint security to take an interest.
+
 ## Lab mode
 
 A lab is a named folder that collects a whole session's worth of snips. Click
@@ -124,6 +153,9 @@ Right-click the tray icon → **Settings**.
 | PNG effort | zlib level 0–9 |
 | Also copy a plain bitmap | Adds `CF_DIB` for apps that cannot read PNG from the clipboard |
 | Show the preview window | Off means a tray notification instead |
+| Copy highlighted text | Copy on select, as above |
+| Skip consoles, Explorer and the desktop | Leave the windows where a synthetic Ctrl+C would misfire |
+| Shortest drag that counts | Below this, a drag is treated as a click |
 | Labs folder | Where labs live. Blank means a `labs` folder inside the save folder |
 | Write a lab.md index | Keeps `lab.json` and the rendered `lab.md` up to date |
 | Offer a caption box | Shows a caption field in the preview window during a lab |

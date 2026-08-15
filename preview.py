@@ -40,6 +40,7 @@ QPushButton {
 QPushButton:hover { background: #34343d; }
 QPushButton:pressed { background: #232329; }
 QPushButton#Primary { background: #0a63c4; border-color: #0a63c4; }
+QPushButton:checked { background: #1d6b3a; border-color: #2e8b4f; }
 QPushButton#Primary:hover { background: #1273da; }
 """
 
@@ -47,6 +48,7 @@ QPushButton#Primary:hover { background: #1273da; }
 class PreviewWindow(QWidget):
     new_snip_requested = Signal()
     lab_toggle_requested = Signal()
+    auto_copy_toggled = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -82,6 +84,11 @@ class PreviewWindow(QWidget):
         self.btn_new = QPushButton("New snip")
         self.btn_new.setObjectName("Primary")
         self.btn_lab = QPushButton("Start lab")
+        self.btn_auto = QPushButton("Copy on select")
+        self.btn_auto.setCheckable(True)
+        self.btn_auto.setToolTip(
+            "Highlight text anywhere and it is copied without pressing Ctrl+C"
+        )
         self.btn_save = QPushButton("Save as...")
         self.btn_copy = QPushButton("Copy again")
         self.btn_folder = QPushButton("Open folder")
@@ -89,6 +96,7 @@ class PreviewWindow(QWidget):
 
         self.btn_new.clicked.connect(self.new_snip_requested.emit)
         self.btn_lab.clicked.connect(self.lab_toggle_requested.emit)
+        self.btn_auto.clicked.connect(self.auto_copy_toggled.emit)
         self.btn_save.clicked.connect(self.save_as)
         self.btn_copy.clicked.connect(self.copy_again)
         self.btn_folder.clicked.connect(self.open_folder)
@@ -98,6 +106,7 @@ class PreviewWindow(QWidget):
         bar.setSpacing(8)
         bar.addWidget(self.btn_new)
         bar.addWidget(self.btn_lab)
+        bar.addWidget(self.btn_auto)
         bar.addWidget(self.btn_save)
         bar.addWidget(self.btn_copy)
         bar.addWidget(self.btn_folder)
@@ -151,6 +160,10 @@ class PreviewWindow(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._render()
+
+    def set_auto_copy(self, on: bool) -> None:
+        """Reflect the copy-on-select state without re-emitting the signal."""
+        self.btn_auto.setChecked(on)
 
     def set_status(self, text: str) -> None:
         self.status.setText(text)

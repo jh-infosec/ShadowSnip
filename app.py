@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
 )
 
+import autocopy as autocopy_mod
 import capture
 import clipboard
 import config
@@ -51,6 +52,7 @@ class ShadowSnipApp(QObject):
         self.preview = PreviewWindow()
         self.preview.new_snip_requested.connect(self.request_snip)
         self.preview.lab_toggle_requested.connect(self.toggle_lab)
+        self.preview.auto_copy_toggled.connect(self.toggle_auto_copy)
 
         self.tray = QSystemTrayIcon(build_icon(), self)
         self.tray.setToolTip("ShadowSnip")
@@ -61,6 +63,11 @@ class ShadowSnipApp(QObject):
         self.hotkeys = hotkey_mod.HotkeyManager(self)
         self.hotkeys.triggered.connect(self.request_snip)
         self._register_hotkey(startup=True)
+
+        self.autocopy = autocopy_mod.AutoCopy(self.cfg, self)
+        self.autocopy.copied.connect(self._on_auto_copied)
+        if self.cfg["auto_copy"]:
+            self._engage_auto_copy(announce=False)
 
     # -- tray --------------------------------------------------------------
     def _build_menu(self) -> None:
@@ -77,6 +84,11 @@ class ShadowSnipApp(QObject):
         self.action_lab = QAction("Start lab...", self)
         self.action_lab.triggered.connect(self.toggle_lab)
         menu.addAction(self.action_lab)
+
+        self.action_auto = QAction("Copy on select", self)
+        self.action_auto.setCheckable(True)
+        self.action_auto.triggered.connect(self.toggle_auto_copy)
+        menu.addAction(self.action_auto)
 
         self.labs_menu = QMenu("Open a lab", menu)
         self.labs_menu.aboutToShow.connect(self._fill_labs_menu)
@@ -111,6 +123,10 @@ class ShadowSnipApp(QObject):
             self.tray.setToolTip(f"ShadowSnip - press {label} to snip")
         self.tray.setIcon(build_icon(active=bool(name)))
         self.preview.set_lab_name(name)
+
+        engaged = self.autocopy.engaged if hasattr(self, "autocopy") else False
+        self.action_auto.setChecked(engaged)
+        self.preview.set_auto_copy(engaged)
 
     def _on_tray_activated(self, reason) -> None:
         if reason in (
@@ -220,6 +236,47 @@ class ShadowSnipApp(QObject):
                 )
             )
 
+    # -- copy on select ----------------------------------------------------
+    def toggle_auto_copy(self) -> None:
+        if self.autocopy.engaged:
+            self.autocopy.release()
+            self.cfg["auto_copy"] = False
+        else:
+            self._engage_auto_copy()
+        self._persist()
+        self._refresh_menu_text()
+
+    def _engage_auto_copy(self, announce: bool = True) -> None:
+        try:
+            self.autocopy.engage()
+        except autocopy_mod.AutoCopyError as exc:
+            self.cfg["auto_copy"] = False
+            self.tray.showMessage(
+                "ShadowSnip",
+                f"Copy on select could not start: {exc}",
+                QSystemTrayIcon.MessageIcon.Warning,
+                5000,
+            )
+            return
+        self.cfg["auto_copy"] = True
+        if announce:
+            self.tray.showMessage(
+                "ShadowSnip",
+                "Copy on select is on. Highlight text anywhere and it goes "
+                "straight to the clipboard. Consoles and Explorer are skipped.",
+                build_icon(),
+                4000,
+            )
+
+    def _on_auto_copied(self, text: str) -> None:
+        if self.preview.isVisible():
+            snippet = text.strip().replace("\n", " ")
+            if len(snippet) > 60:
+                snippet = snippet[:57] + "..."
+            self.preview.set_status(
+                f"Copied {len(text)} characters from the selection: {snippet}"
+            )
+
     def _persist(self) -> None:
         try:
             config.save(self.cfg)
@@ -247,6 +304,7 @@ class ShadowSnipApp(QObject):
         if self.busy:
             return
         self.busy = True
+        self.autocopy.pause()
         was_visible = self.preview.isVisible()
         if was_visible:
             self.preview.hide()
@@ -270,6 +328,7 @@ class ShadowSnipApp(QObject):
         self.controller = None
         self._grabs = []
         self.busy = False
+        self.autocopy.resume()
 
     def _on_selected(self, rect: QRect) -> None:
         self.controller = None
@@ -281,6 +340,7 @@ class ShadowSnipApp(QObject):
             self._handle_snip(image)
         finally:
             self.busy = False
+            self.autocopy.resume()
 
     def _handle_snip(self, image) -> None:
         result = imageops.process(image, self.cfg)
@@ -391,6 +451,11 @@ class ShadowSnipApp(QObject):
             self.cfg = config.load()
         except OSError as exc:
             self._warn(f"Settings could not be written: {exc}")
+        self.autocopy.configure(self.cfg)
+        if self.cfg["auto_copy"] and not self.autocopy.engaged:
+            self._engage_auto_copy(announce=False)
+        elif not self.cfg["auto_copy"] and self.autocopy.engaged:
+            self.autocopy.release()
         if hotkey_changed:
             self._register_hotkey()
         self._refresh_menu_text()
@@ -399,6 +464,7 @@ class ShadowSnipApp(QObject):
         QMessageBox.warning(None, "ShadowSnip", message)
 
     def quit(self) -> None:
+        self.autocopy.release()
         self.hotkeys.unregister()
         self.tray.hide()
         self.qapp.quit()

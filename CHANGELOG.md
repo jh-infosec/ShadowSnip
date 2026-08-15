@@ -1,5 +1,43 @@
 # Changelog
 
+All notable changes to ShadowSnip are recorded here. Format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.1] - 2026-08-11
+
+### Fixed
+- Copy on select froze the mouse and flooded PowerShell with
+  `OverflowError: int too long to convert`. The Win32 hook functions were not
+  prototyped, so ctypes defaulted their arguments to 32-bit `int` and
+  overflowed on the 64-bit `lParam` pointer on every mouse event; Windows then
+  throttled and dropped the hook. `SetWindowsHookExW`, `CallNextHookEx` and
+  `UnhookWindowsHookEx` now declare their argument and return types, the
+  `lParam` cast goes through `c_void_p`, and the callback chains to the next
+  hook first and unconditionally so a fault in our own logic can never stall
+  the event.
+
+## [0.3.0] - 2026-08-11
+
+Copy on select.
+
+### Added
+- **Copy on select** toggle on the preview toolbar and in the tray menu. While
+  it is on, finishing a left-button drag copies the highlighted text, so a
+  selection reaches the clipboard without Ctrl+C. Off by default; the state is
+  remembered between runs.
+- `autocopy.py`, holding the WH_MOUSE_LL hook and the guards around it:
+  console, Explorer and desktop windows are skipped, ShadowSnip's own windows
+  are skipped, nothing fires while a modifier is held or for a drag shorter
+  than `auto_copy_min_drag`, and the clipboard sequence number is checked so a
+  drag that selected nothing changes nothing.
+- Settings: copy on select on/off, the window exclusions, and the shortest
+  drag that counts.
+
+### Changed
+- Copy on select is suspended for the duration of a snip, since dragging the
+  selection overlay is itself a left-button drag.
+
 ## [0.2.1] - 2026-08-11
 
 Readability over size, and a lab button where people look for it.

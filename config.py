@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.3.1"
 
 
 def config_dir() -> Path:
@@ -57,6 +57,11 @@ DEFAULTS = {
     "jpeg_quality": 90,
     # Also put an uncompressed CF_DIB on the clipboard for older apps.
     "clipboard_dib_fallback": True,
+    # Copy on select: a finished drag copies the highlighted text. Off by
+    # default; it needs a system-wide mouse hook to work at all.
+    "auto_copy": False,
+    "auto_copy_min_drag": 8,
+    "auto_copy_skip_consoles": True,
     # Show the preview window after a snip.
     "show_preview": True,
     # 0-255 dimming of the frozen screen behind the selection.
@@ -120,6 +125,7 @@ def _sanitise(cfg: dict) -> dict:
     cfg["jpeg_quality"] = _clamp(cfg.get("jpeg_quality"), 1, 100, 90)
     cfg["history_limit"] = _clamp(cfg.get("history_limit"), 1, 5000, 50)
     cfg["dim_opacity"] = _clamp(cfg.get("dim_opacity"), 0, 255, 110)
+    cfg["auto_copy_min_drag"] = _clamp(cfg.get("auto_copy_min_drag"), 1, 200, 8)
     if cfg.get("disk_format") not in ("png", "webp", "jpeg"):
         cfg["disk_format"] = "png"
     for flag in (
@@ -129,6 +135,8 @@ def _sanitise(cfg: dict) -> dict:
         "show_preview",
         "lab_index",
         "lab_caption",
+        "auto_copy",
+        "auto_copy_skip_consoles",
     ):
         cfg[flag] = bool(cfg.get(flag))
     if not str(cfg.get("hotkey", "")).strip():
