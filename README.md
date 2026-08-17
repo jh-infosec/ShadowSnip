@@ -39,7 +39,8 @@ the tray icon) to snip.
 
 | Action | Key |
 | --- | --- |
-| Start a snip | `Ctrl+Shift+S`, tray click, or `python main.py --snip` |
+| Start a snip | `Ctrl+Shift+S`, the tray menu, or `python main.py --snip` |
+| Open the window | click the tray icon |
 | Start or stop a lab | **Start lab** in the preview window, or the tray menu |
 | Drag a region | left mouse button |
 | Grab the whole screen under the cursor | `F` or `Space` |

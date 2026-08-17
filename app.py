@@ -129,11 +129,14 @@ class ShadowSnipApp(QObject):
         self.preview.set_auto_copy(engaged)
 
     def _on_tray_activated(self, reason) -> None:
+        # A left click, single or double, brings up the window. Snipping is the
+        # hotkey, the menu, and the New snip button; clicking the tray icon and
+        # losing whatever was on screen to an accidental snip is a poor default.
         if reason in (
             QSystemTrayIcon.ActivationReason.Trigger,
             QSystemTrayIcon.ActivationReason.DoubleClick,
         ):
-            self.request_snip()
+            self.preview.open_window()
 
     def _open_save_folder(self) -> None:
         target = lab.active_folder(self.cfg)

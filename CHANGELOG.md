@@ -1,8 +1,12 @@
 # Changelog
 
-All notable changes to ShadowSnip are recorded here. Format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.3.2] - 2026-08-11
+
+### Changed
+- Clicking the tray icon now opens the window instead of starting a snip.
+  Losing whatever was on screen to an accidental snip from a stray click was a
+  poor default. Snipping stays on the hotkey, the tray menu, and the New snip
+  button. The window opens centred even before the first snip of a session.
 
 ## [0.3.1] - 2026-08-11
 

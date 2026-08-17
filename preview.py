@@ -161,6 +161,21 @@ class PreviewWindow(QWidget):
         super().resizeEvent(event)
         self._render()
 
+    def open_window(self) -> None:
+        """Bring the window up from a tray click, with or without a snip yet."""
+        if self._image is None:
+            self.canvas.setText("No snip yet - press the hotkey or New snip")
+            if not self.status.text():
+                self.status.setText("Ready")
+        first_open = not self.isVisible()
+        self.show()
+        if first_open:
+            # Centre after show(), since frameGeometry is only meaningful once
+            # the window has been laid out.
+            self.center_on_cursor_screen()
+        self.raise_()
+        self.activateWindow()
+
     def set_auto_copy(self, on: bool) -> None:
         """Reflect the copy-on-select state without re-emitting the signal."""
         self.btn_auto.setChecked(on)
