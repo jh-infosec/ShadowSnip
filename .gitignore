@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+*.manifest
+
+# Version backups kept as folders; git tags do this better
+v0.*/
+V0.*/
+V[0-9]*/
+
+# ShadowSnip runtime output, in case anyone points a save dir into the repo
+labs/
+latest.*

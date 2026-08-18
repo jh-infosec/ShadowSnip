@@ -1,5 +1,25 @@
 # Changelog
 
+All notable changes to ShadowSnip are recorded here. Format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.3] - 2026-08-11
+
+### Added
+- The preview window now carries the ShadowSnip icon in its title bar, the
+  taskbar and alt-tab, drawn at several sizes so Windows picks a crisp one.
+- `make_icon.py` renders that icon to a multi-size `shadowsnip.ico` for the
+  build to embed in the executable.
+- `ShadowSnip.spec` for a one-file, no-console PyInstaller build, and
+  `run_shadowsnip.pyw` as a no-build no-console launcher.
+- `BUILD.md` covering all three ways to run it and how to start it at login,
+  plus a `.gitignore`.
+
+### Changed
+- `build_icon` renders 16 through 256 px into one icon rather than scaling a
+  single 64 px pixmap.
+
 ## [0.3.2] - 2026-08-11
 
 ### Changed

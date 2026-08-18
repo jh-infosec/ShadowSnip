@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.3.2"
+APP_VERSION = "0.3.3"
 
 
 def config_dir() -> Path:

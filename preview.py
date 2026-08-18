@@ -10,7 +10,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QGuiApplication, QImage, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import (
+    QGuiApplication,
+    QIcon,
+    QImage,
+    QKeySequence,
+    QPixmap,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -50,7 +57,7 @@ class PreviewWindow(QWidget):
     lab_toggle_requested = Signal()
     auto_copy_toggled = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, icon: QIcon | None = None):
         super().__init__(parent)
         self._image: QImage | None = None
         self._disk_bytes = b""
@@ -62,6 +69,8 @@ class PreviewWindow(QWidget):
 
         self.setObjectName("Root")
         self.setWindowTitle("ShadowSnip")
+        if icon is not None:
+            self.setWindowIcon(icon)
         self.setStyleSheet(STYLE)
         self.resize(900, 640)
 

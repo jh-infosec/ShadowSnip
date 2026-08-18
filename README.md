@@ -161,21 +161,12 @@ Right-click the tray icon → **Settings**.
 | Write a lab.md index | Keeps `lab.json` and the rendered `lab.md` up to date |
 | Offer a caption box | Shows a caption field in the preview window during a lab |
 
-## Building a standalone .exe
+## Running it
 
-```powershell
-pip install pyinstaller
-pyinstaller --noconsole --onefile --name ShadowSnip main.py
-```
-
-The result is `dist\ShadowSnip.exe` with no Python install required. The icon
-is drawn at runtime, so there are no image assets to bundle.
-
-To start it with Windows, put a shortcut to the exe in:
-
-```
-shell:startup
-```
+Three options, least to most portable: from source with `python main.py`, a
+no-console `run_shadowsnip.pyw` launcher, or a standalone `ShadowSnip.exe`.
+The exe is the one to hand to anyone else. See `BUILD.md` for all three and
+for starting ShadowSnip at login.
 
 ## Known limits
 

@@ -49,7 +49,7 @@ class ShadowSnipApp(QObject):
         self._last_image = None
         self._last_disk: tuple[bytes, str] | None = None
 
-        self.preview = PreviewWindow()
+        self.preview = PreviewWindow(icon=build_icon())
         self.preview.new_snip_requested.connect(self.request_snip)
         self.preview.lab_toggle_requested.connect(self.toggle_lab)
         self.preview.auto_copy_toggled.connect(self.toggle_auto_copy)
@@ -474,11 +474,21 @@ class ShadowSnipApp(QObject):
 
 
 def build_icon(size: int = 64, active: bool = False) -> QIcon:
-    """Draw the tray icon so the app ships without any image assets.
+    """Draw the app icon so it ships without any image assets.
 
     `active` adds a badge dot, so a lab that has been left engaged is visible
     at a glance instead of quietly collecting screenshots for three days.
+
+    Several sizes are rendered into one QIcon so Windows can pick a crisp
+    pixmap for the taskbar, alt-tab and title bar instead of scaling one.
     """
+    icon = QIcon()
+    for edge in (16, 24, 32, 48, 64, 256):
+        icon.addPixmap(_draw_icon_pixmap(edge, active))
+    return icon
+
+
+def _draw_icon_pixmap(size: int, active: bool) -> QPixmap:
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
@@ -507,4 +517,4 @@ def build_icon(size: int = 64, active: bool = False) -> QIcon:
         painter.drawEllipse(size - badge - 3, 3, badge, badge)
 
     painter.end()
-    return QIcon(pixmap)
+    return pixmap
