@@ -4,6 +4,35 @@ All notable changes to ShadowSnip are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `F` and `Space` grabbed the primary screen rather than the screen under the
+  pointer. Both the overlay and the preview window worked out "where the cursor
+  is" from `primaryScreen().geometry().center()`, which is a fixed point on one
+  monitor and never the cursor. Overlay focus and the preview window's centring
+  now both come from `QCursor.pos()`.
+- A refused mouse hook reported `error 0`. `ctypes.get_last_error()` reads the
+  copy ctypes keeps only for libraries built with `use_last_error=True`, which
+  `ctypes.windll` is not; `ctypes.GetLastError()` is the one that answers.
+- A save folder that could not be written took the lab copy down with it. The
+  standing file and the second destination shared one `try`, so a full or
+  read-only save folder skipped `lab.save()` entirely even when the lab sat on
+  a different drive. Each destination now gets its own attempt and its own note
+  in the status line.
+- A `null` in `config.json` sanitised to the string `"None"` and was accepted
+  as a real value. A null `save_dir` then reached `Path()` as `None` and raised
+  `TypeError`, which is not an `OSError` and so was not caught where the writes
+  happen — the snip was lost with a traceback. Null string settings now fall
+  back to their defaults.
+
+### Added
+- A test suite (`pytest`) over the modules that hold logic rather than pixels:
+  config sanitising and round-tripping, the standing file and history pruning,
+  lab numbering, captions and the index render, hotkey string parsing, and the
+  compression pipeline's quantise decision. No display and no Windows required.
+- `requirements-dev.txt`, and a **Tests** section in `BUILD.md`.
+
 ## [0.3.3] - 2026-08-11
 
 ### Added

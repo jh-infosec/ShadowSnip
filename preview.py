@@ -11,6 +11,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import (
+    QCursor,
     QGuiApplication,
     QIcon,
     QImage,
@@ -264,7 +265,7 @@ class PreviewWindow(QWidget):
             self.status.setText(f"Caption not saved: {exc}")
 
     def center_on_cursor_screen(self) -> None:
-        screen = QGuiApplication.screenAt(QGuiApplication.primaryScreen().geometry().center())
+        screen = QGuiApplication.screenAt(QCursor.pos())
         screen = screen or QGuiApplication.primaryScreen()
         area = screen.availableGeometry()
         frame = self.frameGeometry()

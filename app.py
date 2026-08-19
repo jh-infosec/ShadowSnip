@@ -367,14 +367,25 @@ class ShadowSnipApp(QObject):
             latest_path = storage.save_latest(
                 result.disk.data, result.disk.ext, self.cfg
             )
-            if lab.is_active(self.cfg):
+        except OSError as exc:
+            notes.append(f"could not write to the save folder ({exc})")
+
+        # The second destination gets its own attempt. A lab can sit on a
+        # different drive from the save folder, and a full or read-only save
+        # folder is no reason to also lose the copy filed into the lab.
+        in_lab = lab.is_active(self.cfg)
+        try:
+            if in_lab:
                 # The lab folder is the history for as long as it is engaged,
                 # so the same snip does not land in three places at once.
                 lab_path = lab.save(result.disk.data, result.disk.ext, self.cfg)
             else:
                 storage.save_history(result.disk.data, result.disk.ext, self.cfg)
         except OSError as exc:
-            notes.append(f"could not write to the save folder ({exc})")
+            notes.append(
+                f"could not write to the {'lab' if in_lab else 'history folder'} "
+                f"({exc})"
+            )
 
         caption_cb = None
         if lab_path is not None and self.cfg["lab_index"] and self.cfg["lab_caption"]:

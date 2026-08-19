@@ -129,8 +129,11 @@ class AutoCopy(QObject):
         hook = _user32.SetWindowsHookExW(WH_MOUSE_LL, self._proc, None, 0)
         if not hook:
             self._proc = None
+            # GetLastError, not ctypes.get_last_error: the latter reads the copy
+            # ctypes saves only for libraries built with use_last_error=True,
+            # which ctypes.windll is not, so it would always report 0.
             raise AutoCopyError(
-                f"the mouse hook was refused (error {ctypes.get_last_error()})"
+                f"the mouse hook was refused (error {ctypes.GetLastError()})"
             )
         self._hook = hook
 

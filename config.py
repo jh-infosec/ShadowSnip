@@ -139,11 +139,15 @@ def _sanitise(cfg: dict) -> dict:
         "auto_copy_skip_consoles",
     ):
         cfg[flag] = bool(cfg.get(flag))
-    if not str(cfg.get("hotkey", "")).strip():
+    # `or ""` rather than a bare str(): a JSON null would otherwise sanitise to
+    # the string "None" and sail through as a real value. A null save_dir in
+    # particular reaches Path() as None and raises TypeError on the first snip,
+    # which is not an OSError and so is not caught where the writes happen.
+    if not str(cfg.get("hotkey") or "").strip():
         cfg["hotkey"] = DEFAULTS["hotkey"]
-    if not str(cfg.get("save_dir", "")).strip():
+    if not str(cfg.get("save_dir") or "").strip():
         cfg["save_dir"] = DEFAULTS["save_dir"]
-    name = str(cfg.get("latest_name", "")).strip() or DEFAULTS["latest_name"]
+    name = str(cfg.get("latest_name") or "").strip() or DEFAULTS["latest_name"]
     cfg["latest_name"] = Path(name).stem or DEFAULTS["latest_name"]
     # Lab names are kept as typed; only surrounding whitespace is trimmed.
     cfg["active_lab"] = str(cfg.get("active_lab", "") or "").strip()

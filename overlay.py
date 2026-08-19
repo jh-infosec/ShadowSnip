@@ -10,8 +10,8 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, QPoint, QRect, Qt, Signal
 from PySide6.QtGui import (
     QColor,
+    QCursor,
     QFont,
-    QGuiApplication,
     QPainter,
     QPen,
     QPixmap,
@@ -45,7 +45,9 @@ class SelectionController(QObject):
             self._windows.append(window)
             window.show()
         if self._windows:
-            cursor = QGuiApplication.primaryScreen().geometry().center()
+            # Focus the overlay the pointer is actually on, so F and Space grab
+            # that screen rather than whichever one Windows calls primary.
+            cursor = QCursor.pos()
             for window in self._windows:
                 if window.grab_info.screen.geometry().contains(cursor):
                     window.activateWindow()

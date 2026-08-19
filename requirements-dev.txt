@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# Tests only. The suite covers the pure-logic modules (config, storage, lab,
+# hotkey parsing, imageops) and needs no display: run it with
+# QT_QPA_PLATFORM=offscreen on a headless machine.
+pytest>=8.0

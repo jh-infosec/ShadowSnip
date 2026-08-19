@@ -39,6 +39,22 @@ To run it at login: right-click `ShadowSnip.exe`, **Create shortcut**, then
 move the shortcut into `shell:startup` as above. A shortcut rather than the
 exe itself, so Windows starts it from its real folder.
 
+## Tests
+
+```powershell
+pip install -r requirements-dev.txt
+pytest
+```
+
+The suite covers the modules that hold logic rather than pixels: config
+sanitising, the standing file and history pruning, lab numbering and the index
+render, hotkey string parsing, and the compression pipeline's quantise
+decision. It needs no display and no Windows, so it runs anywhere; on a
+headless machine set `QT_QPA_PLATFORM=offscreen` first.
+
+Nothing that needs a real desktop is covered — the tray icon, the overlay, the
+clipboard writer and the mouse hook are still tested by using the application.
+
 ### Notes
 
 - Rebuild after any source change; the exe is a snapshot.
