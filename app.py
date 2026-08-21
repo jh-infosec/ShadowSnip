@@ -35,6 +35,7 @@ import storage
 from overlay import SelectionController
 from preview import PreviewWindow
 from settings_dialog import SettingsDialog
+from toast import ClipToast
 
 
 class ShadowSnipApp(QObject):
@@ -64,6 +65,7 @@ class ShadowSnipApp(QObject):
         self.hotkeys.triggered.connect(self.request_snip)
         self._register_hotkey(startup=True)
 
+        self.toast = ClipToast()
         self.autocopy = autocopy_mod.AutoCopy(self.cfg, self)
         self.autocopy.copied.connect(self._on_auto_copied)
         if self.cfg["auto_copy"]:
@@ -263,21 +265,30 @@ class ShadowSnipApp(QObject):
             return
         self.cfg["auto_copy"] = True
         if announce:
+            gesture = (
+                "Highlight text, or double-click a word, and it goes straight "
+                "to the clipboard."
+                if self.cfg["auto_copy_double_click"]
+                else "Highlight text anywhere and it goes straight to the "
+                "clipboard."
+            )
             self.tray.showMessage(
                 "ShadowSnip",
-                "Copy on select is on. Highlight text anywhere and it goes "
-                "straight to the clipboard. Consoles and Explorer are skipped.",
+                f"Copy on select is on. {gesture} Consoles, Explorer and "
+                "password managers are skipped.",
                 build_icon(),
                 4000,
             )
 
-    def _on_auto_copied(self, text: str) -> None:
+    def _on_auto_copied(self, text: str, kind: str) -> None:
+        if self.cfg["auto_copy_toast"]:
+            self.toast.show_clip(text, kind)
         if self.preview.isVisible():
             snippet = text.strip().replace("\n", " ")
             if len(snippet) > 60:
                 snippet = snippet[:57] + "..."
             self.preview.set_status(
-                f"Copied {len(text)} characters from the selection: {snippet}"
+                f"Copied {len(text)} characters ({kind}): {snippet}"
             )
 
     def _persist(self) -> None:
@@ -308,6 +319,9 @@ class ShadowSnipApp(QObject):
             return
         self.busy = True
         self.autocopy.pause()
+        # Otherwise a toast still fading out is part of the frozen screen and
+        # ends up inside the snip.
+        self.toast.hide()
         was_visible = self.preview.isVisible()
         if was_visible:
             self.preview.hide()
@@ -478,6 +492,7 @@ class ShadowSnipApp(QObject):
         QMessageBox.warning(None, "ShadowSnip", message)
 
     def quit(self) -> None:
+        self.toast.hide()
         self.autocopy.release()
         self.hotkeys.unregister()
         self.tray.hide()

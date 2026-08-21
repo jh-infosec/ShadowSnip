@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import config as config_mod
 import hotkey as hotkey_mod
 
 _QT_KEY_NAMES = {
@@ -172,11 +173,36 @@ class SettingsDialog(QDialog):
             "Skip consoles, Explorer and the desktop"
         )
         self.auto_copy_skip.setChecked(cfg["auto_copy_skip_consoles"])
+        self.auto_copy_double = QCheckBox(
+            "Also copy on double-click (word) and triple-click (line)"
+        )
+        self.auto_copy_double.setChecked(cfg["auto_copy_double_click"])
+        self.auto_copy_dedupe = QCheckBox(
+            "Ignore a clip identical to the one before it"
+        )
+        self.auto_copy_dedupe.setChecked(cfg["auto_copy_dedupe"])
+        self.auto_copy_toast = QCheckBox(
+            "Show a confirmation near the cursor"
+        )
+        self.auto_copy_toast.setChecked(cfg["auto_copy_toast"])
         self.auto_copy_drag = QSpinBox()
         self.auto_copy_drag.setRange(1, 200)
         self.auto_copy_drag.setSuffix(" px")
         self.auto_copy_drag.setValue(cfg["auto_copy_min_drag"])
-        for widget in (self.auto_copy_skip, self.auto_copy_drag):
+        self.auto_copy_blocked = QLineEdit(
+            ", ".join(cfg["auto_copy_extra_blocked"])
+        )
+        self.auto_copy_blocked.setPlaceholderText(
+            "myvault.exe, othertool.exe - password managers are already covered"
+        )
+        for widget in (
+            self.auto_copy_skip,
+            self.auto_copy_double,
+            self.auto_copy_dedupe,
+            self.auto_copy_toast,
+            self.auto_copy_drag,
+            self.auto_copy_blocked,
+        ):
             self.auto_copy_check.toggled.connect(widget.setEnabled)
             widget.setEnabled(cfg["auto_copy"])
 
@@ -221,8 +247,12 @@ class SettingsDialog(QDialog):
         form.addRow("PNG effort", self.png_level)
         form.addRow(self.dib_check)
         form.addRow(self.auto_copy_check)
+        form.addRow(self.auto_copy_double)
         form.addRow(self.auto_copy_skip)
+        form.addRow(self.auto_copy_dedupe)
+        form.addRow(self.auto_copy_toast)
         form.addRow("Shortest drag that counts", self.auto_copy_drag)
+        form.addRow("Never copy from", self.auto_copy_blocked)
         form.addRow(self.preview_check)
         form.addRow("Overlay dimming", self.dim)
         form.addRow("Labs folder", lab_row)
@@ -289,7 +319,15 @@ class SettingsDialog(QDialog):
         cfg["clipboard_dib_fallback"] = self.dib_check.isChecked()
         cfg["auto_copy"] = self.auto_copy_check.isChecked()
         cfg["auto_copy_skip_consoles"] = self.auto_copy_skip.isChecked()
+        cfg["auto_copy_double_click"] = self.auto_copy_double.isChecked()
+        cfg["auto_copy_dedupe"] = self.auto_copy_dedupe.isChecked()
+        cfg["auto_copy_toast"] = self.auto_copy_toast.isChecked()
         cfg["auto_copy_min_drag"] = self.auto_copy_drag.value()
+        # Normalised here rather than left for config.save, so the dict handed
+        # back is already in its final shape even if the write then fails.
+        cfg["auto_copy_extra_blocked"] = config_mod.normalise_names(
+            self.auto_copy_blocked.text()
+        )
         cfg["show_preview"] = self.preview_check.isChecked()
         cfg["dim_opacity"] = self.dim.value()
         cfg["lab_root"] = self.lab_root_edit.text().strip()

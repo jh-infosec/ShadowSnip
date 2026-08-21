@@ -56,11 +56,28 @@ Toggle **Copy on select** in the preview window or the tray menu. While it is
 on, highlighting text anywhere copies it, with no Ctrl+C and no right-click.
 This is what Linux gives you for free with the PRIMARY selection.
 
+| Gesture | What is copied |
+| --- | --- |
+| Drag across text | the selection |
+| Double-click | the word |
+| Triple-click | the line or paragraph |
+
+A small confirmation appears next to the cursor for about a second, so a clip
+that worked and a clip that quietly did nothing do not look the same.
+Re-selecting the same text twice in a row is only announced once.
+
 Windows has no API for "the user just highlighted something", so what happens
 underneath is a mouse hook watching for a finished left-button drag, a
 synthesised Ctrl+C into the focused window, and a check of the clipboard
 sequence number to see whether anything actually moved. If nothing was
 selected, nothing was copied and nothing on the clipboard was disturbed.
+
+Double-click takes a slightly different route. A low-level mouse hook never
+receives `WM_LBUTTONDBLCLK` — that message is made further up the stack, when
+an event is dispatched to a window, so it only exists inside the application
+being clicked. ShadowSnip applies the same rule Windows does, two presses
+inside your double-click speed and inside the double-click rectangle, and
+counts them itself.
 
 Because a stray Ctrl+C can do real damage, some windows are left alone:
 
@@ -68,11 +85,25 @@ Because a stray Ctrl+C can do real damage, some windows are left alone:
 | --- | --- |
 | Consoles | Ctrl+C with nothing selected is a break, and cancelling a running scan by accident is not a good trade. Windows Terminal has `copyOnSelect` built in, which is the better answer there |
 | Explorer and the desktop | A rubber-band drag selects files, and Ctrl+C would put those files on the clipboard |
+| Password managers | Not a misfire risk — the opposite. Double-clicking an entry in KeePass copies the password, and a feature that reads the clipboard back automatically has no business near that |
 | ShadowSnip itself | The selection overlay is dragged with the same button |
+
+KeePass, KeePassXC, 1Password, Bitwarden, Dashlane, Enpass, NordPass, Keeper,
+Proton Pass, RoboForm, LastPass and the Windows credential prompt are always
+skipped, and that list is not switchable: the cost of it being wrong is that
+you press Ctrl+C like everyone else, and the cost of the other mistake is a
+password somewhere it should never be. **Never copy from** in Settings adds
+your own executable names to it.
 
 Nothing fires while Ctrl, Shift, Alt or Win is held, since Ctrl+Shift+C means
 other things in browsers and IDEs, and nothing fires for a drag shorter than
-8 pixels, which is a click.
+8 pixels unless it was part of a double-click.
+
+One thing to expect: double-click means "open this" in plenty of in-app list
+and tree views — a file tree, a message list — and in those the Ctrl+C is
+harmless but may put something uninteresting on the clipboard. Turn
+**Also copy on double-click** off if it gets in the way; drag-to-copy carries
+on working.
 
 It is off by default, and worth knowing why: it needs a system-wide mouse
 hook, and a hook plus synthetic keystrokes plus automatic clipboard reads is
@@ -155,8 +186,12 @@ Right-click the tray icon → **Settings**.
 | Also copy a plain bitmap | Adds `CF_DIB` for apps that cannot read PNG from the clipboard |
 | Show the preview window | Off means a tray notification instead |
 | Copy highlighted text | Copy on select, as above |
+| Also copy on double-click | Word on a double-click, line on a triple-click, as well as drags |
 | Skip consoles, Explorer and the desktop | Leave the windows where a synthetic Ctrl+C would misfire |
+| Ignore a repeated clip | Say nothing when a clip is identical to the one before it |
+| Show a confirmation near the cursor | The one-second label that says what was copied |
 | Shortest drag that counts | Below this, a drag is treated as a click |
+| Never copy from | Extra executable names to leave alone, on top of the built-in password managers |
 | Labs folder | Where labs live. Blank means a `labs` folder inside the save folder |
 | Write a lab.md index | Keeps `lab.json` and the rendered `lab.md` up to date |
 | Offer a caption box | Shows a caption field in the preview window during a lab |

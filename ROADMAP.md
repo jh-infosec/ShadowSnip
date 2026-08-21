@@ -31,8 +31,18 @@
 
 ## Copy on select, still open
 
-- Word selection by double-click is not caught; only drags are. The hook sees
-  the double-click, so this is a small addition once the guards are trusted.
+- Every clip could go into the engaged lab. A lab already collects a session's
+  screenshots; the hashes, tokens and hostnames highlighted during that same
+  session are the same evidence, and they currently evaporate into the
+  clipboard. A timestamped `clips.md` alongside `lab.md` would make a lab a
+  full session record. The password-manager blocklist exists partly to make
+  this safe to build.
+- Shift+click to extend a selection is missed, because every modifier blocks.
+  Fixable by clearing the modifier state in the injected keystroke rather than
+  refusing outright, which needs `SendInput` instead of `keybd_event`.
+- Middle-click paste, the other half of what Linux gives you. The mouse hook is
+  already there. Off by default, since middle-click closes tabs and starts
+  autoscroll.
 - UI Automation `TextPattern` could read a selection without synthesising a
   keystroke at all, which would remove the whole class of misfire risk. It
   needs `comtypes`, and support is patchy: good in Office and native controls,

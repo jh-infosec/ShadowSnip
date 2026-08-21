@@ -97,7 +97,8 @@ class PreviewWindow(QWidget):
         self.btn_auto = QPushButton("Copy on select")
         self.btn_auto.setCheckable(True)
         self.btn_auto.setToolTip(
-            "Highlight text anywhere and it is copied without pressing Ctrl+C"
+            "Highlight text, or double-click a word, and it is copied without "
+            "pressing Ctrl+C"
         )
         self.btn_save = QPushButton("Save as...")
         self.btn_copy = QPushButton("Copy again")

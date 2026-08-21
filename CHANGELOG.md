@@ -27,11 +27,40 @@ All notable changes to ShadowSnip are recorded here. Format follows
   back to their defaults.
 
 ### Added
+- Copy on select now fires on a **double-click** (the word) and a
+  **triple-click** (the line), not only on a drag. A low-level mouse hook never
+  receives `WM_LBUTTONDBLCLK` — it is synthesised further up the stack, when an
+  event is dispatched to a window with `CS_DBLCLKS`, so it only ever exists
+  inside the target application. `_ClickRun` applies the same rule Windows
+  does, two presses inside `GetDoubleClickTime()` and inside the
+  `SM_CXDOUBLECLK` rectangle, and counts them here. Its own setting, on by
+  default, so drag-to-copy can be kept without it.
+- A **password-manager blocklist**. KeePass, KeePassXC, 1Password, Bitwarden,
+  Dashlane, Enpass, NordPass, Keeper, Proton Pass, RoboForm, LastPass and the
+  Windows credential prompt never receive the synthetic Ctrl+C at all. This one
+  is not about the copy misfiring: double-clicking an entry in KeePass copies
+  the password, and with double-click selection added, a feature that reads the
+  clipboard back automatically would have read it. Always applied; **Never copy
+  from** in Settings adds to it.
+- A **confirmation near the cursor** when a clip is captured, for about a
+  second. Copy on select acted invisibly unless the preview window happened to
+  be open, which is never the window you are looking at when you highlight
+  something. It cannot take focus (`Qt.ToolTip` plus `WA_ShowWithoutActivating`)
+  and cannot swallow a click (`WA_TransparentForMouseEvents`).
+- Clips identical to the one before are ignored, since re-selecting the same
+  word is the commonest gesture there is and announcing it every time turns a
+  useful confirmation into noise.
 - A test suite (`pytest`) over the modules that hold logic rather than pixels:
   config sanitising and round-tripping, the standing file and history pruning,
   lab numbering, captions and the index render, hotkey string parsing, and the
-  compression pipeline's quantise decision. No display and no Windows required.
+  compression pipeline's quantise decision, and the click-run counter and clip
+  summary added above. No display and no Windows required.
 - `requirements-dev.txt`, and a **Tests** section in `BUILD.md`.
+
+### Changed
+- `AutoCopy.copied` carries the kind of clip alongside the text — `selection`,
+  `word` or `line` — so the confirmation and the status line can say which
+  gesture produced it.
 
 ## [0.3.3] - 2026-08-11
 

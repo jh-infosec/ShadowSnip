@@ -15,6 +15,7 @@ clipboard.py         Win32 clipboard writer (PNG + CF_DIB), Qt fallback
 storage.py           latest-file replacement, history, atomic writes
 lab.py               lab sessions: numbering, lab.json state, lab.md index
 autocopy.py          copy on select: mouse hook, guards, clipboard read-back
+toast.py             the one-second clip confirmation near the cursor
 preview.py           post-snip window
 settings_dialog.py   settings form and hotkey recorder
 ```
@@ -127,6 +128,22 @@ because a rubber-band drag there selects files, ShadowSnip because its own
 overlay is dragged with the same button, and any window at all while a
 modifier is held. `GetClipboardSequenceNumber` is read before and after, so a
 drag that selected nothing is detected as such rather than assumed.
+
+**Two block lists, for opposite reasons.** The window-class list above is about
+a copy that misfires. The process list — password managers, by executable name
+— is about a copy that works: double-clicking an entry in KeePass copies the
+password, so the check happens before the keystroke is sent rather than after,
+and an unreadable process name is never treated as an allowed one. Failing
+open is the wrong direction when the question is "should this window's
+clipboard be read".
+
+**Double-click is counted here, not reported by Windows.** A low-level mouse
+hook receives only `WM_LBUTTONDOWN` and `WM_LBUTTONUP`; `WM_LBUTTONDBLCLK` is
+synthesised when an event is dispatched to a window with `CS_DBLCLKS`, and so
+exists only inside the target application. `_ClickRun` applies the same rule
+Windows applies — two presses inside `GetDoubleClickTime()` and inside the
+`SM_CXDOUBLECLK` rectangle — and is deliberately free of both Win32 and Qt, so
+the rule can be tested without either.
 
 **The hook callback records, the event loop acts.** Windows silently unhooks a
 low-level hook whose callback overruns `LowLevelHooksTimeout`, so

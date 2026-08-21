@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.3.3"
+APP_VERSION = "0.3.4"
 
 
 def config_dir() -> Path:
@@ -62,6 +62,18 @@ DEFAULTS = {
     "auto_copy": False,
     "auto_copy_min_drag": 8,
     "auto_copy_skip_consoles": True,
+    # Also treat a double-click (word) and a triple-click (line) as a
+    # selection, not only a drag.
+    "auto_copy_double_click": True,
+    # Ignore a clip identical to the one before it. Re-selecting the same word
+    # is the commonest gesture there is.
+    "auto_copy_dedupe": True,
+    # Show a short confirmation near the cursor when a clip is captured.
+    "auto_copy_toast": True,
+    # Extra executable names never copied from, on top of the built-in list of
+    # password managers in autocopy.BLOCKED_PROCESSES. Lowercase, with the
+    # extension: "myvault.exe".
+    "auto_copy_extra_blocked": [],
     # Show the preview window after a snip.
     "show_preview": True,
     # 0-255 dimming of the frozen screen behind the selection.
@@ -113,6 +125,27 @@ def _clamp(value, low, high, fallback):
     return max(low, min(high, value))
 
 
+def normalise_names(value) -> list[str]:
+    """A list of lowercase executable names, from a list or a typed-in string.
+
+    The settings window offers one text field, and a hand-edited config.json
+    may hold either shape, so both are accepted and both come back as a list
+    with the blanks and duplicates gone.
+    """
+    if isinstance(value, str):
+        value = value.replace(",", " ").split()
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    names: list[str] = []
+    for item in value:
+        if isinstance(item, (dict, list, tuple, set)):
+            continue
+        name = str(item or "").strip().lower()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 def _sanitise(cfg: dict) -> dict:
     cfg["max_dimension"] = _clamp(cfg.get("max_dimension"), 0, 30000, 0)
     cfg["quantize_colors"] = _clamp(cfg.get("quantize_colors"), 2, 256, 256)
@@ -137,8 +170,12 @@ def _sanitise(cfg: dict) -> dict:
         "lab_caption",
         "auto_copy",
         "auto_copy_skip_consoles",
+        "auto_copy_double_click",
+        "auto_copy_dedupe",
+        "auto_copy_toast",
     ):
         cfg[flag] = bool(cfg.get(flag))
+    cfg["auto_copy_extra_blocked"] = normalise_names(cfg.get("auto_copy_extra_blocked"))
     # `or ""` rather than a bare str(): a JSON null would otherwise sanitise to
     # the string "None" and sail through as a real value. A null save_dir in
     # particular reaches Path() as None and raises TypeError on the first snip,
