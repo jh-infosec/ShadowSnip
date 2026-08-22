@@ -49,11 +49,15 @@ class ShadowSnipApp(QObject):
         self._last_png = b""
         self._last_image = None
         self._last_disk: tuple[bytes, str] | None = None
+        # The lab filename of the snip on screen, so a note can attach to it.
+        self._last_lab_file: str = ""
 
         self.preview = PreviewWindow(icon=build_icon())
         self.preview.new_snip_requested.connect(self.request_snip)
         self.preview.lab_toggle_requested.connect(self.toggle_lab)
         self.preview.auto_copy_toggled.connect(self.toggle_auto_copy)
+        self.preview.section_changed.connect(self.set_section)
+        self.preview.note_added.connect(self._on_note_from_preview)
 
         self.tray = QSystemTrayIcon(build_icon(), self)
         self.tray.setToolTip("ShadowSnip")
@@ -62,8 +66,8 @@ class ShadowSnipApp(QObject):
         self.tray.show()
 
         self.hotkeys = hotkey_mod.HotkeyManager(self)
-        self.hotkeys.triggered.connect(self.request_snip)
-        self._register_hotkey(startup=True)
+        self.hotkeys.triggered.connect(self._on_hotkey)
+        self._register_hotkeys(startup=True)
 
         self.toast = ClipToast()
         self.autocopy = autocopy_mod.AutoCopy(self.cfg, self)
@@ -86,6 +90,14 @@ class ShadowSnipApp(QObject):
         self.action_lab = QAction("Start lab...", self)
         self.action_lab.triggered.connect(self.toggle_lab)
         menu.addAction(self.action_lab)
+
+        self.action_note = QAction("Add note...", self)
+        self.action_note.triggered.connect(self.quick_note)
+        menu.addAction(self.action_note)
+
+        self.action_section = QAction("Set section...", self)
+        self.action_section.triggered.connect(self.ask_section)
+        menu.addAction(self.action_section)
 
         self.action_auto = QAction("Copy on select", self)
         self.action_auto.setCheckable(True)
@@ -111,13 +123,18 @@ class ShadowSnipApp(QObject):
     def _refresh_menu_text(self) -> None:
         label = hotkey_mod.describe(self.cfg["hotkey"])
         self.action_new.setText(f"New snip\t{label}")
+        self.action_note.setText(
+            f"Add note...\t{hotkey_mod.describe(self.cfg['note_hotkey'])}"
+        )
 
         name = lab.active_name(self.cfg)
+        keeping_record = bool(self.cfg["lab_index"])
         if name:
             self.action_lab.setText(f"Stop lab ({name})")
             self.action_folder.setText("Open lab folder")
             self.tray.setToolTip(
-                f"ShadowSnip - lab: {name} ({lab.count(self.cfg)} snips)"
+                f"ShadowSnip - lab: {name} "
+                f"({lab.count(self.cfg)} snips, {lab.note_count(self.cfg)} notes)"
             )
         else:
             self.action_lab.setText("Start lab...")
@@ -125,6 +142,20 @@ class ShadowSnipApp(QObject):
             self.tray.setToolTip(f"ShadowSnip - press {label} to snip")
         self.tray.setIcon(build_icon(active=bool(name)))
         self.preview.set_lab_name(name)
+
+        # Notes and sections live in the lab record, so they are only offered
+        # when there is a lab and a record is being kept.
+        notes_live = bool(name) and keeping_record
+        self.action_note.setEnabled(notes_live)
+        self.action_section.setEnabled(notes_live)
+        self.preview.set_notes_visible(notes_live)
+        if notes_live:
+            self.preview.set_section_text(lab.section(self.cfg))
+            self.action_section.setText(
+                f"Set section... ({lab.section(self.cfg) or 'root'})"
+            )
+        else:
+            self.action_section.setText("Set section...")
 
         engaged = self.autocopy.engaged if hasattr(self, "autocopy") else False
         self.action_auto.setChecked(engaged)
@@ -178,7 +209,10 @@ class ShadowSnipApp(QObject):
         self._refresh_menu_text()
 
         existing = lab.count(self.cfg)
+        where = lab.section(self.cfg)
         state = f"resumed, {existing} snips already in it" if existing else "new lab"
+        if where:
+            state += f", filing under {where}"
 
         # Starting a lab while looking at a snip means that snip belongs in it.
         if self.preview.isVisible() and self._last_disk is not None:
@@ -200,6 +234,7 @@ class ShadowSnipApp(QObject):
             return
         if lab_path is None:
             return
+        self._last_lab_file = lab_path.name
         caption_cb = None
         if self.cfg["lab_index"] and self.cfg["lab_caption"]:
             caption_cb = self._caption_setter(lab_path.name)
@@ -213,6 +248,7 @@ class ShadowSnipApp(QObject):
         name = lab.active_name(self.cfg)
         total = lab.count(self.cfg)
         lab.stop(self.cfg)
+        self._last_lab_file = ""
         self._persist()
         self._refresh_menu_text()
         self.preview.attach_lab(None, None)
@@ -240,6 +276,73 @@ class ShadowSnipApp(QObject):
                     lab.folder(self.cfg, n)
                 )
             )
+
+    # -- sections and notes ------------------------------------------------
+    def set_section(self, path: str) -> None:
+        """Point the lab at a section. Everything captured now lands there."""
+        if not lab.is_active(self.cfg):
+            return
+        cleaned = lab.set_section(self.cfg, path)
+        self.preview.set_section_text(cleaned)
+        self._refresh_menu_text()
+        where = cleaned or "the root of the lab"
+        self.preview.set_status(f"Filing under {where}")
+
+    def ask_section(self) -> None:
+        parent = self.preview if self.preview.isVisible() else None
+        current = lab.section(self.cfg)
+        path, ok = QInputDialog.getText(
+            parent,
+            "Set section",
+            "Where should snips and notes be filed?\n"
+            "Separate the levels with / - they become the headings in lab.md.",
+            text=current,
+        )
+        if ok:
+            self.set_section(path)
+
+    def quick_note(self) -> None:
+        """The hotkey and tray path: one line, filed into the current section.
+
+        Deliberately single-line. The point of this route is to catch a thought
+        without breaking stride; anything longer belongs in the preview
+        window's note box, where there is room to write it.
+        """
+        if not lab.is_active(self.cfg) or not self.cfg["lab_index"]:
+            self.tray.showMessage(
+                "ShadowSnip",
+                "Notes go into a lab. Start one first, and leave the lab "
+                "record switched on in Settings.",
+                build_icon(),
+                4000,
+            )
+            return
+
+        parent = self.preview if self.preview.isVisible() else None
+        where = lab.section(self.cfg) or "the root of the lab"
+        text, ok = QInputDialog.getText(
+            parent, "Add note", f"Note for {where}:"
+        )
+        if ok:
+            self._file_note(text, attach=False)
+
+    def _on_note_from_preview(self, text: str, attach: bool) -> None:
+        target = []
+        if attach and self._last_lab_file:
+            target = [self._last_lab_file]
+        if self._file_note(text, attach=bool(target), attach_to=target):
+            self.preview.clear_note()
+
+    def _file_note(self, text: str, attach: bool = False, attach_to=None) -> bool:
+        entry = lab.add_note(self.cfg, text, attach=attach_to or ())
+        if entry is None:
+            self.preview.set_status("The note was empty, so nothing was filed.")
+            return False
+        where = entry["section"] or "the root of the lab"
+        detail = f" against {attach_to[0]}" if attach and attach_to else ""
+        self.preview.set_status(f"Note {entry['id']} filed under {where}{detail}")
+        self._refresh_menu_text()
+        return True
 
     # -- copy on select ----------------------------------------------------
     def toggle_auto_copy(self) -> None:
@@ -297,21 +400,37 @@ class ShadowSnipApp(QObject):
         except OSError as exc:
             self._warn(f"Settings could not be written: {exc}")
 
-    # -- hotkey ------------------------------------------------------------
-    def _register_hotkey(self, startup: bool = False) -> None:
-        try:
-            self.hotkeys.register(self.qapp, self.cfg["hotkey"])
-        except hotkey_mod.HotkeyError as exc:
-            self.tray.showMessage(
-                "ShadowSnip",
-                f"Hotkey not active: {exc}. Snip from the tray icon, or pick "
-                "another combination in Settings.",
-                QSystemTrayIcon.MessageIcon.Warning,
-                6000,
-            )
+    # -- hotkeys -----------------------------------------------------------
+    HOTKEYS = (
+        ("snip", "hotkey", "Snip from the tray icon"),
+        ("note", "note_hotkey", "Add notes from the tray menu"),
+    )
+
+    def _on_hotkey(self, name: str) -> None:
+        if name == "note":
+            self.quick_note()
         else:
-            if not startup:
-                self._refresh_menu_text()
+            self.request_snip()
+
+    def _register_hotkeys(self, startup: bool = False) -> None:
+        """Register every hotkey, reporting each failure on its own.
+
+        One combination being taken by another program is no reason to lose
+        the other, so a failure is reported and the loop carries on.
+        """
+        for name, key, fallback in self.HOTKEYS:
+            try:
+                self.hotkeys.register(self.qapp, self.cfg[key], name)
+            except hotkey_mod.HotkeyError as exc:
+                self.tray.showMessage(
+                    "ShadowSnip",
+                    f"Hotkey not active: {exc}. {fallback}, or pick another "
+                    "combination in Settings.",
+                    QSystemTrayIcon.MessageIcon.Warning,
+                    6000,
+                )
+        if not startup:
+            self._refresh_menu_text()
 
     # -- snipping ----------------------------------------------------------
     def request_snip(self) -> None:
@@ -401,6 +520,7 @@ class ShadowSnipApp(QObject):
                 f"({exc})"
             )
 
+        self._last_lab_file = lab_path.name if lab_path is not None else ""
         caption_cb = None
         if lab_path is not None and self.cfg["lab_index"] and self.cfg["lab_caption"]:
             caption_cb = self._caption_setter(lab_path.name)
@@ -472,7 +592,9 @@ class ShadowSnipApp(QObject):
             return
         new_cfg = dialog.values()
         new_cfg["active_lab"] = self.cfg.get("active_lab", "")
-        hotkey_changed = new_cfg["hotkey"] != self.cfg["hotkey"]
+        hotkeys_changed = any(
+            new_cfg[key] != self.cfg[key] for _, key, _ in self.HOTKEYS
+        )
         self.cfg = new_cfg
         try:
             config.save(self.cfg)
@@ -484,8 +606,8 @@ class ShadowSnipApp(QObject):
             self._engage_auto_copy(announce=False)
         elif not self.cfg["auto_copy"] and self.autocopy.engaged:
             self.autocopy.release()
-        if hotkey_changed:
-            self._register_hotkey()
+        if hotkeys_changed:
+            self._register_hotkeys()
         self._refresh_menu_text()
 
     def _warn(self, message: str) -> None:

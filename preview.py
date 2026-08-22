@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -37,10 +38,11 @@ QWidget#Root { background: #1b1b1f; }
 QLabel { color: #e6e6ec; }
 QLabel#Status { color: #9a9aa6; font-size: 11px; }
 QLabel#Canvas { background: #101013; border: 1px solid #2c2c33; }
-QLineEdit {
+QLineEdit, QPlainTextEdit {
     background: #232329; color: #e6e6ec; border: 1px solid #3a3a44;
     border-radius: 4px; padding: 5px 8px;
 }
+QLabel#FieldLabel { color: #9a9aa6; font-size: 11px; }
 QPushButton {
     background: #2a2a31; color: #e6e6ec; border: 1px solid #3a3a44;
     border-radius: 4px; padding: 6px 14px;
@@ -57,6 +59,10 @@ class PreviewWindow(QWidget):
     new_snip_requested = Signal()
     lab_toggle_requested = Signal()
     auto_copy_toggled = Signal()
+    # The breadcrumb the lab should file things under from now on.
+    section_changed = Signal(str)
+    # (text, attach_to_the_snip_on_screen)
+    note_added = Signal(str, bool)
 
     def __init__(self, parent=None, icon: QIcon | None = None):
         super().__init__(parent)
@@ -67,6 +73,7 @@ class PreviewWindow(QWidget):
         self._folder_path: Path | None = None
         self._copy_again = None
         self._caption_cb = None
+        self._section_text = ""
 
         self.setObjectName("Root")
         self.setWindowTitle("ShadowSnip")
@@ -87,6 +94,9 @@ class PreviewWindow(QWidget):
         self.caption.setVisible(False)
         self.caption.returnPressed.connect(self._save_caption)
         self.caption.editingFinished.connect(self._save_caption)
+
+        self.lab_panel = self._build_lab_panel()
+        self.lab_panel.setVisible(False)
 
         self.status = QLabel()
         self.status.setObjectName("Status")
@@ -130,11 +140,73 @@ class PreviewWindow(QWidget):
         layout.addLayout(bar)
         layout.addWidget(self.canvas, 1)
         layout.addWidget(self.caption)
+        layout.addWidget(self.lab_panel)
         layout.addWidget(self.status)
 
         QShortcut(QKeySequence.StandardKey.Save, self, self.save_as)
         QShortcut(QKeySequence.StandardKey.Copy, self, self.copy_again)
         QShortcut(QKeySequence("Esc"), self, self.close)
+        # Ctrl+Enter files the note without reaching for the mouse. Scoped to
+        # the window rather than the box, so it works wherever focus happens
+        # to be after a snip.
+        QShortcut(QKeySequence("Ctrl+Return"), self, self._emit_note)
+        QShortcut(QKeySequence("Ctrl+Enter"), self, self._emit_note)
+
+    def _build_lab_panel(self) -> QWidget:
+        """The section breadcrumb and the note box, shown only during a lab."""
+        panel = QWidget()
+
+        self.section_edit = QLineEdit()
+        self.section_edit.setPlaceholderText(
+            "10.10.10.3 / SMB / anonymous share - everything captured lands here"
+        )
+        self.section_edit.setToolTip(
+            "Where snips and notes are filed from now on. Separate the levels "
+            "with /; they become the headings in lab.md."
+        )
+        self.section_edit.returnPressed.connect(self._emit_section)
+        self.section_edit.editingFinished.connect(self._emit_section)
+
+        section_row = QHBoxLayout()
+        section_row.setContentsMargins(0, 0, 0, 0)
+        section_label = QLabel("Section")
+        section_label.setObjectName("FieldLabel")
+        section_row.addWidget(section_label)
+        section_row.addWidget(self.section_edit, 1)
+
+        self.note_edit = QPlainTextEdit()
+        self.note_edit.setPlaceholderText(
+            "Notes for the writeup. Ctrl+Enter files them."
+        )
+        self.note_edit.setFixedHeight(72)
+
+        self.btn_note = QPushButton("Add note")
+        self.btn_note.clicked.connect(self._emit_note)
+        self.attach_note = QPushButton("Attach to this snip")
+        self.attach_note.setCheckable(True)
+        self.attach_note.setChecked(True)
+        self.attach_note.setToolTip(
+            "An attached note renders directly under this image in lab.md, "
+            "rather than on its own in the section"
+        )
+
+        note_buttons = QVBoxLayout()
+        note_buttons.setContentsMargins(0, 0, 0, 0)
+        note_buttons.addWidget(self.btn_note)
+        note_buttons.addWidget(self.attach_note)
+        note_buttons.addStretch(1)
+
+        note_row = QHBoxLayout()
+        note_row.setContentsMargins(0, 0, 0, 0)
+        note_row.addWidget(self.note_edit, 1)
+        note_row.addLayout(note_buttons)
+
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.addLayout(section_row)
+        layout.addLayout(note_row)
+        return panel
 
     # -- content -----------------------------------------------------------
     def show_snip(self, image: QImage, disk_bytes: bytes, ext: str,
@@ -147,6 +219,7 @@ class PreviewWindow(QWidget):
         self._copy_again = copy_again
 
         self.caption.clear()
+        self.note_edit.clear()
         self.attach_lab(folder_path, caption_cb)
 
         self.status.setText(status)
@@ -194,6 +267,42 @@ class PreviewWindow(QWidget):
     def set_status(self, text: str) -> None:
         self.status.setText(text)
 
+    # -- sections and notes -------------------------------------------------
+    def set_notes_visible(self, visible: bool) -> None:
+        """Show the section and note controls. Only meaningful during a lab."""
+        self.lab_panel.setVisible(visible)
+        if not visible:
+            self.note_edit.clear()
+
+    def set_section_text(self, text: str) -> None:
+        """Reflect the lab's current section, normalised, without re-emitting."""
+        self._section_text = text
+        if self.section_edit.text() != text:
+            # setText emits textChanged but not editingFinished, so this
+            # cannot bounce back out through _emit_section.
+            self.section_edit.setText(text)
+
+    def clear_note(self) -> None:
+        self.note_edit.clear()
+
+    def _emit_section(self) -> None:
+        text = self.section_edit.text().strip()
+        if text == self._section_text:
+            # editingFinished also fires on focus loss, and re-filing the same
+            # breadcrumb every time the box is tabbed away from would rewrite
+            # lab.json for nothing.
+            return
+        self.section_changed.emit(text)
+
+    def _emit_note(self) -> None:
+        if not self.lab_panel.isVisible():
+            return
+        text = self.note_edit.toPlainText().strip()
+        if not text:
+            return
+        attach = self.attach_note.isChecked() and self._image is not None
+        self.note_added.emit(text, attach)
+
     # -- lab state ---------------------------------------------------------
     def set_lab_name(self, name: str) -> None:
         """Reflect the engaged lab on the toolbar button."""
@@ -205,6 +314,8 @@ class PreviewWindow(QWidget):
         self.caption.setVisible(caption_cb is not None)
         if caption_cb is None:
             self.caption.clear()
+        # Nothing to attach a note to until a snip is on screen.
+        self.attach_note.setEnabled(self._image is not None)
         if folder_path is not None:
             self._folder_path = folder_path
             self.btn_folder.setText("Open lab")

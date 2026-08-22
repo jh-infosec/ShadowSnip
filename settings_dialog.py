@@ -94,6 +94,7 @@ class SettingsDialog(QDialog):
         self._cfg = dict(cfg)
 
         self.hotkey_edit = HotkeyEdit(cfg["hotkey"])
+        self.note_hotkey_edit = HotkeyEdit(cfg["note_hotkey"])
 
         self.folder_edit = QLineEdit(cfg["save_dir"])
         browse = QPushButton("Browse...")
@@ -223,7 +224,9 @@ class SettingsDialog(QDialog):
         lab_layout.addWidget(self.lab_root_edit, 1)
         lab_layout.addWidget(lab_browse)
 
-        self.lab_index_check = QCheckBox("Write a lab.md index next to the images")
+        self.lab_index_check = QCheckBox(
+            "Keep a lab record and lab.md index (needed for sections and notes)"
+        )
         self.lab_index_check.setChecked(cfg["lab_index"])
         self.lab_caption_check = QCheckBox("Offer a caption box after each snip in a lab")
         self.lab_caption_check.setChecked(cfg["lab_caption"])
@@ -233,6 +236,7 @@ class SettingsDialog(QDialog):
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("Snip hotkey", self.hotkey_edit)
+        form.addRow("Quick note hotkey", self.note_hotkey_edit)
         form.addRow("Save folder", folder_row)
         form.addRow("Replaced file name", self.name_edit)
         form.addRow(self.history_check)
@@ -301,6 +305,7 @@ class SettingsDialog(QDialog):
     def values(self) -> dict:
         cfg = dict(self._cfg)
         cfg["hotkey"] = self.hotkey_edit.spec
+        cfg["note_hotkey"] = self.note_hotkey_edit.spec
         cfg["save_dir"] = self.folder_edit.text().strip()
         cfg["latest_name"] = self.name_edit.text().strip()
         cfg["keep_history"] = self.history_check.isChecked()

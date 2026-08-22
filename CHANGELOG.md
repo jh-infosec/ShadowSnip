@@ -1,32 +1,43 @@
 # Changelog
 
-All notable changes to ShadowSnip are recorded here. Format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## Latest: 0.4.0
 
-## [Unreleased]
+**Added** — lab **sections** and **notes**, so the writeup builds itself while
+you work instead of being assembled from a pile of screenshots afterwards. Copy
+on select now fires on a **double-click** (word) and **triple-click** (line),
+never touches a password manager, and shows a confirmation next to the cursor.
 
-### Fixed
-- `F` and `Space` grabbed the primary screen rather than the screen under the
-  pointer. Both the overlay and the preview window worked out "where the cursor
-  is" from `primaryScreen().geometry().center()`, which is a fixed point on one
-  monitor and never the cursor. Overlay focus and the preview window's centring
-  now both come from `QCursor.pos()`.
-- A refused mouse hook reported `error 0`. `ctypes.get_last_error()` reads the
-  copy ctypes keeps only for libraries built with `use_last_error=True`, which
-  `ctypes.windll` is not; `ctypes.GetLastError()` is the one that answers.
-- A save folder that could not be written took the lab copy down with it. The
-  standing file and the second destination shared one `try`, so a full or
-  read-only save folder skipped `lab.save()` entirely even when the lab sat on
-  a different drive. Each destination now gets its own attempt and its own note
-  in the status line.
-- A `null` in `config.json` sanitised to the string `"None"` and was accepted
-  as a real value. A null `save_dir` then reached `Path()` as `None` and raised
-  `TypeError`, which is not an `OSError` and so was not caught where the writes
-  happen — the snip was lost with a traceback. Null string settings now fall
-  back to their defaults.
+**Changed** — `lab.md` is a section tree rather than a flat list; `lab.json`
+entries carry a kind and a section, and old labs still open unmigrated. One
+hotkey manager now holds several keys.
+
+**Fixed** — in 0.3.4: `F`/`Space` grabbing the wrong screen, a hook failure
+reporting `error 0`, an unwritable save folder taking the lab copy down with
+it, and a `null` in `config.json` losing a snip to a traceback.
+
+---
+
+## [0.4.0] - 2026-08-22
+
+Pentest notes, and copy on select that catches a double-click.
 
 ### Added
+- **Sections.** A lab now carries a current breadcrumb — `10.10.10.3/SMB` —
+  and everything captured while it is set is filed under it. `lab.md` renders
+  those paths as nested headings, in the order the sections were first used
+  rather than alphabetically, because that is the order the work happened in.
+  The structure is therefore recorded during the engagement instead of being
+  reconstructed from a pile of screenshots afterwards. It lives in `lab.json`
+  rather than the config, so it belongs to the lab and resuming one restores
+  it. Set it in the preview window or from **Set section...** in the tray.
+- **Notes.** Text entries alongside the snips in one ordered record. A
+  multi-line box in the preview window (**Ctrl+Enter** files it) for writing
+  about the snip on screen, and a global **Ctrl+Shift+N** for catching one line
+  without breaking stride. A note typed against a snip attaches to it and
+  renders as a quote directly beneath that image — evidence, then the sentence
+  about the evidence. A note attached to a snip filed in another section stays
+  where it was written and carries an `_Evidence:_` reference instead, so a
+  note never silently moves out of its own section.
 - Copy on select now fires on a **double-click** (the word) and a
   **triple-click** (the line), not only on a drag. A low-level mouse hook never
   receives `WM_LBUTTONDBLCLK` — it is synthesised further up the stack, when an
@@ -50,17 +61,57 @@ All notable changes to ShadowSnip are recorded here. Format follows
 - Clips identical to the one before are ignored, since re-selecting the same
   word is the commonest gesture there is and announcing it every time turns a
   useful confirmation into noise.
-- A test suite (`pytest`) over the modules that hold logic rather than pixels:
-  config sanitising and round-tripping, the standing file and history pruning,
-  lab numbering, captions and the index render, hotkey string parsing, and the
-  compression pipeline's quantise decision, and the click-run counter and clip
-  summary added above. No display and no Windows required.
-- `requirements-dev.txt`, and a **Tests** section in `BUILD.md`.
+- Test coverage for everything above: the click-run counter, the clip summary,
+  section normalising, note records, and the section-tree walk with its
+  attachment rendering.
 
 ### Changed
+- `lab.md` is now a section tree rather than a flat list of `## 001` headings.
+  A lab with no sections set renders as one flat run under the title, so a lab
+  from 0.3.x looks much as it did.
+- `lab.json` entries carry `kind` and `section`. Records written before this
+  have neither: they read as snips at the root of the tree, so old labs open
+  and render without being migrated.
+- `HotkeyManager` registers named hotkeys and emits `triggered(name)` instead
+  of managing exactly one. They share a single native event filter — that
+  filter runs for every message the process receives, and a second Python
+  callback on every mouse move is a poor price for a dictionary lookup.
+- **Write a lab.md index** is now **Keep a lab record**, which is what it
+  always did. Sections and notes need it, and the label now says so.
 - `AutoCopy.copied` carries the kind of clip alongside the text — `selection`,
   `word` or `line` — so the confirmation and the status line can say which
   gesture produced it.
+
+## [0.3.4] - 2026-08-21
+
+Bug fixes, and a test suite to catch the next ones.
+
+### Fixed
+- `F` and `Space` grabbed the primary screen rather than the screen under the
+  pointer. Both the overlay and the preview window worked out "where the cursor
+  is" from `primaryScreen().geometry().center()`, which is a fixed point on one
+  monitor and never the cursor. Overlay focus and the preview window's centring
+  now both come from `QCursor.pos()`.
+- A refused mouse hook reported `error 0`. `ctypes.get_last_error()` reads the
+  copy ctypes keeps only for libraries built with `use_last_error=True`, which
+  `ctypes.windll` is not; `ctypes.GetLastError()` is the one that answers.
+- A save folder that could not be written took the lab copy down with it. The
+  standing file and the second destination shared one `try`, so a full or
+  read-only save folder skipped `lab.save()` entirely even when the lab sat on
+  a different drive. Each destination now gets its own attempt and its own note
+  in the status line.
+- A `null` in `config.json` sanitised to the string `"None"` and was accepted
+  as a real value. A null `save_dir` then reached `Path()` as `None` and raised
+  `TypeError`, which is not an `OSError` and so was not caught where the writes
+  happen — the snip was lost with a traceback. Null string settings now fall
+  back to their defaults.
+
+### Added
+- A test suite (`pytest`) over the modules that hold logic rather than pixels:
+  config sanitising and round-tripping, the standing file and history pruning,
+  lab numbering, captions and the index render, hotkey string parsing, and the
+  compression pipeline's quantise decision. No display and no Windows required.
+- `requirements-dev.txt`, and a **Tests** section in `BUILD.md`.
 
 ## [0.3.3] - 2026-08-11
 

@@ -103,53 +103,74 @@ def describe(spec: str) -> str:
 
 
 class HotkeyManager(QObject, QAbstractNativeEventFilter):
-    """Registers one hotkey and emits `triggered` when it fires."""
+    """Registers named hotkeys and emits `triggered(name)` when one fires.
 
-    triggered = Signal()
+    Several hotkeys share one native event filter rather than one filter each.
+    The filter is called for every message the application receives, so it is
+    the hot path of the whole process, and paying for a second Python callback
+    on every mouse move to save a dictionary lookup would be a poor trade.
+    """
 
-    HOTKEY_ID = 0xA51
+    triggered = Signal(str)
+
+    BASE_ID = 0xA51
 
     def __init__(self, parent=None):
         QObject.__init__(self, parent)
         QAbstractNativeEventFilter.__init__(self)
-        self._registered = False
         self._installed = False
-        self._spec = ""
+        self._ids: dict[str, int] = {}  # action name -> Win32 hotkey id
+        self._specs: dict[str, str] = {}  # action name -> registered spec
 
     @property
     def supported(self) -> bool:
         return sys.platform == "win32"
 
-    @property
-    def spec(self) -> str:
-        return self._spec
+    def spec(self, name: str = "snip") -> str:
+        """The spec currently registered for an action, or ""."""
+        return self._specs.get(name, "")
 
-    def register(self, app, spec: str) -> None:
-        """Replace any existing registration. Raises HotkeyError on failure."""
+    def registered(self, name: str = "snip") -> bool:
+        return name in self._specs
+
+    def register(self, app, spec: str, name: str = "snip") -> None:
+        """Replace this action's registration. Raises HotkeyError on failure."""
         mods, key = parse(spec)
         if not self.supported:
             raise HotkeyError("global hotkeys are only wired up on Windows")
 
-        self.unregister()
+        self.unregister(name)
         if not self._installed:
             app.installNativeEventFilter(self)
             self._installed = True
 
-        user32 = ctypes.windll.user32
-        if not user32.RegisterHotKey(None, self.HOTKEY_ID, mods, key):
+        hotkey_id = self._id_for(name)
+        if not ctypes.windll.user32.RegisterHotKey(None, hotkey_id, mods, key):
             raise HotkeyError(
                 f"{describe(spec)} is already taken by another program"
             )
-        self._registered = True
-        self._spec = spec
+        self._specs[name] = spec
 
-    def unregister(self) -> None:
-        if self._registered and self.supported:
-            try:
-                ctypes.windll.user32.UnregisterHotKey(None, self.HOTKEY_ID)
-            except OSError:
-                pass
-        self._registered = False
+    def unregister(self, name: str | None = None) -> None:
+        """Drop one action's hotkey, or every one of them when name is None."""
+        targets = list(self._specs) if name is None else [name]
+        for target in targets:
+            if target in self._specs and self.supported:
+                try:
+                    ctypes.windll.user32.UnregisterHotKey(None, self._ids[target])
+                except OSError:
+                    pass
+            self._specs.pop(target, None)
+
+    def _id_for(self, name: str) -> int:
+        """A stable Win32 id per action name, handed out in first-seen order.
+
+        Kept even after unregistering, so re-registering the same action does
+        not leak ids on every settings save.
+        """
+        if name not in self._ids:
+            self._ids[name] = self.BASE_ID + len(self._ids)
+        return self._ids[name]
 
     def nativeEventFilter(self, event_type, message):
         if event_type != b"windows_generic_MSG":
@@ -158,9 +179,11 @@ class HotkeyManager(QObject, QAbstractNativeEventFilter):
             msg = ctypes.cast(int(message), ctypes.POINTER(_MSG)).contents
         except (TypeError, ValueError):
             return False, 0
-        if msg.message == WM_HOTKEY and msg.wParam == self.HOTKEY_ID:
-            self.triggered.emit()
-            return True, 0
+        if msg.message == WM_HOTKEY:
+            for name, hotkey_id in self._ids.items():
+                if msg.wParam == hotkey_id and name in self._specs:
+                    self.triggered.emit(name)
+                    return True, 0
         return False, 0
 
 

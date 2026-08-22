@@ -13,7 +13,7 @@ overlay.py           the dimmed selection windows
 imageops.py          QImage -> Pillow, compression, DIB encoding
 clipboard.py         Win32 clipboard writer (PNG + CF_DIB), Qt fallback
 storage.py           latest-file replacement, history, atomic writes
-lab.py               lab sessions: numbering, lab.json state, lab.md index
+lab.py               lab sessions: numbering, sections, notes, the lab.md tree
 autocopy.py          copy on select: mouse hook, guards, clipboard read-back
 toast.py             the one-second clip confirmation near the cursor
 preview.py           post-snip window
@@ -111,6 +111,30 @@ names, and pathlib rejects a null byte before the OS is even asked, so
 deliberate: fail loudly on the name the user actually typed rather than
 silently create a folder they did not ask for. The catch is what stops it
 being a silent failure.
+
+**The section is state, not a field on each entry the user fills in.** A lab
+already has one piece of quiet routing state — which lab is engaged — and the
+current section is the second. Everything captured while it is set inherits it,
+which means the tree is recorded as a side effect of doing the work rather than
+assembled from a pile of screenshots at the end. The alternative, tagging each
+snip and note as it is made, is more flexible and would be used approximately
+never at two in the morning.
+
+It lives in `lab.json` rather than the config because it belongs to the lab:
+resuming a lab a day later should put you back where you were, and two labs
+should not share a breadcrumb.
+
+**Notes are entries in the same list as snips.** One ordered record, one
+rendering pass, one source of truth. A separate notes file would have needed
+its own ordering, its own numbering, and a merge step at render time to
+interleave the two — three things to get wrong for no gain.
+
+**An attached note renders under its snip, but only within a section.** The
+useful arrangement in a report is evidence then commentary, so a note attached
+to a snip in the same section is rendered as a quote beneath the image. Across
+sections it is not: a note that moved somewhere the user did not put it is a
+worse failure than a note that is merely further from its screenshot, so it
+stays where it was written and carries a reference instead.
 
 **A mouse hook for copy on select, and only for that.** The hotkey argument
 below still holds: a keyboard hook would see every keystroke typed anywhere,

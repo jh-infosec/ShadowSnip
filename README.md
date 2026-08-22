@@ -40,6 +40,7 @@ the tray icon) to snip.
 | Action | Key |
 | --- | --- |
 | Start a snip | `Ctrl+Shift+S`, the tray menu, or `python main.py --snip` |
+| Jot a note into the lab | `Ctrl+Shift+N`, or **Add note...** in the tray menu |
 | Open the window | click the tray icon |
 | Start or stop a lab | **Start lab** in the preview window, or the tray menu |
 | Drag a region | left mouse button |
@@ -135,12 +136,80 @@ Each lab folder holds the images plus two files:
 
 | File | What it is |
 | --- | --- |
-| `lab.json` | the record: name, start time, one entry per snip |
-| `lab.md` | rendered from `lab.json`, every image embedded in order |
+| `lab.json` | the record: name, start time, current section, one entry per snip and per note |
+| `lab.md` | rendered from `lab.json`, the section tree with every image and note in place |
 
 `lab.md` is meant to be pasted straight into a writeup. If the caption box is
 switched on, whatever is typed in the preview window after a snip appears in
 the index above that image.
+
+### Sections
+
+A lab carries a **current section**: a breadcrumb you set as you work.
+
+```
+10.10.10.3 / SMB / anonymous share
+```
+
+Everything captured while it is set — snips and notes alike — is filed under
+it, and `lab.md` renders those paths as nested headings. That is where the
+structure comes from, and it costs nothing at the end: there is no pile of
+screenshots to sort into an order the night the report is due, because setting
+the breadcrumb *is* how you say "I'm on SMB now".
+
+Set it in the box in the preview window, or **Set section...** in the tray
+menu. Levels are separated with `/`, whitespace is tidied up, and the depth is
+capped at six because markdown has nowhere to put a seventh. Leave it empty and
+things are filed at the root of the lab. The section lives in `lab.json` rather
+than the config, so it belongs to the lab: resuming one puts you back where you
+were.
+
+Sections appear in `lab.md` in the order you first used them, not
+alphabetically — the work happened in an order and the writeup should follow it.
+
+### Notes
+
+Two ways in, for two different moments:
+
+| Route | For |
+| --- | --- |
+| The note box in the preview window, **Ctrl+Enter** to file | Writing about the snip you are looking at |
+| `Ctrl+Shift+N` from anywhere | One line, caught without breaking stride |
+
+A note typed in the preview window attaches to the snip on screen by default,
+and renders directly beneath that image as a quote — evidence, then the
+sentence about the evidence, which is the arrangement a report wants. Untick
+**Attach to this snip** and it stands on its own in the section instead. The
+quick-note hotkey never attaches; it just files a line under the current
+section.
+
+A note attached to a snip that ended up in a *different* section stays where it
+was written and carries an `_Evidence: 002_...png_` reference instead. A note
+never silently moves out of the section it was taken in.
+
+The result reads like this:
+
+```markdown
+# htb-lame
+
+## 10.10.10.3
+
+### SMB
+
+Anonymous login allowed on tmp.
+
+**002** - 14:33:52 - smbclient share listing
+
+![002](002_2026-08-11_14-33-52.png)
+
+> tmp is world-writable, so we can drop a payload
+```
+
+Sections and notes both need the lab record switched on — that is the
+**Keep a lab record** setting, which is on by default.
+
+Old labs from 0.3.x open and render without being migrated. Their entries have
+no section, so they appear at the root of the tree.
 
 Starting a lab with a name that already exists resumes it and carries on
 numbering, so a crash or a restart costs nothing. The name is used as the
@@ -175,6 +244,7 @@ Right-click the tray icon → **Settings**.
 | Setting | Effect |
 | --- | --- |
 | Snip hotkey | Click the field and press the combination you want |
+| Quick note hotkey | The same, for the one-line note box |
 | Save folder / replaced file name | Where the standing snip lives |
 | Keep a timestamped copy | Turns on the `history` folder, pruned to a fixed count |
 | File format | What goes to disk: PNG, WebP or JPEG. The clipboard always gets PNG |
@@ -193,7 +263,7 @@ Right-click the tray icon → **Settings**.
 | Shortest drag that counts | Below this, a drag is treated as a click |
 | Never copy from | Extra executable names to leave alone, on top of the built-in password managers |
 | Labs folder | Where labs live. Blank means a `labs` folder inside the save folder |
-| Write a lab.md index | Keeps `lab.json` and the rendered `lab.md` up to date |
+| Keep a lab record | Keeps `lab.json` and the rendered `lab.md` up to date. Sections and notes need it |
 | Offer a caption box | Shows a caption field in the preview window during a lab |
 
 ## Running it
@@ -220,7 +290,10 @@ for starting ShadowSnip at login.
   keeps working from the tray menu.
 - Windows only. The capture, overlay and image code are cross-platform, but
   the hotkey and clipboard layers are Win32.
-- Lab folders are not encrypted. Screenshots taken during a lab routinely
-  contain hashes, tokens and internal hostnames, and they sit on disk in plain
-  sight. A `.gitignore` is written into the labs root so none of it reaches a
+- **Lab folders are not encrypted, and notes make that sharper.** Screenshots
+  taken during a lab routinely contain hashes, tokens and internal hostnames,
+  and they sit on disk in plain sight. Notes put the same material there as
+  *searchable text* — a password typed into a note is a password in a plain
+  file. A `.gitignore` is written into the labs root so none of it reaches a
   repository by accident, but that is the only protection there is so far.
+  Treat a labs folder the way you would treat the engagement data itself.

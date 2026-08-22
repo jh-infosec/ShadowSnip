@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.3.4"
+APP_VERSION = "0.4.0"
 
 
 def config_dir() -> Path:
@@ -33,6 +33,8 @@ CONFIG_PATH = config_dir() / "config.json"
 DEFAULTS = {
     # Global hotkey that starts a snip. Modifiers: ctrl, alt, shift, win.
     "hotkey": "ctrl+shift+s",
+    # Global hotkey that files a one-line note into the engaged lab.
+    "note_hotkey": "ctrl+shift+n",
     # Where the always-overwritten snip and any history land.
     "save_dir": str(default_save_dir()),
     # Base name of the file that gets replaced on every snip.
@@ -180,8 +182,9 @@ def _sanitise(cfg: dict) -> dict:
     # the string "None" and sail through as a real value. A null save_dir in
     # particular reaches Path() as None and raises TypeError on the first snip,
     # which is not an OSError and so is not caught where the writes happen.
-    if not str(cfg.get("hotkey") or "").strip():
-        cfg["hotkey"] = DEFAULTS["hotkey"]
+    for key in ("hotkey", "note_hotkey"):
+        if not str(cfg.get(key) or "").strip():
+            cfg[key] = DEFAULTS[key]
     if not str(cfg.get("save_dir") or "").strip():
         cfg["save_dir"] = DEFAULTS["save_dir"]
     name = str(cfg.get("latest_name") or "").strip() or DEFAULTS["latest_name"]

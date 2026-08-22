@@ -1,6 +1,6 @@
 # ShadowSnip roadmap
 
-## v0.4 - integration (next)
+## v0.5 - integration (next)
 
 - Run at login toggle in Settings, writing the shortcut itself and reading
   back the real state rather than a stored flag.
@@ -12,7 +12,7 @@
   route to different projects.
 - Signed release binaries so SmartScreen stops warning on first run.
 
-## v0.5 - capture modes
+## v0.6 - capture modes
 
 - Window mode: highlight and grab the window under the cursor.
 - Freeform (lasso) selection, matching Snipping Tool's freeform mode.
@@ -20,7 +20,7 @@
 - Snap the selection to detected UI element edges while dragging.
 - Magnifier loupe near the cursor for pixel-exact edges.
 
-## v0.6 - after the snip
+## v0.7 - after the snip
 
 - Lightweight annotation: pen, arrow, rectangle, highlighter, and a redaction
   block for screenshots that carry credentials or client data.
@@ -29,14 +29,34 @@
 - "Copy as" menu: PNG, JPEG, WebP, or a data URI.
 - Reorder or drop entries in a lab index without editing `lab.json` by hand.
 
+## Notes and sections, still open
+
+- Editing a note after the fact needs `lab.json` opened by hand. A list view
+  over the record — edit the text, move an entry to another section, drop one —
+  is the obvious next piece, and shares its plumbing with the reorder item
+  above.
+- Section reuse: a picker of the sections already used in this lab, so
+  returning to `10.0.0.3/SMB` after an hour on HTTP does not mean retyping it
+  and risking a near-miss that splits the tree.
+- Export beyond markdown. `lab.md` pastes into most things, but a
+  self-contained HTML with the images inlined, or a .docx built against a
+  client template, would drop straight into a report rather than needing the
+  images carried alongside.
+- A note is filed against whatever section is set at that moment, so a note
+  typed after moving on lands in the new section. Whether an attached note
+  should instead inherit its snip's section is a real question; today the
+  answer is no, and the `_Evidence:_` reference is the compromise.
+
 ## Copy on select, still open
 
-- Every clip could go into the engaged lab. A lab already collects a session's
-  screenshots; the hashes, tokens and hostnames highlighted during that same
-  session are the same evidence, and they currently evaporate into the
-  clipboard. A timestamped `clips.md` alongside `lab.md` would make a lab a
-  full session record. The password-manager blocklist exists partly to make
-  this safe to build.
+- Every clip could become a note in the current section. Notes and sections
+  now exist, so this is a two-line connection rather than a feature: the
+  hashes, tokens and hostnames highlighted during a session are the same
+  evidence as the screenshots, and they still evaporate into the clipboard. The
+  password-manager blocklist exists partly to make this safe. The open question
+  is not how but whether — an automatic clip is unreviewed text landing in the
+  writeup, and a lab would fill with noise unless it is opt-in per lab, or held
+  in a staging list the user promotes from.
 - Shift+click to extend a selection is missed, because every modifier blocks.
   Fixable by clearing the modifier state in the injected keystroke rather than
   refusing outright, which needs `SendInput` instead of `keybd_event`.
@@ -49,7 +69,7 @@
   partial in Chromium, absent in terminals. Worth measuring before adopting.
 - Copy on select silently replaces a snip on the clipboard. Whether the two
   should share a small history, rather than one overwriting the other, is the
-  question the clipboard history strip in v0.6 would answer.
+  question the clipboard history strip in v0.7 would answer.
 
 ## Open questions
 
