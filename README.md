@@ -164,6 +164,17 @@ things are filed at the root of the lab. The section lives in `lab.json` rather
 than the config, so it belongs to the lab: resuming one puts you back where you
 were.
 
+The box is a **picker** as well as a text field — it lists every breadcrumb the
+lab already uses, parents included. Returning to `10.0.0.3/SMB` after an hour on
+HTTP is one click rather than retyping it from memory, which is how you end up
+with `SCAN` and `SCANvv2` as two branches of the same tree and only notice in
+the writeup.
+
+**Move snip here** re-files the snip on screen under the current section. The
+natural rhythm is snip first, name the section a moment later — which leaves
+the snip at the root while the notes about it are filed under the breadcrumb.
+This is the one-click repair, and it is a button rather than a guess.
+
 Sections appear in `lab.md` in the order you first used them, not
 alphabetically — the work happened in an order and the writeup should follow it.
 

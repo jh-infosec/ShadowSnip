@@ -279,6 +279,125 @@ def test_a_snip_records_the_section_it_was_taken_in(cfg):
     assert _state(folder)["entries"][-1]["section"] == "10.0.0.3/SMB"
 
 
+# -- the section picker ----------------------------------------------------
+def test_no_sections_without_an_active_lab(cfg):
+    assert lab.sections(cfg) == []
+
+
+def test_sections_lists_what_the_lab_has_used(cfg):
+    _start(cfg)
+    lab.set_section(cfg, "recon")
+    lab.save(b"a", "png", cfg)
+    lab.set_section(cfg, "exploit")
+    lab.add_note(cfg, "note")
+    assert lab.sections(cfg) == ["recon", "exploit"]
+
+
+def test_sections_includes_ancestors_never_used_directly(cfg):
+    """`a/b` is a heading under `a`, so going back up a level must be offered."""
+    _start(cfg)
+    lab.set_section(cfg, "10.0.0.3/SMB/shares")
+    lab.add_note(cfg, "note")
+    assert lab.sections(cfg) == ["10.0.0.3", "10.0.0.3/SMB", "10.0.0.3/SMB/shares"]
+
+
+def test_sections_are_listed_parents_first_in_first_use_order(cfg):
+    _start(cfg)
+    lab.set_section(cfg, "zulu/two")
+    lab.add_note(cfg, "note")
+    lab.set_section(cfg, "alpha")
+    lab.add_note(cfg, "note")
+    assert lab.sections(cfg) == ["zulu", "zulu/two", "alpha"]
+
+
+def test_sections_has_no_duplicates(cfg):
+    _start(cfg)
+    lab.set_section(cfg, "recon")
+    lab.add_note(cfg, "one")
+    lab.add_note(cfg, "two")
+    lab.save(b"a", "png", cfg)
+    assert lab.sections(cfg) == ["recon"]
+
+
+def test_the_current_section_is_offered_before_anything_is_filed_in_it(cfg):
+    _start(cfg)
+    lab.set_section(cfg, "recon")
+    assert lab.sections(cfg) == ["recon"]
+
+
+def test_the_root_is_not_offered_as_a_section(cfg):
+    _start(cfg)
+    lab.save(b"a", "png", cfg)  # filed at the root
+    assert lab.sections(cfg) == []
+
+
+# -- moving a snip ---------------------------------------------------------
+def test_moving_a_snip_refiles_it(cfg):
+    folder = _start(cfg)
+    path = lab.save(b"a", "png", cfg)  # taken before any section was set
+    lab.set_section(cfg, "10.0.0.3/SMB")
+
+    assert lab.move_snip(cfg, path.name, lab.section(cfg)) == "10.0.0.3/SMB"
+    assert _state(folder)["entries"][0]["section"] == "10.0.0.3/SMB"
+
+
+def test_moving_a_snip_reunites_it_with_its_attached_note(cfg):
+    """The whole point: snip first, name the section after, notes follow."""
+    folder = _start(cfg)
+    path = lab.save(b"a", "png", cfg)
+    lab.set_section(cfg, "SMB")
+    lab.add_note(cfg, "world-writable", attach=[path.name])
+
+    index = (folder / lab.INDEX_NAME).read_text(encoding="utf-8")
+    assert "_Evidence:" in index  # orphaned: note here, snip at the root
+
+    lab.move_snip(cfg, path.name, "SMB")
+    index = (folder / lab.INDEX_NAME).read_text(encoding="utf-8")
+    assert "_Evidence:" not in index
+    assert "> world-writable" in index
+    assert index.index("## SMB") < index.index(f"![001]({path.name})")
+
+
+def test_moving_a_snip_to_the_same_section_is_a_no_op(cfg):
+    folder = _start(cfg)
+    lab.set_section(cfg, "recon")
+    path = lab.save(b"a", "png", cfg)
+    before = (folder / lab.STATE_NAME).stat().st_mtime_ns
+
+    assert lab.move_snip(cfg, path.name, "recon") == "recon"
+    assert (folder / lab.STATE_NAME).stat().st_mtime_ns == before
+
+
+def test_a_snip_can_be_moved_back_to_the_root(cfg):
+    folder = _start(cfg)
+    lab.set_section(cfg, "recon")
+    path = lab.save(b"a", "png", cfg)
+    assert lab.move_snip(cfg, path.name, "") == ""
+    assert _state(folder)["entries"][0]["section"] == ""
+
+
+def test_moving_normalises_the_section(cfg):
+    _start(cfg)
+    path = lab.save(b"a", "png", cfg)
+    assert lab.move_snip(cfg, path.name, "  10.0.0.3 / SMB  ") == "10.0.0.3/SMB"
+
+
+def test_moving_an_unknown_snip_is_refused(cfg):
+    _start(cfg)
+    lab.save(b"a", "png", cfg)
+    assert lab.move_snip(cfg, "999_nope.png", "recon") is None
+
+
+def test_moving_without_an_active_lab_is_refused(cfg):
+    assert lab.move_snip(cfg, "001_x.png", "recon") is None
+
+
+def test_moving_needs_the_lab_record(cfg):
+    cfg["lab_index"] = False
+    _start(cfg)
+    assert lab.move_snip(cfg, "001_x.png", "recon") is None
+
+
 # -- notes -----------------------------------------------------------------
 def test_a_note_is_recorded_in_the_current_section(cfg):
     folder = _start(cfg)

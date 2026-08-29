@@ -1,11 +1,14 @@
 # Changelog
 
-## Latest: 0.4.0
+## Latest: 0.4.1
 
-**Added** — lab **sections** and **notes**, so the writeup builds itself while
-you work instead of being assembled from a pile of screenshots afterwards. Copy
-on select now fires on a **double-click** (word) and **triple-click** (line),
-never touches a password manager, and shows a confirmation next to the cursor.
+**Added** — the section box is now a **picker** of the breadcrumbs a lab already
+uses, and **Move snip here** re-files a snip that was taken before the section
+was set. In 0.4.0: lab **sections** and **notes**, so the writeup builds itself
+while you work instead of being assembled from a pile of screenshots afterwards;
+copy on select firing on a **double-click** (word) and **triple-click** (line),
+skipping password managers entirely, and showing a confirmation next to the
+cursor.
 
 **Changed** — `lab.md` is a section tree rather than a flat list; `lab.json`
 entries carry a kind and a section, and old labs still open unmigrated. One
@@ -17,7 +20,26 @@ it, and a `null` in `config.json` losing a snip to a traceback.
 
 ---
 
-## [0.4.0] - 2026-08-22
+## [0.4.1] - 2026-08-29
+
+The two things the first real lab session tripped over.
+
+### Added
+- The section box is a **picker** as well as a text field, listing every
+  breadcrumb the lab already uses, ancestors included. Retyping `10.0.0.3/SMB`
+  from memory an hour later is how one section quietly becomes two — the first
+  session with 0.4.0 produced a `SCAN` and a `SCANvv2` within five minutes, and
+  a near-miss like that is invisible until the writeup.
+- **Move snip here** in the preview window re-files the snip on screen under the
+  current section. Snipping first and naming the section a moment later is the
+  natural order, and it left the snip at the root while the notes about it were
+  filed under the breadcrumb — so they rendered as an `_Evidence:_` reference
+  instead of sitting under the image. A button rather than a guess: the
+  application has no business deciding which section a snip "really" belonged
+  to.
+- `lab.sections()` and `lab.move_snip()`, with tests for both.
+
+## [0.4.0] - 2026-08-29
 
 Pentest notes, and copy on select that catches a double-click.
 

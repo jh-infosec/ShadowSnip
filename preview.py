@@ -20,6 +20,7 @@ from PySide6.QtGui import (
     QShortcut,
 )
 from PySide6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -38,9 +39,13 @@ QWidget#Root { background: #1b1b1f; }
 QLabel { color: #e6e6ec; }
 QLabel#Status { color: #9a9aa6; font-size: 11px; }
 QLabel#Canvas { background: #101013; border: 1px solid #2c2c33; }
-QLineEdit, QPlainTextEdit {
+QLineEdit, QPlainTextEdit, QComboBox {
     background: #232329; color: #e6e6ec; border: 1px solid #3a3a44;
     border-radius: 4px; padding: 5px 8px;
+}
+QComboBox QAbstractItemView {
+    background: #232329; color: #e6e6ec; border: 1px solid #3a3a44;
+    selection-background-color: #0a63c4;
 }
 QLabel#FieldLabel { color: #9a9aa6; font-size: 11px; }
 QPushButton {
@@ -63,6 +68,8 @@ class PreviewWindow(QWidget):
     section_changed = Signal(str)
     # (text, attach_to_the_snip_on_screen)
     note_added = Signal(str, bool)
+    # Re-file the snip on screen under the current section.
+    snip_move_requested = Signal()
 
     def __init__(self, parent=None, icon: QIcon | None = None):
         super().__init__(parent)
@@ -156,16 +163,29 @@ class PreviewWindow(QWidget):
         """The section breadcrumb and the note box, shown only during a lab."""
         panel = QWidget()
 
-        self.section_edit = QLineEdit()
-        self.section_edit.setPlaceholderText(
+        # Editable, and pre-filled with the sections this lab already uses.
+        # Typing a breadcrumb from memory is how one section becomes two.
+        self.section_edit = QComboBox()
+        self.section_edit.setEditable(True)
+        self.section_edit.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.section_edit.lineEdit().setPlaceholderText(
             "10.10.10.3 / SMB / anonymous share - everything captured lands here"
         )
         self.section_edit.setToolTip(
             "Where snips and notes are filed from now on. Separate the levels "
-            "with /; they become the headings in lab.md."
+            "with /; they become the headings in lab.md. The list holds the "
+            "sections this lab already uses."
         )
-        self.section_edit.returnPressed.connect(self._emit_section)
-        self.section_edit.editingFinished.connect(self._emit_section)
+        self.section_edit.lineEdit().returnPressed.connect(self._emit_section)
+        self.section_edit.lineEdit().editingFinished.connect(self._emit_section)
+        self.section_edit.activated.connect(lambda _index: self._emit_section())
+
+        self.btn_move_snip = QPushButton("Move snip here")
+        self.btn_move_snip.setToolTip(
+            "Re-file the snip on screen under the section above - for when it "
+            "was taken before the section was set"
+        )
+        self.btn_move_snip.clicked.connect(self.snip_move_requested.emit)
 
         section_row = QHBoxLayout()
         section_row.setContentsMargins(0, 0, 0, 0)
@@ -173,6 +193,7 @@ class PreviewWindow(QWidget):
         section_label.setObjectName("FieldLabel")
         section_row.addWidget(section_label)
         section_row.addWidget(self.section_edit, 1)
+        section_row.addWidget(self.btn_move_snip)
 
         self.note_edit = QPlainTextEdit()
         self.note_edit.setPlaceholderText(
@@ -274,19 +295,31 @@ class PreviewWindow(QWidget):
         if not visible:
             self.note_edit.clear()
 
+    def set_sections(self, paths) -> None:
+        """Offer the breadcrumbs this lab already uses, keeping what is typed."""
+        typed = self.section_edit.currentText()
+        blocked = self.section_edit.blockSignals(True)
+        try:
+            self.section_edit.clear()  # also empties the line edit
+            self.section_edit.addItems(list(paths))
+            self.section_edit.setCurrentText(typed)
+        finally:
+            self.section_edit.blockSignals(blocked)
+
     def set_section_text(self, text: str) -> None:
         """Reflect the lab's current section, normalised, without re-emitting."""
         self._section_text = text
-        if self.section_edit.text() != text:
-            # setText emits textChanged but not editingFinished, so this
-            # cannot bounce back out through _emit_section.
-            self.section_edit.setText(text)
+        if self.section_edit.currentText() != text:
+            # setCurrentText writes to the line edit, which emits textChanged
+            # but not editingFinished, so this cannot bounce back out through
+            # _emit_section.
+            self.section_edit.setCurrentText(text)
 
     def clear_note(self) -> None:
         self.note_edit.clear()
 
     def _emit_section(self) -> None:
-        text = self.section_edit.text().strip()
+        text = self.section_edit.currentText().strip()
         if text == self._section_text:
             # editingFinished also fires on focus loss, and re-filing the same
             # breadcrumb every time the box is tabbed away from would rewrite
@@ -314,8 +347,9 @@ class PreviewWindow(QWidget):
         self.caption.setVisible(caption_cb is not None)
         if caption_cb is None:
             self.caption.clear()
-        # Nothing to attach a note to until a snip is on screen.
+        # Nothing to attach a note to, or to move, until a snip is on screen.
         self.attach_note.setEnabled(self._image is not None)
+        self.btn_move_snip.setEnabled(self._image is not None)
         if folder_path is not None:
             self._folder_path = folder_path
             self.btn_folder.setText("Open lab")

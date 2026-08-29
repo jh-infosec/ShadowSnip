@@ -35,9 +35,6 @@
   over the record — edit the text, move an entry to another section, drop one —
   is the obvious next piece, and shares its plumbing with the reorder item
   above.
-- Section reuse: a picker of the sections already used in this lab, so
-  returning to `10.0.0.3/SMB` after an hour on HTTP does not mean retyping it
-  and risking a near-miss that splits the tree.
 - Export beyond markdown. `lab.md` pastes into most things, but a
   self-contained HTML with the images inlined, or a .docx built against a
   client template, would drop straight into a report rather than needing the
@@ -45,7 +42,11 @@
 - A note is filed against whatever section is set at that moment, so a note
   typed after moving on lands in the new section. Whether an attached note
   should instead inherit its snip's section is a real question; today the
-  answer is no, and the `_Evidence:_` reference is the compromise.
+  answer is no, and the `_Evidence:_` reference is the compromise. **Move snip
+  here** covers the common case from the other direction, by moving the snip to
+  the note rather than the note to the snip.
+- Notes cannot be moved between sections, only snips. The same button for a
+  note needs a way to say *which* note, which is really the list view above.
 
 ## Copy on select, still open
 

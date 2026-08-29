@@ -58,6 +58,7 @@ class ShadowSnipApp(QObject):
         self.preview.auto_copy_toggled.connect(self.toggle_auto_copy)
         self.preview.section_changed.connect(self.set_section)
         self.preview.note_added.connect(self._on_note_from_preview)
+        self.preview.snip_move_requested.connect(self.move_current_snip)
 
         self.tray = QSystemTrayIcon(build_icon(), self)
         self.tray.setToolTip("ShadowSnip")
@@ -150,10 +151,12 @@ class ShadowSnipApp(QObject):
         self.action_section.setEnabled(notes_live)
         self.preview.set_notes_visible(notes_live)
         if notes_live:
-            self.preview.set_section_text(lab.section(self.cfg))
-            self.action_section.setText(
-                f"Set section... ({lab.section(self.cfg) or 'root'})"
-            )
+            where = lab.section(self.cfg)
+            # Offer the list first, then the current value: set_sections clears
+            # the box, so filling it afterwards would blank the breadcrumb.
+            self.preview.set_sections(lab.sections(self.cfg))
+            self.preview.set_section_text(where)
+            self.action_section.setText(f"Set section... ({where or 'root'})")
         else:
             self.action_section.setText("Set section...")
 
@@ -300,6 +303,32 @@ class ShadowSnipApp(QObject):
         )
         if ok:
             self.set_section(path)
+
+    def move_current_snip(self) -> None:
+        """Re-file the snip on screen under the current section.
+
+        The repair for the commonest ordering: snip first, name the section a
+        moment later, and the snip is left at the root while the notes about it
+        are filed under the breadcrumb.
+        """
+        if not self._last_lab_file:
+            self.preview.set_status(
+                "There is no lab snip on screen to move. Take one while a lab "
+                "is engaged first."
+            )
+            return
+        where = lab.section(self.cfg)
+        moved = lab.move_snip(self.cfg, self._last_lab_file, where)
+        if moved is None:
+            self.preview.set_status(
+                f"{self._last_lab_file} is not in this lab's record, so it "
+                "could not be moved."
+            )
+            return
+        self.preview.set_status(
+            f"{self._last_lab_file} filed under {moved or 'the root of the lab'}"
+        )
+        self._refresh_menu_text()
 
     def quick_note(self) -> None:
         """The hotkey and tray path: one line, filed into the current section.

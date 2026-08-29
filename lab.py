@@ -210,6 +210,73 @@ def section(cfg: dict) -> str:
     return normalise_section(_load_state(target).get("section", ""))
 
 
+def sections(cfg: dict) -> list[str]:
+    """Every breadcrumb used in the active lab, parents before children.
+
+    This is what the section picker offers. Retyping `10.0.0.3/SMB` from memory
+    an hour later is how you end up with `SCAN` and `SCANvv2` as two separate
+    branches of the same tree, and the near-miss is invisible until the writeup.
+
+    Ancestors are included even when nothing was filed directly under them,
+    because they are headings in `lab.md` and going back up a level is a normal
+    move.
+    """
+    target = active_folder(cfg)
+    if target is None:
+        return []
+    state = _load_state(target)
+
+    used: list[str] = []
+    for entry in state.get("entries", []) if isinstance(state.get("entries"), list) else []:
+        if not isinstance(entry, dict):
+            continue
+        path = entry_section(entry)
+        if path and path not in used:
+            used.append(path)
+    current = normalise_section(state.get("section", ""))
+    if current and current not in used:
+        used.append(current)
+
+    out: list[str] = []
+    for path in used:
+        node = ""
+        for part in path.split(SECTION_SEPARATOR):
+            node = f"{node}{SECTION_SEPARATOR}{part}" if node else part
+            if node not in out:
+                out.append(node)
+    return out
+
+
+def move_snip(cfg: dict, filename: str, path) -> str | None:
+    """Re-file an already-saved snip under a section.
+
+    The common repair: a snip taken before the breadcrumb was set is filed at
+    the root, which separates it from the notes written about it a minute
+    later. Snipping first and labelling after is the natural rhythm, so this
+    has to be fixable — explicitly, by asking, rather than by the application
+    guessing which section a snip "really" belonged to.
+
+    Returns the new section, or None when there is no lab, no record, or no
+    such snip in it.
+    """
+    target = active_folder(cfg)
+    if target is None or not cfg.get("lab_index", True):
+        return None
+    state = _load_state(target)
+    if not state:
+        return None
+
+    cleaned = normalise_section(path)
+    for entry in reversed(state.get("entries", [])):
+        if not isinstance(entry, dict) or entry.get("file") != filename:
+            continue
+        if entry_section(entry) != cleaned:
+            entry["section"] = cleaned
+            _save_state(target, state, cfg)
+        return cleaned
+    return None
+
+
 def set_section(cfg: dict, path) -> str:
     """Point the active lab at a section. Returns the normalised breadcrumb."""
     target = active_folder(cfg)
