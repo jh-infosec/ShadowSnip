@@ -39,6 +39,12 @@ The two things the first real lab session tripped over.
   to.
 - `lab.sections()` and `lab.move_snip()`, with tests for both.
 
+### Changed
+- The pixel-equality tests compare `tobytes()` rather than `getdata()`, which
+  Pillow deprecated for removal in Pillow 14. Same comparison — a mode change
+  still fails it, because the buffers differ in length — and the suite now runs
+  without warnings.
+
 ## [0.4.0] - 2026-08-29
 
 Pentest notes, and copy on select that catches a double-click.

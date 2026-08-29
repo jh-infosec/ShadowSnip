@@ -147,8 +147,11 @@ def test_pixels_survive_a_lossless_round_trip(cfg):
     cfg["quantize"] = False
     source = flat_pil(64)
     result = imageops.process(to_qimage(source), cfg)
-    assert list(Image.open(io.BytesIO(result.png)).convert("RGB").getdata()) == list(
-        source.getdata()
+    # tobytes() rather than getdata(): same comparison, no deprecation, and it
+    # still fails on a mode change because the buffers would differ in length.
+    assert (
+        Image.open(io.BytesIO(result.png)).convert("RGB").tobytes()
+        == source.tobytes()
     )
 
 
@@ -199,9 +202,7 @@ def test_an_unknown_disk_format_falls_back_to_png(cfg):
 # -- conversion and CF_DIB -------------------------------------------------
 def test_qimage_to_pil_preserves_pixels():
     source = flat_pil(32)
-    assert list(imageops.qimage_to_pil(to_qimage(source)).getdata()) == list(
-        source.getdata()
-    )
+    assert imageops.qimage_to_pil(to_qimage(source)).tobytes() == source.tobytes()
 
 
 def test_to_dib_strips_the_bmp_file_header():
