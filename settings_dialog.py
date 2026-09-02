@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -19,8 +19,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import autocopy as autocopy_mod
 import config as config_mod
 import hotkey as hotkey_mod
+
+# Long enough to alt-tab or click into another window without hurrying,
+# short enough that nobody wonders whether the button worked.
+PICK_SECONDS = 5
 
 _QT_KEY_NAMES = {
     Qt.Key.Key_Print: "prtsc",
@@ -196,16 +201,39 @@ class SettingsDialog(QDialog):
         self.auto_copy_blocked.setPlaceholderText(
             "myvault.exe, othertool.exe - password managers are already covered"
         )
-        for widget in (
-            self.auto_copy_skip,
-            self.auto_copy_double,
-            self.auto_copy_dedupe,
-            self.auto_copy_toast,
-            self.auto_copy_drag,
-            self.auto_copy_blocked,
-        ):
-            self.auto_copy_check.toggled.connect(widget.setEnabled)
-            widget.setEnabled(cfg["auto_copy"])
+        # Two ways in, because knowing a program's executable name is not
+        # something anyone should have to look up. The first button covers the
+        # usual case -- you were just in the program that misbehaved -- and the
+        # countdown covers the rest, including programs reached from the tray
+        # menu after alt-tabbing somewhere else.
+        self.blocked_last = QPushButton("Block the app I was just in")
+        self.blocked_last.clicked.connect(self._block_last_app)
+        self.blocked_pick = QPushButton(f"Pick an app ({PICK_SECONDS}s)")
+        self.blocked_pick.clicked.connect(self._pick_app)
+        self.blocked_hint = QLabel("")
+        self.blocked_hint.setWordWrap(True)
+        self._pick_left = 0
+        self._pick_timer = QTimer(self)
+        self._pick_timer.setInterval(1000)
+        self._pick_timer.timeout.connect(self._pick_tick)
+
+        blocked_buttons = QHBoxLayout()
+        blocked_buttons.setContentsMargins(0, 0, 0, 0)
+        blocked_buttons.addWidget(self.blocked_last)
+        blocked_buttons.addWidget(self.blocked_pick)
+        blocked_buttons.addStretch(1)
+        blocked_box = QWidget()
+        blocked_layout = QVBoxLayout(blocked_box)
+        blocked_layout.setContentsMargins(0, 0, 0, 0)
+        blocked_layout.addWidget(self.auto_copy_blocked)
+        blocked_layout.addLayout(blocked_buttons)
+        blocked_layout.addWidget(self.blocked_hint)
+        # Deliberately never disabled. These were greyed out while copy on
+        # select was off, which meant the exclusion list -- the one setting you
+        # reach for *because* the feature is misbehaving -- could not be filled
+        # in until you had switched the misbehaving feature back on. Configuring
+        # something before enabling it is normal, and none of these do anything
+        # while `auto_copy` is off, so there is nothing to protect against.
 
         self.preview_check = QCheckBox("Show the preview window after a snip")
         self.preview_check.setChecked(cfg["show_preview"])
@@ -256,7 +284,7 @@ class SettingsDialog(QDialog):
         form.addRow(self.auto_copy_dedupe)
         form.addRow(self.auto_copy_toast)
         form.addRow("Shortest drag that counts", self.auto_copy_drag)
-        form.addRow("Never copy from", self.auto_copy_blocked)
+        form.addRow("Never copy from", blocked_box)
         form.addRow(self.preview_check)
         form.addRow("Overlay dimming", self.dim)
         form.addRow("Labs folder", lab_row)
@@ -287,6 +315,59 @@ class SettingsDialog(QDialog):
 
     def _sync_quality(self) -> None:
         self.quality.setEnabled(self.format_combo.currentData() != "png")
+
+    # -- filling in the exclusion list -------------------------------------
+    def _block_last_app(self) -> None:
+        self._add_blocked(
+            autocopy_mod.last_other_process(),
+            "No other program's window could be found to name. Use "
+            f"Pick an app ({PICK_SECONDS}s), or type the executable name.",
+        )
+
+    def _pick_app(self) -> None:
+        """Give the user a few seconds to click into the program they mean."""
+        self._pick_left = PICK_SECONDS
+        self.blocked_pick.setEnabled(False)
+        self._show_countdown()
+        self._pick_timer.start()
+
+    def _show_countdown(self) -> None:
+        self.blocked_hint.setText(
+            f"Click into the program you want excluded... {self._pick_left}"
+        )
+
+    def _pick_tick(self) -> None:
+        self._pick_left -= 1
+        if self._pick_left > 0:
+            self._show_countdown()
+            return
+        self._pick_timer.stop()
+        self.blocked_pick.setEnabled(True)
+        self._add_blocked(
+            autocopy_mod.foreground_process(),
+            "Nothing but ShadowSnip was in front when the countdown ended, "
+            "so nothing was added.",
+        )
+
+    def _add_blocked(self, name: str | None, failure: str) -> None:
+        """Put `name` in the field, and say what happened either way.
+
+        Silence would be indistinguishable from a broken button, and the two
+        outcomes worth telling apart are 'added it' and 'it was already
+        there' -- both of which look like nothing changing.
+        """
+        if not name:
+            self.blocked_hint.setText(failure)
+            return
+        before = self.auto_copy_blocked.text()
+        after = config_mod.add_name(before, name)
+        self.auto_copy_blocked.setText(after)
+        added = len(config_mod.normalise_names(after)) > len(
+            config_mod.normalise_names(before)
+        )
+        self.blocked_hint.setText(
+            f"Added {name}." if added else f"{name} is already on the list."
+        )
 
     def _pick_lab_root(self) -> None:
         folder = QFileDialog.getExistingDirectory(

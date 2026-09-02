@@ -91,8 +91,8 @@ claiming to be the current snip.
 **A lab is a second destination, not a second mode.** Engaging a lab does not
 change the pipeline: the clipboard copy and the standing `latest.png` still
 happen first, and `lab.save()` runs after them. If the lab write fails, the
-snip is already safe. The generic history folder is skipped for the duration
-so the same image is not written three times.
+snip is already safe and the failure is reported. The generic history folder
+is skipped for the duration so the same image is not written three times.
 
 **lab.json is the source of truth, lab.md is a render.** The index is
 regenerated from the recorded entries on every change rather than appended to.

@@ -75,6 +75,18 @@ def test_start_trims_surrounding_whitespace(cfg):
     assert lab.start(cfg, "  spaced  ").name == "spaced"
 
 
+def test_start_reports_when_the_protective_gitignore_cannot_be_written(cfg, monkeypatch):
+    def fail(path, data):
+        if path.name == lab.GITIGNORE_NAME:
+            raise OSError("disk full")
+        return path
+
+    monkeypatch.setattr(lab.storage, "write_atomic", fail)
+
+    with pytest.raises(lab.LabError, match="protective .gitignore"):
+        lab.start(cfg, "alpha")
+
+
 def test_stop_clears_the_active_lab_and_returns_its_name(cfg):
     _start(cfg)
     assert lab.stop(cfg) == "htb-lame"
@@ -180,6 +192,19 @@ def test_a_caption_for_an_unknown_file_is_refused(cfg):
     _start(cfg)
     lab.save(b"a", "png", cfg)
     assert lab.set_caption(cfg, "999_nope.png", "text") is False
+
+
+def test_a_caption_write_failure_is_reported(cfg, monkeypatch):
+    _start(cfg)
+    path = lab.save(b"image", "png", cfg)
+
+    def fail(path, data):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(lab.storage, "write_atomic", fail)
+
+    with pytest.raises(lab.LabError, match="could not update lab.json"):
+        lab.set_caption(cfg, path.name, "caption")
 
 
 def test_a_caption_without_an_active_lab_is_refused(cfg):

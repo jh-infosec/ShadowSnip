@@ -1,22 +1,109 @@
 # Changelog
 
-## Latest: 0.4.1
+## Latest: 0.4.3
 
-**Added** — the section box is now a **picker** of the breadcrumbs a lab already
-uses, and **Move snip here** re-files a snip that was taken before the section
-was set. In 0.4.0: lab **sections** and **notes**, so the writeup builds itself
-while you work instead of being assembled from a pile of screenshots afterwards;
-copy on select firing on a **double-click** (word) and **triple-click** (line),
-skipping password managers entirely, and showing a confirmation next to the
-cursor.
+**Fixed** — pressing the snip hotkey while Settings was open dimmed the screen
+and hung: the overlay could not take the drag or the Esc behind a modal
+dialog, and every later snip was refused too. The snip is now declined up
+front, with a message and the dialog brought back to the front.
 
-**Changed** — `lab.md` is a section tree rather than a flat list; `lab.json`
-entries carry a kind and a section, and old labs still open unmigrated. One
-hotkey manager now holds several keys.
+**Fixed** — the copy-on-select settings, **Never copy from** included, were
+greyed out unless **Copy highlighted text** was ticked, so the exclusion list
+could not be filled in without first re-enabling the feature it exists to
+tame. They are now always editable.
 
-**Fixed** — in 0.3.4: `F`/`Space` grabbing the wrong screen, a hook failure
-reporting `error 0`, an unwritable save folder taking the lab copy down with
-it, and a `null` in `config.json` losing a snip to a traceback.
+**Added** — two buttons under **Never copy from** fill in a program's
+executable name for you: **Block the app I was just in**, and a five-second
+**Pick an app** countdown you click into whatever you want excluded.
+
+**Changed** — an excluded program can be named with or without `.exe`.
+
+**Documented** — copy on select can go quiet under RDP or VM clipboard
+redirection, because the redirection helper takes clipboard ownership; the
+text is still copied, but nothing is announced.
+
+---
+
+## [0.4.3] - 2026-09-02
+
+### Added
+- **Never copy from** has two buttons under it, so a program can be excluded
+  without knowing its executable name. **Block the app I was just in** walks
+  the window z-order and names the frontmost window that is not ShadowSnip's
+  own — the one Alt+Tab would return to. **Pick an app (5s)** counts down
+  while you click into the program you want, then names whatever has focus.
+  Both append to the field and report what happened; neither saves anything
+  until OK is pressed.
+
+### Fixed
+- A snip requested while Settings, or any other ShadowSnip dialog, was open
+  left the screen dimmed with an overlay that could not be dragged or
+  cancelled. `QDialog.exec()` is application-modal, so the overlay received no
+  mouse or key events, and the busy flag it set was never cleared — every
+  later snip was silently refused and copy on select stayed paused until
+  restart. The hotkey now declines the snip before anything is created, says
+  why in a tray message, and raises the dialog that is waiting for an answer.
+- Every copy-on-select setting was disabled while **Copy highlighted text**
+  was off. That included **Never copy from**, which is the setting you reach
+  for precisely because copy on select is misbehaving in some program — it
+  could not be filled in until the misbehaving feature was switched back on.
+  The coupling is gone; none of those settings do anything while the feature
+  is off, so there was nothing to protect.
+
+### Changed
+- **Never copy from** accepts `lightroom` as well as `lightroom.exe`. Matching
+  is still on the whole name, so `code` does not match `vscode.exe`.
+
+### Documentation
+- README and ROADMAP record the clipboard-redirection gap: `rdpclip.exe` on a
+  remote desktop, and VMware or VirtualBox guest tools, can take clipboard
+  ownership inside the 120 ms read-back window, which fails the owner check
+  added in 0.4.2. The clip is discarded as unverified, so the toast, preview
+  and lab see nothing even though the text is on the clipboard and pastes
+  normally. Options for handling it are listed in the roadmap.
+- The Settings section states that copy-on-select options can be configured
+  before the feature is enabled, and that the snip hotkey is inert while a
+  dialog is open.
+
+### Tests
+- A snip is refused, and `busy` left clear, while a modal dialog is open; a
+  snip still starts when none is.
+- The exclusion list matches with and without the extension, matches whole
+  names only, and never displaces the built-in password-manager list.
+- Adding a name to the field is idempotent across both spellings and tidies a
+  hand-typed list.
+- The z-order walk skips ShadowSnip's own windows and untitled helper windows,
+  and answers nothing rather than guessing when there is no other window.
+
+---
+
+## [0.4.2] - 2026-09-01
+
+### Security and reliability
+- Copy on select now blocks a foreground process that cannot be identified,
+  including protected or elevated processes. The password-manager exclusion is
+  therefore fail-closed rather than dependent on a successful process lookup.
+- Its delayed clipboard read-back confirms that focus is still in the original
+  window and that the clipboard owner is in the same process. An unrelated
+  clipboard update is ignored instead of being shown in the toast or preview.
+- Bound the Win32 process-ID call with pointer-safe `ctypes` declarations, so
+  64-bit window handles cannot be truncated during the safety checks.
+- A failed screen grab clears capture state and resumes copy on select.
+- Settings refuse to move an active lab by changing the save or labs root.
+- Lab index and privacy-marker failures now surface to the user; screenshots
+  remain on disk when their follow-up record write fails.
+- A hotkey update is transactional: duplicate combinations are rejected and a
+  failed registration restores the prior working keys.
+
+### Documentation
+- Corrected the tray-icon instruction: it opens the preview window; it does
+  not start a capture.
+- Documented the stricter copy-on-select and active-lab safeguards.
+
+### Tests
+- Added regression coverage for protected-process blocking, clipboard
+  focus/ownership checks, capture recovery, hotkey rollback, and lab-write
+  failures.
 
 ---
 

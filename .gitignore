@@ -8,6 +8,7 @@ venv/
 # PyInstaller
 build/
 dist/
+release/
 *.manifest
 
 # Version backups kept as folders; git tags do this better

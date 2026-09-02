@@ -583,20 +583,21 @@ def _load_state(target: Path) -> dict:
 
 
 def _save_state(target: Path, state: dict, cfg: dict) -> None:
+    """Persist the record and its rendered index, or report the exact failure."""
     try:
         storage.write_atomic(
             target / STATE_NAME, json.dumps(state, indent=2).encode("utf-8")
         )
-    except OSError:
-        # The image is already on disk and on the clipboard; a failed record
-        # write is not worth losing the snip over.
-        return
+    except OSError as exc:
+        raise LabError(f"could not update {STATE_NAME}: {exc}") from exc
     try:
         storage.write_atomic(
             target / INDEX_NAME, render_index(state).encode("utf-8")
         )
-    except OSError:
-        pass
+    except OSError as exc:
+        raise LabError(
+            f"the lab record was saved but {INDEX_NAME} could not be rendered: {exc}"
+        ) from exc
 
 
 def _ensure_gitignore(base: Path) -> None:
@@ -605,8 +606,8 @@ def _ensure_gitignore(base: Path) -> None:
         return
     try:
         storage.write_atomic(path, GITIGNORE_BODY.encode("utf-8"))
-    except OSError:
-        pass
+    except OSError as exc:
+        raise LabError(f"could not write the protective {GITIGNORE_NAME}: {exc}") from exc
 
 
 def _now_iso() -> str:

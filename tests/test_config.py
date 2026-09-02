@@ -203,3 +203,42 @@ def test_sanitising_does_not_mutate_the_default_list():
 def test_sanitise_is_idempotent():
     once = config._sanitise({**config.DEFAULTS, "png_compress_level": 99, "disk_format": "tiff"})
     assert config._sanitise(dict(once)) == once
+
+
+# -- adding a program to the exclusion list --------------------------------
+def test_add_name_appends_to_an_empty_field():
+    assert config.add_name("", "Lightroom.exe") == "lightroom.exe"
+
+
+def test_add_name_keeps_what_is_already_there():
+    assert config.add_name("vault.exe", "lightroom.exe") == "vault.exe, lightroom.exe"
+
+
+def test_add_name_ignores_a_program_already_listed():
+    assert config.add_name("lightroom.exe", "lightroom.exe") == "lightroom.exe"
+
+
+def test_add_name_ignores_the_other_spelling_of_the_same_program():
+    """The block check treats the two the same, so the field must as well."""
+    assert config.add_name("lightroom", "lightroom.exe") == "lightroom"
+    assert config.add_name("lightroom.exe", "lightroom") == "lightroom.exe"
+
+
+def test_add_name_tidies_a_hand_typed_field():
+    assert config.add_name("vault.exe   other.exe,", "new.exe") == (
+        "vault.exe, other.exe, new.exe"
+    )
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("lightroom.exe", "lightroom"),
+        ("lightroom", "lightroom"),
+        ("setup.msi", "setup.msi"),
+        ("my.app.exe", "my.app"),
+        (".exe", ".exe"),
+    ],
+)
+def test_without_exe_strips_only_a_real_exe_suffix(name, expected):
+    assert config.without_exe(name) == expected

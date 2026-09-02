@@ -32,8 +32,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-ShadowSnip starts in the notification area. Press **Ctrl+Shift+S** (or click
-the tray icon) to snip.
+ShadowSnip starts in the notification area. Press **Ctrl+Shift+S** to snip;
+click the tray icon to open the preview window.
 
 ## Using it
 
@@ -70,8 +70,10 @@ Re-selecting the same text twice in a row is only announced once.
 Windows has no API for "the user just highlighted something", so what happens
 underneath is a mouse hook watching for a finished left-button drag, a
 synthesised Ctrl+C into the focused window, and a check of the clipboard
-sequence number to see whether anything actually moved. If nothing was
-selected, nothing was copied and nothing on the clipboard was disturbed.
+sequence number to see whether anything actually moved. It also verifies that
+focus stayed in that window and that the same process owns the new clipboard
+contents before reading them. If anything is uncertain, it leaves the
+clipboard alone and reports nothing.
 
 Double-click takes a slightly different route. A low-level mouse hook never
 receives `WM_LBUTTONDBLCLK` — that message is made further up the stack, when
@@ -94,7 +96,8 @@ Proton Pass, RoboForm, LastPass and the Windows credential prompt are always
 skipped, and that list is not switchable: the cost of it being wrong is that
 you press Ctrl+C like everyone else, and the cost of the other mistake is a
 password somewhere it should never be. **Never copy from** in Settings adds
-your own executable names to it.
+your own executable names to it. A process whose name cannot be determined is
+also skipped, so a protected or elevated app never becomes an exception.
 
 Nothing fires while Ctrl, Shift, Alt or Win is held, since Ctrl+Shift+C means
 other things in browsers and IDEs, and nothing fires for a drag shorter than
@@ -272,10 +275,38 @@ Right-click the tray icon → **Settings**.
 | Ignore a repeated clip | Say nothing when a clip is identical to the one before it |
 | Show a confirmation near the cursor | The one-second label that says what was copied |
 | Shortest drag that counts | Below this, a drag is treated as a click |
-| Never copy from | Extra executable names to leave alone, on top of the built-in password managers |
-| Labs folder | Where labs live. Blank means a `labs` folder inside the save folder |
+| Never copy from | Extra executable names to leave alone, on top of the built-in password managers. Two buttons fill it in for you |
+| Labs folder | Where labs live. Blank means a `labs` folder inside the save folder; stop an active lab before changing this or the save folder |
 | Keep a lab record | Keeps `lab.json` and the rendered `lab.md` up to date. Sections and notes need it |
 | Offer a caption box | Shows a caption field in the preview window during a lab |
+
+Every copy-on-select setting, **Never copy from** included, can be filled in
+whether or not **Copy highlighted text** is ticked. Building the exclusion
+list first and turning the feature on afterwards is the sensible order, and
+the list is the thing you reach for when the feature is misbehaving.
+
+Names in **Never copy from** are executable names, comma- or space-separated,
+matched case-insensitively — `lightroom.exe` covers Lightroom. The `.exe` is
+optional, and matching is on the whole name, so `code` does not catch
+`vscode.exe`. The built-in password-manager list always applies on top of
+yours.
+
+You do not have to know the executable name. Two buttons under the field fill
+it in:
+
+| Button | When to use it |
+| --- | --- |
+| **Block the app I was just in** | You were in the program, opened Settings, and it is still the window behind ShadowSnip. Names whatever Alt+Tab would return to |
+| **Pick an app (5s)** | Anything else. Click it, then click into the program you want excluded; whatever has focus when the countdown ends is added |
+
+Either way the name is appended to the field, and a line underneath says what
+happened — added, already listed, or nothing found. Nothing is saved until you
+press OK.
+
+The snip hotkey does nothing while Settings or another ShadowSnip dialog is
+open: the selection overlay cannot take a drag from behind a modal window, so
+instead of dimming the screen and getting stuck, ShadowSnip says so and brings
+the dialog back to the front. Close it and snip as usual.
 
 ## Running it
 
@@ -301,6 +332,18 @@ for starting ShadowSnip at login.
   keeps working from the tray menu.
 - Windows only. The capture, overlay and image code are cross-platform, but
   the hotkey and clipboard layers are Win32.
+- **Copy on select may go quiet over RDP or in a VM with shared clipboard.**
+  Before reading a clip back, ShadowSnip checks that the process that now owns
+  the clipboard is the one you highlighted in. That check is what stops an
+  unrelated clipboard update being mistaken for your selection. But clipboard
+  redirection works by taking ownership: `rdpclip.exe` on a remote desktop, or
+  the guest additions in VMware and VirtualBox, can claim the clipboard inside
+  the 120 ms read-back window. When that happens the clip is discarded as
+  unverified — the text really is on the clipboard and Ctrl+V still pastes it,
+  but no toast appears and nothing reaches the preview or a lab. Nothing is
+  lost; it just looks like the feature stopped working. If it is happening
+  constantly on a box you work in every day, say so and the ownership check
+  can be made configurable.
 - **Lab folders are not encrypted, and notes make that sharper.** Screenshots
   taken during a lab routinely contain hashes, tokens and internal hostnames,
   and they sit on disk in plain sight. Notes put the same material there as

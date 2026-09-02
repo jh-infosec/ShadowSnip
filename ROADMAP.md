@@ -50,6 +50,13 @@
 
 ## Copy on select, still open
 
+- An allow-list mode -- off everywhere except a named set of programs -- was
+  considered and deliberately left out. Two lists with opposite meanings in
+  one settings window is a good way to be confused about why nothing copied,
+  and the block list plus the built-in class and process guards cover the
+  cases seen so far. Worth revisiting only if the block list starts growing
+  faster than the list of programs the feature is actually wanted in.
+
 - Every clip could become a note in the current section. Notes and sections
   now exist, so this is a two-line connection rather than a feature: the
   hashes, tokens and hostnames highlighted during a session are the same
@@ -58,6 +65,17 @@
   is not how but whether — an automatic clip is unreviewed text landing in the
   writeup, and a lab would fill with noise unless it is opt-in per lab, or held
   in a staging list the user promotes from.
+- The clipboard-owner check is the right default and the wrong one under
+  clipboard redirection. RDP's `rdpclip.exe` and VMware/VirtualBox guest tools
+  take clipboard ownership as part of syncing it to the host, and if that
+  lands inside the 120 ms read-back the clip is thrown away as unverified. The
+  text is still on the clipboard, so nothing is lost, but the feature looks
+  dead in exactly the environment a pentest lives in. Options, in rough order
+  of preference: accept a known redirection helper as a proxy for the target
+  process; fall back to the sequence-number check alone when the owner is one
+  of those helpers; or a plain **Trust the clipboard in remote sessions**
+  setting. Needs measuring on a real RDP session first — the race may be rare
+  enough not to matter.
 - Shift+click to extend a selection is missed, because every modifier blocks.
   Fixable by clearing the modifier state in the injected keystroke rather than
   refusing outright, which needs `SendInput` instead of `keybd_event`.

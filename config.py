@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.4.3"
 
 
 def config_dir() -> Path:
@@ -125,6 +125,34 @@ def _clamp(value, low, high, fallback):
     except (TypeError, ValueError):
         return fallback
     return max(low, min(high, value))
+
+
+def without_exe(name: str) -> str:
+    """`lightroom.exe` -> `lightroom`, and anything else unchanged.
+
+    Only `.exe` is stripped: `setup.msi` keeps its extension, so a list entry
+    of `setup` does not silently cover it.
+    """
+    stem, _, extension = name.rpartition(".")
+    return stem if stem and extension == "exe" else name
+
+
+def add_name(text: str, name: str) -> str:
+    """The exclusion field's text with `name` added, unless it is already in it.
+
+    Either spelling counts as present -- adding `lightroom.exe` to a list that
+    already says `lightroom` changes nothing -- because the block check treats
+    the two the same. Returns the field's whole new text, so the caller can
+    set it and be done.
+    """
+    names = normalise_names(text)
+    stems = {without_exe(item) for item in names}
+    for item in normalise_names(name):
+        if without_exe(item) in stems:
+            continue
+        names.append(item)
+        stems.add(without_exe(item))
+    return ", ".join(names)
 
 
 def normalise_names(value) -> list[str]:

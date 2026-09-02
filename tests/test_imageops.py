@@ -147,8 +147,9 @@ def test_pixels_survive_a_lossless_round_trip(cfg):
     cfg["quantize"] = False
     source = flat_pil(64)
     result = imageops.process(to_qimage(source), cfg)
-    # tobytes() rather than getdata(): same comparison, no deprecation, and it
-    # still fails on a mode change because the buffers would differ in length.
+    # tobytes() rather than getdata(): getdata() is deprecated in Pillow, and
+    # the raw buffers differ if either the pixels or the mode differ, which is
+    # exactly the comparison wanted here.
     assert (
         Image.open(io.BytesIO(result.png)).convert("RGB").tobytes()
         == source.tobytes()
@@ -202,6 +203,8 @@ def test_an_unknown_disk_format_falls_back_to_png(cfg):
 # -- conversion and CF_DIB -------------------------------------------------
 def test_qimage_to_pil_preserves_pixels():
     source = flat_pil(32)
+    # tobytes() also asserts the mode, since an RGBA result would not compare
+    # equal to an RGB source even with identical colours.
     assert imageops.qimage_to_pil(to_qimage(source)).tobytes() == source.tobytes()
 
 

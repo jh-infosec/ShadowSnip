@@ -61,6 +61,8 @@ from ctypes import wintypes
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from config import without_exe
+
 if sys.platform == "win32":
     _user32 = ctypes.windll.user32
     _kernel32 = ctypes.windll.kernel32
@@ -74,9 +76,17 @@ if sys.platform == "win32":
     _user32.CallNextHookEx.restype = ctypes.c_ssize_t
     _user32.UnhookWindowsHookEx.argtypes = [wintypes.HHOOK]
     _user32.GetForegroundWindow.restype = wintypes.HWND
+    _user32.GetClipboardOwner.restype = wintypes.HWND
+    _user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
     _user32.GetDoubleClickTime.restype = wintypes.UINT
     _user32.GetSystemMetrics.argtypes = [ctypes.c_int]
     _user32.GetSystemMetrics.restype = ctypes.c_int
+    _user32.GetWindowThreadProcessId.argtypes = [
+        wintypes.HWND, ctypes.POINTER(wintypes.DWORD)
+    ]
+    _user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    _user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    _user32.GetClassNameW.restype = ctypes.c_int
     # Without an explicit restype a HANDLE comes back as a signed int and is
     # truncated on 64-bit, which turns a valid handle into a bogus one.
     _kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -87,11 +97,27 @@ if sys.platform == "win32":
     ]
     _kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
     _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    # Walking the window z-order, for "the app I was just in".
+    _user32.GetTopWindow.argtypes = [wintypes.HWND]
+    _user32.GetTopWindow.restype = wintypes.HWND
+    _user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+    _user32.GetWindow.restype = wintypes.HWND
+    _user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    _user32.IsWindowVisible.restype = wintypes.BOOL
+    _user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    _user32.GetWindowTextLengthW.restype = ctypes.c_int
+    _get_window_long = getattr(_user32, "GetWindowLongPtrW", _user32.GetWindowLongW)
+    _get_window_long.argtypes = [wintypes.HWND, ctypes.c_int]
+    _get_window_long.restype = ctypes.c_ssize_t
 else:
     _user32 = None
     _kernel32 = None
+    _get_window_long = None
 
 WH_MOUSE_LL = 14
+GW_HWNDNEXT = 2
+GWL_EXSTYLE = -20
+WS_EX_TOOLWINDOW = 0x00000080
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
 
@@ -350,15 +376,31 @@ class AutoCopy(QObject):
         if self._cfg.get("auto_copy_skip_consoles", True):
             if _class_name(window) in BLOCKED_CLASSES:
                 return
-        if _process_name(window) in self._blocked_processes():
+        process = _process_name(window)
+        if process is None or self._is_blocked(process):
             # Deliberately before the keystroke, not after: the point is that
-            # nothing is ever synthesised into a password manager at all.
+            # nothing is ever synthesised into a password manager at all. An
+            # unreadable process is blocked as well: failing open would turn
+            # an elevated or protected password manager into the exact case
+            # this guard is meant to prevent.
             return
 
         before = _clipboard_sequence()
         _send_ctrl_c()
         # Give the target application a moment to answer the keystroke.
-        QTimer.singleShot(READ_BACK_MS, lambda: self._read_back(before, kind))
+        QTimer.singleShot(
+            READ_BACK_MS, lambda: self._read_back(before, kind, window)
+        )
+
+    def _is_blocked(self, process: str) -> bool:
+        """Is this executable on the block list, spelled either way?
+
+        Windows reports `lightroom.exe`; nobody types the extension when they
+        are told to name a program. Both spellings are checked, and only as
+        whole names -- `code` does not match `vscode.exe`.
+        """
+        blocked = self._blocked_processes()
+        return process in blocked or without_exe(process) in blocked
 
     def _blocked_processes(self) -> set[str]:
         extra = self._cfg.get("auto_copy_extra_blocked") or ()
@@ -369,9 +411,18 @@ class AutoCopy(QObject):
             extra = extra.replace(",", " ").split()
         return BLOCKED_PROCESSES | {str(name).strip().lower() for name in extra if name}
 
-    def _read_back(self, before: int, kind: str) -> None:
+    def _read_back(self, before: int, kind: str, target_window) -> None:
+        if self._paused or not self.engaged:
+            return
+        # A clipboard sequence number is global. Do not mistake a different
+        # application's clipboard update for the Ctrl+C we injected above,
+        # particularly when focus has moved in the short read-back window.
+        if _user32.GetForegroundWindow() != target_window:
+            return
         if _clipboard_sequence() == before:
             # Nothing was selected, so nothing was copied and nothing was lost.
+            return
+        if not _clipboard_owner_matches(target_window):
             return
         text = _clipboard_text()
         if not text:
@@ -439,17 +490,69 @@ def _class_name(window) -> str:
 
 
 def _window_pid(window) -> int:
+    if not window:
+        return 0
     pid = wintypes.DWORD()
     _user32.GetWindowThreadProcessId(window, ctypes.byref(pid))
-    return pid.value
+    return int(pid.value)
+
+
+def foreground_process() -> str | None:
+    """The executable behind whatever window has focus right now.
+
+    Settings uses this at the end of its countdown, once the user has clicked
+    into the program they want excluded. ShadowSnip's own windows answer None,
+    so a countdown nobody switched away from adds nothing.
+    """
+    if _user32 is None:
+        return None
+    window = _user32.GetForegroundWindow()
+    if not window or _is_own_window(window):
+        return None
+    return _process_name(window)
+
+
+def last_other_process() -> str | None:
+    """The frontmost visible window that is not one of ShadowSnip's own.
+
+    `GetForegroundWindow` is no use to the Settings window: Settings is itself
+    the foreground window while it is open, so it would only ever answer
+    "python.exe". Walking the z-order from the top and taking the first window
+    that belongs to something else gives what the user actually means by "the
+    app I was just in" -- it is the one Alt+Tab would return to.
+
+    Ownerless, visible, titled and not a tool window: the same filter the task
+    switcher applies, which is what keeps invisible message-only windows and
+    floating palettes out of the answer.
+    """
+    if _user32 is None:
+        return None
+    window = _user32.GetTopWindow(None)
+    while window:
+        if _is_alt_tab_window(window) and not _is_own_window(window):
+            name = _process_name(window)
+            if name:
+                return name
+        window = _user32.GetWindow(window, GW_HWNDNEXT)
+    return None
+
+
+def _is_alt_tab_window(window) -> bool:
+    if not _user32.IsWindowVisible(window):
+        return False
+    if not _user32.GetWindowTextLengthW(window):
+        return False
+    if _get_window_long is None:
+        return True
+    return not _get_window_long(window, GWL_EXSTYLE) & WS_EX_TOOLWINDOW
 
 
 def _is_own_window(window) -> bool:
     return _window_pid(window) == os.getpid()
 
 
-def _process_name(window) -> str:
-    """The lowercase executable name behind a window, or "" if unknowable.
+def _process_name(window) -> str | None:
+    """The lowercase executable name behind a window, or None if unknowable.
 
     PROCESS_QUERY_LIMITED_INFORMATION rather than PROCESS_QUERY_INFORMATION:
     it is the one right that works across integrity levels, so an elevated
@@ -458,23 +561,23 @@ def _process_name(window) -> str:
     on the block list.
     """
     if _kernel32 is None:
-        return ""
+        return None
     pid = _window_pid(window)
     if not pid:
-        return ""
+        return None
     handle = _kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not handle:
-        return ""
+        return None
     try:
         size = wintypes.DWORD(260)
         buffer = ctypes.create_unicode_buffer(size.value)
         if not _kernel32.QueryFullProcessImageNameW(
             handle, 0, buffer, ctypes.byref(size)
         ):
-            return ""
+            return None
         return os.path.basename(buffer.value).lower()
     except OSError:
-        return ""
+        return None
     finally:
         _kernel32.CloseHandle(handle)
 
@@ -493,6 +596,15 @@ def _clipboard_sequence() -> int:
         return int(_user32.GetClipboardSequenceNumber())
     except OSError:
         return 0
+
+
+def _clipboard_owner_matches(window) -> bool:
+    """True only when the clipboard owner belongs to the target process."""
+    try:
+        owner = _user32.GetClipboardOwner()
+    except OSError:
+        return False
+    return bool(owner) and _window_pid(owner) == _window_pid(window)
 
 
 def _clipboard_text() -> str:

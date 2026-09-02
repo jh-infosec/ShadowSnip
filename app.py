@@ -18,6 +18,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRect, QTimer, Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QInputDialog,
     QMenu,
     QMessageBox,
@@ -232,7 +233,7 @@ class ShadowSnipApp(QObject):
         data, ext = self._last_disk
         try:
             lab_path = lab.save(data, ext, self.cfg)
-        except OSError as exc:
+        except (OSError, lab.LabError) as exc:
             self.preview.set_status(f"Could not write into the lab: {exc}")
             return
         if lab_path is None:
@@ -285,7 +286,11 @@ class ShadowSnipApp(QObject):
         """Point the lab at a section. Everything captured now lands there."""
         if not lab.is_active(self.cfg):
             return
-        cleaned = lab.set_section(self.cfg, path)
+        try:
+            cleaned = lab.set_section(self.cfg, path)
+        except lab.LabError as exc:
+            self.preview.set_status(f"Could not update the lab section: {exc}")
+            return
         self.preview.set_section_text(cleaned)
         self._refresh_menu_text()
         where = cleaned or "the root of the lab"
@@ -318,7 +323,11 @@ class ShadowSnipApp(QObject):
             )
             return
         where = lab.section(self.cfg)
-        moved = lab.move_snip(self.cfg, self._last_lab_file, where)
+        try:
+            moved = lab.move_snip(self.cfg, self._last_lab_file, where)
+        except lab.LabError as exc:
+            self.preview.set_status(f"Could not update the lab record: {exc}")
+            return
         if moved is None:
             self.preview.set_status(
                 f"{self._last_lab_file} is not in this lab's record, so it "
@@ -363,7 +372,11 @@ class ShadowSnipApp(QObject):
             self.preview.clear_note()
 
     def _file_note(self, text: str, attach: bool = False, attach_to=None) -> bool:
-        entry = lab.add_note(self.cfg, text, attach=attach_to or ())
+        try:
+            entry = lab.add_note(self.cfg, text, attach=attach_to or ())
+        except lab.LabError as exc:
+            self.preview.set_status(f"Could not save the note: {exc}")
+            return False
         if entry is None:
             self.preview.set_status("The note was empty, so nothing was filed.")
             return False
@@ -465,6 +478,13 @@ class ShadowSnipApp(QObject):
     def request_snip(self) -> None:
         if self.busy:
             return
+        if _modal_dialog_open():
+            # The overlay would be frozen behind the dialog: dimmed, unable to
+            # take the drag, unable to take Esc, and `busy` would never clear,
+            # so every later snip would be refused too. Point at the dialog
+            # instead of starting something that cannot finish.
+            self._blocked_by_dialog()
+            return
         self.busy = True
         self.autocopy.pause()
         # Otherwise a toast still fading out is part of the frozen screen and
@@ -477,10 +497,27 @@ class ShadowSnipApp(QObject):
         # before the screen is frozen.
         QTimer.singleShot(140 if was_visible else 0, self._begin_snip)
 
+    def _blocked_by_dialog(self) -> None:
+        """Say why the snip was refused, and show the window that refused it."""
+        self.tray.showMessage(
+            "ShadowSnip",
+            "Close the open ShadowSnip dialog first. A snip cannot run while "
+            "one is waiting for an answer.",
+            build_icon(),
+            4000,
+        )
+        modal = QApplication.activeModalWidget()
+        if modal is not None:
+            modal.raise_()
+            modal.activateWindow()
+
     def _begin_snip(self) -> None:
         grabs = capture.grab_all_screens()
         if not grabs:
+            self.controller = None
+            self._grabs = []
             self.busy = False
+            self.autocopy.resume()
             self._warn("No screen could be captured.")
             return
         self._grabs = grabs
@@ -543,7 +580,7 @@ class ShadowSnipApp(QObject):
                 lab_path = lab.save(result.disk.data, result.disk.ext, self.cfg)
             else:
                 storage.save_history(result.disk.data, result.disk.ext, self.cfg)
-        except OSError as exc:
+        except (OSError, lab.LabError) as exc:
             notes.append(
                 f"could not write to the {'lab' if in_lab else 'history folder'} "
                 f"({exc})"
@@ -621,9 +658,18 @@ class ShadowSnipApp(QObject):
             return
         new_cfg = dialog.values()
         new_cfg["active_lab"] = self.cfg.get("active_lab", "")
+        if lab.is_active(self.cfg) and lab.root(new_cfg) != lab.root(self.cfg):
+            self._warn(
+                "Stop the active lab before changing its root folder or the "
+                "save folder. This keeps one lab from being split across two "
+                "locations."
+            )
+            return
         hotkeys_changed = any(
             new_cfg[key] != self.cfg[key] for _, key, _ in self.HOTKEYS
         )
+        if hotkeys_changed and not self._replace_hotkeys(new_cfg):
+            return
         self.cfg = new_cfg
         try:
             config.save(self.cfg)
@@ -635,9 +681,45 @@ class ShadowSnipApp(QObject):
             self._engage_auto_copy(announce=False)
         elif not self.cfg["auto_copy"] and self.autocopy.engaged:
             self.autocopy.release()
-        if hotkeys_changed:
-            self._register_hotkeys()
         self._refresh_menu_text()
+
+    def _replace_hotkeys(self, new_cfg: dict) -> bool:
+        """Replace changed hotkeys atomically, restoring the old ones on error."""
+        desired = {name: new_cfg[key] for name, key, _ in self.HOTKEYS}
+        if len(set(desired.values())) != len(desired):
+            self._warn("The snip and quick-note hotkeys must be different.")
+            return False
+
+        changed = [
+            name for name, key, _ in self.HOTKEYS if new_cfg[key] != self.cfg[key]
+        ]
+        previous = {name: self.hotkeys.spec(name) for name in changed}
+        for name in changed:
+            self.hotkeys.unregister(name)
+
+        registered: list[str] = []
+        try:
+            for name, key, _ in self.HOTKEYS:
+                if name in changed:
+                    self.hotkeys.register(self.qapp, desired[name], name)
+                    registered.append(name)
+        except hotkey_mod.HotkeyError as exc:
+            for name in registered:
+                self.hotkeys.unregister(name)
+            restore_failures = []
+            for name in changed:
+                if not previous[name]:
+                    continue
+                try:
+                    self.hotkeys.register(self.qapp, previous[name], name)
+                except hotkey_mod.HotkeyError:
+                    restore_failures.append(name)
+            detail = " Previous hotkeys were restored."
+            if restore_failures:
+                detail = " Some previous hotkeys could not be restored."
+            self._warn(f"Hotkeys were not changed: {exc}.{detail}")
+            return False
+        return True
 
     def _warn(self, message: str) -> None:
         QMessageBox.warning(None, "ShadowSnip", message)
@@ -648,6 +730,22 @@ class ShadowSnipApp(QObject):
         self.hotkeys.unregister()
         self.tray.hide()
         self.qapp.quit()
+
+
+def _modal_dialog_open() -> bool:
+    """True while one of ShadowSnip's own dialogs is waiting for an answer.
+
+    A Qt modal dialog blocks input to every other window in the application,
+    and the selection overlay is one of those windows. Freezing the screen
+    behind Settings therefore produces the worst possible failure: the desktop
+    dims, the drag does nothing, Esc goes to the dialog rather than the
+    overlay, and because neither `selected` nor `cancelled` ever fires, `busy`
+    stays set and copy on select stays paused until ShadowSnip is restarted.
+
+    A module-level function rather than a method so the guard can be tested
+    without a QApplication.
+    """
+    return QApplication.activeModalWidget() is not None
 
 
 def build_icon(size: int = 64, active: bool = False) -> QIcon:
