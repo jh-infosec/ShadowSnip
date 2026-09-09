@@ -126,3 +126,47 @@ def test_duplicate_hotkeys_are_rejected_without_unregistration():
     assert changed is False
     assert hotkeys.specs == {"snip": "ctrl+shift+s", "note": "ctrl+shift+n"}
     assert warnings == ["The snip and quick-note hotkeys must be different."]
+
+
+# -- copy on select and the toggles that report it -------------------------
+def _auto_state(engage=None):
+    """Just enough of the app to run the copy-on-select paths."""
+    refreshed = []
+    messages = []
+
+    def _engage():
+        if engage is not None:
+            engage()
+
+    return SimpleNamespace(
+        cfg={"auto_copy": False, "auto_copy_double_click": True},
+        autocopy=SimpleNamespace(engaged=False, engage=_engage),
+        tray=SimpleNamespace(showMessage=lambda *a: messages.append(a)),
+        _refresh_menu_text=lambda: refreshed.append(True),
+        _refreshed=refreshed,
+        _messages=messages,
+    )
+
+
+def test_engaging_copy_on_select_updates_the_toggles():
+    """The toggles are the only report of a hook the user cannot see."""
+    state = _auto_state()
+
+    app.ShadowSnipApp._engage_auto_copy(state, announce=False)
+
+    assert state.cfg["auto_copy"] is True
+    assert state._refreshed == [True]
+
+
+def test_a_failed_engage_updates_the_toggles_too():
+    """Otherwise the menu claims a hook is running that never started."""
+    def _boom():
+        raise app.autocopy_mod.AutoCopyError("no hook for you")
+
+    state = _auto_state(engage=_boom)
+
+    app.ShadowSnipApp._engage_auto_copy(state, announce=False)
+
+    assert state.cfg["auto_copy"] is False
+    assert state._refreshed == [True]
+    assert "no hook for you" in state._messages[0][1]

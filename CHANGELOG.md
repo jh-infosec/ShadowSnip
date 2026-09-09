@@ -12,6 +12,18 @@ greyed out unless **Copy highlighted text** was ticked, so the exclusion list
 could not be filled in without first re-enabling the feature it exists to
 tame. They are now always editable.
 
+**Fixed** — copy on select could be running while every toggle in the app read
+"off", because the startup engage never refreshed them. It also no longer
+resumes after a restart: it is switched on for the session you want it in.
+
+**Fixed** — copy on select was firing a synthetic Ctrl+C into VM consoles,
+RDP sessions and SSH clients, where a shell reads it as SIGINT. Highlighting
+in a Kali terminal inside VMware was interrupting whatever was running in it.
+Those windows are now skipped.
+
+**Added** — a **Settings** button in the preview window, so the tray menu is
+no longer the only way in.
+
 **Added** — two buttons under **Never copy from** fill in a program's
 executable name for you: **Block the app I was just in**, and a five-second
 **Pick an app** countdown you click into whatever you want excluded.
@@ -27,6 +39,12 @@ text is still copied, but nothing is announced.
 ## [0.4.3] - 2026-09-02
 
 ### Added
+- A **Settings** button in the preview window, on the right of the button bar
+  next to Close, in a muted violet so it reads as a different kind of control
+  from the snip actions. It sits past the stretch with Close because those two
+  stay in one place while the buttons on the left change with what is on
+  screen and whether a lab is running. Settings was previously reachable only
+  through the tray menu.
 - **Never copy from** has two buttons under it, so a program can be excluded
   without knowing its executable name. **Block the app I was just in** walks
   the window z-order and names the frontmost window that is not ShadowSnip's
@@ -36,6 +54,29 @@ text is still copied, but nothing is announced.
   until OK is pressed.
 
 ### Fixed
+- Copy on select engaged at startup without refreshing the tray menu or the
+  preview button, so after a restart with the setting stored on, the hook was
+  running while both toggles read "off". The first click then appeared to do
+  nothing — it released a hook the button already claimed was released — and
+  only the second click visibly changed anything, which is why it took several
+  presses to settle. Every path in and out of the hook now updates the
+  toggles, including the failure path, which previously left the menu claiming
+  a hook that never started.
+- Copy on select no longer resumes after a restart. It is a system-wide mouse
+  hook that synthesises keystrokes and reads the clipboard back; leaving it on
+  once should not sign you up for it running every morning afterwards. The
+  stored value is cleared at launch rather than merely ignored, so Settings,
+  the tray menu and the preview button agree from the first frame.
+- Copy on select no longer synthesises Ctrl+C into a VM console, an RDP
+  session or an SSH client. The existing guard matched window *class*, and a
+  VMware, VirtualBox, `mstsc`, VNC, PuTTY or MobaXterm window is an ordinary
+  application window to Windows — so a Kali terminal inside VMware, where
+  Ctrl+C is SIGINT, got none of the protection a local console gets, and every
+  drag-select was interrupting whatever was running. Those programs are now
+  skipped by executable name, under the same switchable setting as the console
+  and Explorer skips. Nothing is given up by it: a guest's clipboard reaches
+  the host through VMware Tools or the RDP clipboard channel, which is slower
+  than the 120 ms read-back, so the copy could not have been read back anyway.
 - A snip requested while Settings, or any other ShadowSnip dialog, was open
   left the screen dimmed with an overlay that could not be dragged or
   cancelled. `QDialog.exec()` is application-modal, so the overlay received no
@@ -74,6 +115,10 @@ text is still copied, but nothing is announced.
   hand-typed list.
 - The z-order walk skips ShadowSnip's own windows and untitled helper windows,
   and answers nothing rather than guessing when there is no other window.
+- Engaging copy on select updates the toggles, and so does a failed engage.
+- No keystroke reaches a VM, RDP or SSH window; an ordinary window still gets
+  one; the skip is switchable, and switching it off does not expose the
+  always-on password-manager list.
 
 ---
 

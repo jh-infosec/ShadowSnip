@@ -298,3 +298,55 @@ def test_the_foreground_lookup_names_another_program(monkeypatch):
     monkeypatch.setattr(autocopy.os, "getpid", lambda: 999)
     monkeypatch.setattr(autocopy, "_process_name", lambda _hwnd: "lightroom.exe")
     assert autocopy.foreground_process() == "lightroom.exe"
+
+
+# -- VM, RDP and SSH windows -----------------------------------------------
+def _capture_into(monkeypatch, process, cfg=None, window_class="Notepad"):
+    """Run a capture against a fake foreground window; report the keystroke."""
+    copy = AutoCopy(cfg if cfg is not None else {})
+    copy._hook = 1
+    monkeypatch.setattr(autocopy, "_user32", _User32())
+    monkeypatch.setattr(autocopy, "_modifier_held", lambda: False)
+    monkeypatch.setattr(autocopy, "_is_own_window", lambda _window: False)
+    monkeypatch.setattr(autocopy, "_class_name", lambda _window: window_class)
+    monkeypatch.setattr(autocopy, "_process_name", lambda _window: process)
+    monkeypatch.setattr(autocopy, "_clipboard_sequence", lambda: 1)
+    monkeypatch.setattr(autocopy.QTimer, "singleShot", lambda _ms, _fn: None)
+    sent = []
+    monkeypatch.setattr(autocopy, "_send_ctrl_c", lambda: sent.append(True))
+    copy._capture()
+    return sent
+
+
+def test_guest_processes_are_lowercase_with_an_extension():
+    for name in autocopy.GUEST_PROCESSES:
+        assert name == name.lower()
+        assert name.endswith(".exe")
+
+
+@pytest.mark.parametrize(
+    "process", ["vmware.exe", "virtualboxvm.exe", "mstsc.exe", "putty.exe"]
+)
+def test_no_ctrl_c_reaches_a_vm_or_remote_session(monkeypatch, process):
+    """Ctrl+C in the shell inside one of these is SIGINT, not copy."""
+    assert _capture_into(monkeypatch, process) == []
+
+
+def test_an_ordinary_window_still_gets_the_keystroke(monkeypatch):
+    assert _capture_into(monkeypatch, "notepad.exe") == [True]
+
+
+def test_turning_the_skip_setting_off_lets_a_vm_window_through(monkeypatch):
+    """It is misfire avoidance, not a hard block, so it has to be switchable."""
+    sent = _capture_into(
+        monkeypatch, "vmware.exe", cfg={"auto_copy_skip_consoles": False}
+    )
+    assert sent == [True]
+
+
+def test_a_password_manager_is_blocked_even_with_the_skip_setting_off(monkeypatch):
+    """The always-on list must not be reachable through a settings toggle."""
+    sent = _capture_into(
+        monkeypatch, "keepass.exe", cfg={"auto_copy_skip_consoles": False}
+    )
+    assert sent == []

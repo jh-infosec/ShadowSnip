@@ -161,6 +161,37 @@ BLOCKED_CLASSES = {
     "WorkerW",
 }
 
+# The same reasoning as BLOCKED_CLASSES, reached a different way.
+#
+# A window class says what a window *is* to Windows, and a VM console, an RDP
+# session and an SSH client are all just ordinary application windows. What is
+# inside them is not ordinary: a shell where Ctrl+C is SIGINT, exactly the case
+# the class list exists to keep away from. Highlighting in a Kali terminal
+# inside VMware was firing an interrupt at whatever was running in it, because
+# nothing in the class list could see past the VMware window.
+#
+# The copy could not have worked anyway. A guest's clipboard reaches the host
+# through VMware Tools or the RDP clipboard channel, which is slower than the
+# 120 ms read-back, and a Linux terminal usually wants Ctrl+Shift+C in the
+# first place. So there is nothing to trade away by skipping these.
+#
+# Named by process rather than class because that is what identifies them, and
+# gated behind the same "skip risky windows" setting: this is misfire
+# avoidance, not the password-manager category, and someone who wants it off
+# should be able to turn it off.
+GUEST_PROCESSES = {
+    "vmware.exe",  # Workstation
+    "vmware-vmx.exe",
+    "vmware-unity-helper.exe",
+    "vmplayer.exe",
+    "virtualboxvm.exe",
+    "mstsc.exe",  # Remote Desktop
+    "msrdc.exe",
+    "vncviewer.exe",
+    "putty.exe",  # copies on select by itself, and Ctrl+C is a break
+    "mobaxterm.exe",
+}
+
 # Applications whose clipboard is none of our business. Unlike the class list
 # above, the danger here is not that the copy misfires -- it is that it works.
 # Always applied, and not switchable from Settings: the cost of being unable to
@@ -373,9 +404,6 @@ class AutoCopy(QObject):
         window = _user32.GetForegroundWindow()
         if not window or _is_own_window(window):
             return
-        if self._cfg.get("auto_copy_skip_consoles", True):
-            if _class_name(window) in BLOCKED_CLASSES:
-                return
         process = _process_name(window)
         if process is None or self._is_blocked(process):
             # Deliberately before the keystroke, not after: the point is that
@@ -384,6 +412,11 @@ class AutoCopy(QObject):
             # an elevated or protected password manager into the exact case
             # this guard is meant to prevent.
             return
+        if self._cfg.get("auto_copy_skip_consoles", True):
+            if _class_name(window) in BLOCKED_CLASSES:
+                return
+            if process in GUEST_PROCESSES:
+                return
 
         before = _clipboard_sequence()
         _send_ctrl_c()

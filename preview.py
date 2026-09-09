@@ -57,6 +57,12 @@ QPushButton:pressed { background: #232329; }
 QPushButton#Primary { background: #0a63c4; border-color: #0a63c4; }
 QPushButton:checked { background: #1d6b3a; border-color: #2e8b4f; }
 QPushButton#Primary:hover { background: #1273da; }
+/* Settings is not one of the snip actions, so it does not look like one.
+   A muted violet reads as a different kind of control while staying quieter
+   than the blue on New snip -- it should be findable, not competing. */
+QPushButton#Settings { background: #3b3550; border-color: #4d4470; }
+QPushButton#Settings:hover { background: #474060; }
+QPushButton#Settings:pressed { background: #322d45; }
 """
 
 
@@ -70,6 +76,7 @@ class PreviewWindow(QWidget):
     note_added = Signal(str, bool)
     # Re-file the snip on screen under the current section.
     snip_move_requested = Signal()
+    settings_requested = Signal()
 
     def __init__(self, parent=None, icon: QIcon | None = None):
         super().__init__(parent)
@@ -120,6 +127,11 @@ class PreviewWindow(QWidget):
         self.btn_save = QPushButton("Save as...")
         self.btn_copy = QPushButton("Copy again")
         self.btn_folder = QPushButton("Open folder")
+        self.btn_settings = QPushButton("Settings")
+        self.btn_settings.setObjectName("Settings")
+        self.btn_settings.setToolTip(
+            "Hotkeys, save folder, image quality, copy on select, labs"
+        )
         self.btn_close = QPushButton("Close")
 
         self.btn_new.clicked.connect(self.new_snip_requested.emit)
@@ -128,6 +140,7 @@ class PreviewWindow(QWidget):
         self.btn_save.clicked.connect(self.save_as)
         self.btn_copy.clicked.connect(self.copy_again)
         self.btn_folder.clicked.connect(self.open_folder)
+        self.btn_settings.clicked.connect(self.settings_requested.emit)
         self.btn_close.clicked.connect(self.close)
 
         bar = QHBoxLayout()
@@ -138,7 +151,12 @@ class PreviewWindow(QWidget):
         bar.addWidget(self.btn_save)
         bar.addWidget(self.btn_copy)
         bar.addWidget(self.btn_folder)
+        # Past the stretch, away from the snip actions. The buttons on the left
+        # change with what is on screen and whether a lab is running; these two
+        # are always in the same place, which is what makes Settings findable
+        # without hunting through the tray menu.
         bar.addStretch(1)
+        bar.addWidget(self.btn_settings)
         bar.addWidget(self.btn_close)
 
         layout = QVBoxLayout(self)

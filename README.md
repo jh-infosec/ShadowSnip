@@ -87,6 +87,7 @@ Because a stray Ctrl+C can do real damage, some windows are left alone:
 | Window | Why |
 | --- | --- |
 | Consoles | Ctrl+C with nothing selected is a break, and cancelling a running scan by accident is not a good trade. Windows Terminal has `copyOnSelect` built in, which is the better answer there |
+| VM consoles, RDP and SSH clients | The same reason, one level down. A Kali terminal inside VMware is a shell where Ctrl+C is SIGINT, but the window Windows sees is an ordinary VMware window, so the class list above cannot spot it. VMware, VirtualBox, `mstsc`, VNC, PuTTY and MobaXterm are skipped by executable name instead |
 | Explorer and the desktop | A rubber-band drag selects files, and Ctrl+C would put those files on the clipboard |
 | Password managers | Not a misfire risk — the opposite. Double-clicking an entry in KeePass copies the password, and a feature that reads the clipboard back automatically has no business near that |
 | ShadowSnip itself | The selection overlay is dragged with the same button |
@@ -113,6 +114,10 @@ It is off by default, and worth knowing why: it needs a system-wide mouse
 hook, and a hook plus synthetic keystrokes plus automatic clipboard reads is
 the same combination an infostealer uses. On your own machine that is fine.
 On a managed machine, expect endpoint security to take an interest.
+
+For the same reason it does not survive a restart. Leaving it on once does not
+sign you up for it running every morning after that; ShadowSnip always starts
+with it off, and you turn it on for the session you want it in.
 
 ## Lab mode
 
@@ -253,7 +258,8 @@ Settings live in `%APPDATA%\ShadowSnip\config.json`.
 
 ## Settings
 
-Right-click the tray icon → **Settings**.
+**Settings** in the preview window, on the right next to Close, or right-click
+the tray icon → **Settings**.
 
 | Setting | Effect |
 | --- | --- |
@@ -269,9 +275,9 @@ Right-click the tray icon → **Settings**.
 | PNG effort | zlib level 0–9 |
 | Also copy a plain bitmap | Adds `CF_DIB` for apps that cannot read PNG from the clipboard |
 | Show the preview window | Off means a tray notification instead |
-| Copy highlighted text | Copy on select, as above |
+| Copy highlighted text | Copy on select, as above. Always starts off after a restart |
 | Also copy on double-click | Word on a double-click, line on a triple-click, as well as drags |
-| Skip consoles, Explorer and the desktop | Leave the windows where a synthetic Ctrl+C would misfire |
+| Skip consoles, Explorer, the desktop, and VM/RDP/SSH windows | Leave the windows where a synthetic Ctrl+C would misfire |
 | Ignore a repeated clip | Say nothing when a clip is identical to the one before it |
 | Show a confirmation near the cursor | The one-second label that says what was copied |
 | Shortest drag that counts | Below this, a drag is treated as a click |
@@ -332,9 +338,11 @@ for starting ShadowSnip at login.
   keeps working from the tray menu.
 - Windows only. The capture, overlay and image code are cross-platform, but
   the hotkey and clipboard layers are Win32.
-- **Copy on select may go quiet over RDP or in a VM with shared clipboard.**
-  Before reading a clip back, ShadowSnip checks that the process that now owns
-  the clipboard is the one you highlighted in. That check is what stops an
+- **Copy on select may go quiet while a VM or RDP session is syncing the
+  clipboard.** Selecting *inside* one of those windows is skipped outright, as
+  above, so this is about host applications while the sync runs in the
+  background. Before reading a clip back, ShadowSnip checks that the process
+  that now owns the clipboard is the one you highlighted in. That check stops an
   unrelated clipboard update being mistaken for your selection. But clipboard
   redirection works by taking ownership: `rdpclip.exe` on a remote desktop, or
   the guest additions in VMware and VirtualBox, can claim the clipboard inside

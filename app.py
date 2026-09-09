@@ -60,6 +60,7 @@ class ShadowSnipApp(QObject):
         self.preview.section_changed.connect(self.set_section)
         self.preview.note_added.connect(self._on_note_from_preview)
         self.preview.snip_move_requested.connect(self.move_current_snip)
+        self.preview.settings_requested.connect(self.open_settings)
 
         self.tray = QSystemTrayIcon(build_icon(), self)
         self.tray.setToolTip("ShadowSnip")
@@ -74,8 +75,18 @@ class ShadowSnipApp(QObject):
         self.toast = ClipToast()
         self.autocopy = autocopy_mod.AutoCopy(self.cfg, self)
         self.autocopy.copied.connect(self._on_auto_copied)
-        if self.cfg["auto_copy"]:
-            self._engage_auto_copy(announce=False)
+        # Copy on select does not survive a restart, and the stored value is
+        # cleared rather than merely ignored so that Settings, the tray menu
+        # and the preview button all agree from the first frame.
+        #
+        # It is a system-wide mouse hook that synthesises keystrokes and reads
+        # the clipboard back. Something with that reach should be switched on
+        # for the session you want it in, deliberately, rather than resuming
+        # days later because it was left on once -- and a feature that is
+        # quietly running while every toggle in the app reads "off" is worse
+        # than one that needs a click.
+        self.cfg["auto_copy"] = False
+        self._refresh_menu_text()
 
     # -- tray --------------------------------------------------------------
     def _build_menu(self) -> None:
@@ -397,10 +408,16 @@ class ShadowSnipApp(QObject):
         self._refresh_menu_text()
 
     def _engage_auto_copy(self, announce: bool = True) -> None:
+        # Every exit from this method refreshes the menu and the preview
+        # button. Whether the hook is running is not something the user can
+        # see directly -- the toggles are the only report of it -- so a state
+        # change that does not reach them leaves the app lying about what it
+        # is doing, and a toggle whose first click appears to do nothing.
         try:
             self.autocopy.engage()
         except autocopy_mod.AutoCopyError as exc:
             self.cfg["auto_copy"] = False
+            self._refresh_menu_text()
             self.tray.showMessage(
                 "ShadowSnip",
                 f"Copy on select could not start: {exc}",
@@ -409,6 +426,7 @@ class ShadowSnipApp(QObject):
             )
             return
         self.cfg["auto_copy"] = True
+        self._refresh_menu_text()
         if announce:
             gesture = (
                 "Highlight text, or double-click a word, and it goes straight "
@@ -419,8 +437,8 @@ class ShadowSnipApp(QObject):
             )
             self.tray.showMessage(
                 "ShadowSnip",
-                f"Copy on select is on. {gesture} Consoles, Explorer and "
-                "password managers are skipped.",
+                f"Copy on select is on. {gesture} Consoles, Explorer, VM and "
+                "remote-session windows, and password managers are skipped.",
                 build_icon(),
                 4000,
             )

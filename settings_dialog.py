@@ -176,7 +176,7 @@ class SettingsDialog(QDialog):
         )
         self.auto_copy_check.setChecked(cfg["auto_copy"])
         self.auto_copy_skip = QCheckBox(
-            "Skip consoles, Explorer and the desktop"
+            "Skip consoles, Explorer, the desktop, and VM/RDP/SSH windows"
         )
         self.auto_copy_skip.setChecked(cfg["auto_copy_skip_consoles"])
         self.auto_copy_double = QCheckBox(

@@ -63,6 +63,10 @@ DEFAULTS = {
     # default; it needs a system-wide mouse hook to work at all.
     "auto_copy": False,
     "auto_copy_min_drag": 8,
+    # Consoles, Explorer, the desktop, and VM/RDP/SSH client windows: every
+    # place a synthetic Ctrl+C means something other than "copy". The key name
+    # predates the VM and remote-session entries and is kept as it is so that
+    # existing config files keep their setting.
     "auto_copy_skip_consoles": True,
     # Also treat a double-click (word) and a triple-click (line) as a
     # selection, not only a drag.
