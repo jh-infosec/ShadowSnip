@@ -20,7 +20,7 @@ def test_no_capture_resumes_copy_on_select(monkeypatch):
         _warn=lambda message: warnings.append(message),
     )
 
-    app.ShadowSnipApp._begin_snip(state)
+    app.ShadowSnipApp._start_overlay(state)
 
     assert state.busy is False
     assert state.controller is None

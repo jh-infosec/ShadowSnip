@@ -41,7 +41,7 @@ click the tray icon to open the preview window.
 | --- | --- |
 | Start a snip | `Ctrl+Shift+S`, the tray menu, or `python main.py --snip` |
 | Jot a note into the lab | `Ctrl+Shift+N`, or **Add note...** in the tray menu |
-| Open the window | click the tray icon |
+| Open the window | click the tray icon, or start ShadowSnip again (the taskbar pin) |
 | Start or stop a lab | **Start lab** in the preview window, or the tray menu |
 | Drag a region | left mouse button |
 | Grab the whole screen under the cursor | `F` or `Space` |
@@ -50,6 +50,9 @@ click the tray icon to open the preview window.
 | Copy again (preview window) | `Ctrl+C` |
 
 Selections can cross monitors, including monitors on different scale factors.
+The snip finishes when you let go of the button, and only then: Windows can
+take the mouse away from the overlay as the pointer crosses onto another
+monitor, and ShadowSnip checks the physical button before believing it.
 
 ## Copy on select
 
@@ -226,6 +229,20 @@ Anonymous login allowed on tmp.
 
 Sections and notes both need the lab record switched on — that is the
 **Keep a lab record** setting, which is on by default.
+
+### The lab snip list, and removing a snip
+
+While a lab is running, the preview window lists every snip in it beside the
+image, newest first: number, time, section, caption and attached notes. Select
+one and the box underneath shows exactly how it was filed. The snip on screen
+is bold and marked `*`.
+
+**Remove from lab** (or Delete on the list) takes the selected snip out of the
+lab after asking. Nothing is deleted: the image goes to a `removed` folder
+inside the lab, its record goes to a `removed` list in `lab.json`, and `lab.md`
+is re-rendered without it. Notes attached only to that snip go with it; a note
+also attached to another snip stays. The next snip reuses the freed number. To
+undo, move the image back up a level and its record back into `entries`.
 
 Old labs from 0.3.x open and render without being migrated. Their entries have
 no section, so they appear at the root of the tree.

@@ -95,6 +95,15 @@ def open_folder(path: Path) -> None:
     QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
 
+def open_file(path: Path) -> None:
+    """Open a file in whatever the system has associated with it.
+
+    The same call as open_folder underneath: Windows' startfile and Qt's
+    openUrl both hand the path to the shell, which picks the viewer.
+    """
+    open_folder(path)
+
+
 def reveal(path: Path) -> None:
     """Open the containing folder, selecting the file where possible."""
     import subprocess

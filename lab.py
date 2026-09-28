@@ -68,6 +68,9 @@ import storage
 STATE_NAME = "lab.json"
 INDEX_NAME = "lab.md"
 GITIGNORE_NAME = ".gitignore"
+# Where a removed snip goes. Inside the lab, so it travels with it and is
+# covered by the same .gitignore.
+REMOVED_DIR = "removed"
 
 # Labs are full of hashes, tokens and internal hostnames by design. The
 # ignore file goes in the labs root on creation so none of it reaches a repo
@@ -372,6 +375,134 @@ def add_note(cfg: dict, text: str, attach=None) -> dict | None:
     state.setdefault("entries", []).append(entry)
     _save_state(target, state, cfg)
     return entry
+
+
+# -- removing --------------------------------------------------------------
+def remove_snip(cfg: dict, filename: str) -> dict | None:
+    """Take a snip out of the active lab, keeping it recoverable.
+
+    For the wrong window, the wrong tab, the snip that caught a password
+    prompt. The image is moved into `removed/` inside the lab rather than
+    deleted, and its record, together with any note that was attached to it
+    and nothing else, is moved into the `removed` list in lab.json. lab.md is
+    re-rendered without it. Putting it back is a matter of moving the file up
+    a level and the record back into `entries`, by hand.
+
+    A note attached to several snips stays, minus the reference to this one:
+    it is still about the others.
+
+    The folder is `removed`, not `.removed`: a hidden folder is one you forget
+    is holding a screenshot of a hash.
+
+    Returns what was removed, as {"file", "number", "notes"}, or None when
+    there is no lab or no such snip in it.
+    """
+    target = active_folder(cfg)
+    filename = str(filename or "").strip()
+    if target is None or not filename or Path(filename).name != filename:
+        # A bare filename only. Anything with a separator in it is not one of
+        # ours, and must not be able to move files out of some other folder.
+        return None
+
+    source = target / filename
+    if not source.is_file() or source.suffix.lower() not in _SUFFIXES:
+        return None
+
+    bin_dir = target / REMOVED_DIR
+    try:
+        bin_dir.mkdir(exist_ok=True)
+        destination = bin_dir / filename
+        if destination.exists():
+            destination = bin_dir / f"{source.stem}_{_now_iso().replace(':', '-')}{source.suffix}"
+        source.replace(destination)
+    except OSError as exc:
+        raise LabError(f"could not move {filename} out of the lab: {exc}") from exc
+
+    match = _NUMBER_RE.match(filename)
+    removed = {
+        "file": filename,
+        "number": int(match.group(1)) if match else 0,
+        "notes": [],
+    }
+
+    state = _load_state(target)
+    if not state:
+        return removed
+
+    kept: list = []
+    moved: list[dict] = []
+    for entry in state.get("entries", []):
+        if not isinstance(entry, dict):
+            kept.append(entry)
+            continue
+        if entry_kind(entry) == "snip" and entry.get("file") == filename:
+            moved.append(entry)
+            continue
+        if entry_kind(entry) == "note" and filename in entry.get("attach", ()):
+            others = [name for name in entry.get("attach", ()) if name != filename]
+            if not others:
+                moved.append(entry)
+                removed["notes"].append(str(entry.get("id", "")))
+                continue
+            entry["attach"] = others
+        kept.append(entry)
+
+    if moved:
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for entry in moved:
+            entry["removed"] = stamp
+        state["entries"] = kept
+        state.setdefault("removed", []).extend(moved)
+        _save_state(target, state, cfg)
+    return removed
+
+
+def snip_rows(cfg: dict) -> list[dict]:
+    """Every snip in the active lab, oldest first, for the list in the window.
+
+    Built from the images in the folder and enriched from the record, so the
+    list is right even with the lab record switched off, and a snip copied in
+    by hand still shows up. Each row carries:
+
+        file, number, time, section, caption, notes (texts attached to it)
+    """
+    target = active_folder(cfg)
+    if target is None:
+        return []
+
+    state = _load_state(target)
+    recorded = state.get("entries", []) if isinstance(state.get("entries"), list) else []
+    by_file: dict[str, dict] = {}
+    attached: dict[str, list[str]] = {}
+    for entry in recorded:
+        if not isinstance(entry, dict):
+            continue
+        if entry_kind(entry) == "snip" and entry.get("file"):
+            by_file[str(entry["file"])] = entry
+        elif entry_kind(entry) == "note":
+            text = str(entry.get("text", "")).strip()
+            for name in entry.get("attach", ()):
+                attached.setdefault(str(name), []).append(text)
+
+    rows = []
+    for path in _images(target):
+        entry = by_file.get(path.name, {})
+        match = _NUMBER_RE.match(path.name)
+        number = entry.get("number")
+        if not isinstance(number, int):
+            number = int(match.group(1)) if match else 0
+        rows.append(
+            {
+                "file": path.name,
+                "number": number,
+                "time": str(entry.get("time", "")),
+                "section": entry_section(entry) if entry else "",
+                "caption": str(entry.get("caption", "")).strip(),
+                "notes": attached.get(path.name, []),
+            }
+        )
+    rows.sort(key=lambda row: (row["number"], row["file"]))
+    return rows
 
 
 # -- reading the record ----------------------------------------------------

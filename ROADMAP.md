@@ -31,10 +31,10 @@
 
 ## Notes and sections, still open
 
-- Editing a note after the fact needs `lab.json` opened by hand. A list view
-  over the record — edit the text, move an entry to another section, drop one —
-  is the obvious next piece, and shares its plumbing with the reorder item
-  above.
+- Editing a note after the fact needs `lab.json` opened by hand. 0.4.4 added
+  the list view of a lab's snips and removal; editing a note's text, moving a
+  note between sections, removing a note on its own, and restoring a removed
+  snip from inside the app are the pieces still missing from it.
 - Export beyond markdown. `lab.md` pastes into most things, but a
   self-contained HTML with the images inlined, or a .docx built against a
   client template, would drop straight into a report rather than needing the

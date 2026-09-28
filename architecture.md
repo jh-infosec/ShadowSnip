@@ -193,7 +193,18 @@ combination, needs no elevation, and fails loudly if the combination is taken.
 - Mouse hook refused: reported as a tray notification and the toggle goes
   back off; nothing else about the application changes.
 - Second launch: hands off over `QLocalServer` and exits rather than starting
-  a competing tray icon and a second hotkey registration.
+  a competing tray icon and a second hotkey registration. The running copy
+  opens its window (or snips, for `--snip`) and answers `ok`; the launch hands
+  over its foreground right first so the window actually comes to the front.
+  No answer within two seconds is reported as a stuck copy rather than
+  swallowed.
+- Mouse capture lost mid-drag: Qt reports it as a button release. The
+  overlay checks the physical button, ignores the release while it is held,
+  and follows the drag by polling the cursor until the button is really up.
+- Snip start failure: caught in `_begin_snip`, reported, and `busy` cleared
+  so the app does not refuse every later snip.
+- Removing a lab snip: the image moves to `<lab>/removed/` and its record to
+  `removed` in `lab.json`, so a mistaken removal is recoverable by hand.
 - Lab folder unusable: reported when the lab is started, and no lab is
   engaged, so snips carry on going to the normal save folder.
 - Lab index unwritable: swallowed. The image is already on disk and on the

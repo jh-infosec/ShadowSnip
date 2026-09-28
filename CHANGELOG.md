@@ -1,38 +1,95 @@
 # Changelog
 
-## Latest: 0.4.3
+## Latest: 0.4.4
 
-**Fixed** — pressing the snip hotkey while Settings was open dimmed the screen
-and hung: the overlay could not take the drag or the Esc behind a modal
-dialog, and every later snip was refused too. The snip is now declined up
-front, with a message and the dialog brought back to the front.
+**Added**: a **Lab snips** list beside the image while a lab is running,
+newest first. Each row shows the number, time, section, caption and attached
+notes, and the box underneath spells out how the selected snip was filed. The
+snip on screen is bold and marked with `*`.
 
-**Fixed** — the copy-on-select settings, **Never copy from** included, were
-greyed out unless **Copy highlighted text** was ticked, so the exclusion list
-could not be filled in without first re-enabling the feature it exists to
-tame. They are now always editable.
+**Added**: **Remove from lab**, for the wrong snip filed into a lab. It asks
+first, then moves the image to a `removed` folder inside the lab (nothing is
+deleted) and takes it out of `lab.md`. Notes attached only to that snip go
+with it. The next snip reuses its number, so the sequence has no gap.
 
-**Fixed** — copy on select could be running while every toggle in the app read
-"off", because the startup engage never refreshed them. It also no longer
-resumes after a restart: it is switched on for the session you want it in.
+**Fixed**: clicking the taskbar pin, or starting ShadowSnip again, while it
+was already running in the tray did nothing. It now brings the window up.
 
-**Fixed** — copy on select was firing a synthetic Ctrl+C into VM consoles,
-RDP sessions and SSH clients, where a shell reads it as SIGINT. Highlighting
-in a Kali terminal inside VMware was interrupting whatever was running in it.
-Those windows are now skipped.
+**Fixed**: a snip could end by itself partway through a drag across, or near,
+the second monitor. Windows was taking the mouse capture away as the pointer
+crossed onto the other screen's overlay, and that was being read as letting go
+of the button.
 
-**Added** — a **Settings** button in the preview window, so the tray menu is
-no longer the only way in.
+---
 
-**Added** — two buttons under **Never copy from** fill in a program's
-executable name for you: **Block the app I was just in**, and a five-second
-**Pick an app** countdown you click into whatever you want excluded.
+## [0.4.4] - 2026-09-27
 
-**Changed** — an excluded program can be named with or without `.exe`.
+### Added
+- A **Lab snips** list in the preview window, beside the image, shown for as
+  long as a lab is running. Newest first, with columns for number, time,
+  section, caption and notes, and a detail box under it giving the selected
+  snip's full section, caption and every attached note, since the columns cut
+  long ones short. The snip on screen is bold and marked `*`, and is selected
+  after each new snip so the buttons act on it; a refresh for a caption or a
+  note keeps whatever you had selected. The list is built from the images in
+  the lab folder and enriched from `lab.json`, so it is right with the lab
+  record switched off and includes images copied in by hand. Double-click or
+  **Open** opens the image.
+- **Remove from lab** under the list, and the Delete key on the list. It asks
+  for confirmation, naming the snip, its caption and how many attached notes
+  go with it. The image is moved to `<lab>/removed/`, not deleted. Its record,
+  and any note attached to it and to nothing else, move from `entries` to a
+  `removed` list in `lab.json` with a timestamp, and `lab.md` is re-rendered
+  without them. A note also attached to another snip stays and only loses the
+  reference. If the removed snip is the one on screen, the caption box, **Move
+  snip here** and **Attach to this snip** switch off for it. Numbering is
+  derived from the files in the lab folder, so the next snip takes the freed
+  number. Only a bare image filename inside the active lab can be removed.
 
-**Documented** — copy on select can go quiet under RDP or VM clipboard
-redirection, because the redirection helper takes clipboard ownership; the
-text is still copied, but nothing is announced.
+### Fixed
+- Starting ShadowSnip while it was already running, which is what the taskbar
+  pin does, sent a `ping` the running copy ignored, so nothing appeared. A
+  relaunch now opens the window in the running copy, restoring it if it was
+  minimised. The launch passes on its right to take the foreground
+  (`AllowSetForegroundWindow`), without which Windows keeps the window behind
+  whatever was in front. The running copy now answers; if it is running but
+  does not answer within two seconds, the launch says so and points at Task
+  Manager instead of silently exiting.
+- A minimised preview window stayed minimised on a tray click, because
+  `show()` and `raise_()` do not restore one.
+- A snip could finish on its own mid-drag when the pointer crossed onto, or
+  came close to, another monitor. The drag starts with the mouse captured by
+  the overlay under the pointer; crossing onto another monitor's overlay could
+  lose that capture, and Qt reports a lost capture as a button release. A
+  release is now checked against the physical button (`GetAsyncKeyState`,
+  honouring swapped buttons) and ignored while it is still held. From then on
+  the drag follows the cursor by polling every 10 ms and finishes once the
+  button has read "up" three polls in a row. A normal release still finishes
+  at once.
+- The selection rectangle could jump while dragging on a second monitor with
+  a different scale factor, because move events arriving at the first
+  overlay were converted with that overlay's scale. Moves now use the global
+  cursor position.
+- An exception while starting the overlay left `busy` set, so every later
+  snip, hotkey and tray click was refused until restart. It is now caught,
+  reported, and the snip state reset.
+- Cancelling a snip started from the preview window left the window hidden.
+  It comes back now.
+
+### Tests
+- `test_lab_remove.py`: removal moves rather than deletes, leaves the record
+  and index, takes solely attached notes with it, keeps shared notes, frees
+  the number, keeps both copies of a repeated name, works without a record,
+  refuses anything that is not a bare snip filename in the active lab, and
+  reports a failed move. The snip rows carry section, caption and attached
+  notes, come in capture order, and work from the folder alone.
+- `test_overlay_drag.py`: a release with the button held is ignored, polling
+  then follows and finishes the drag, a single odd reading does not finish it,
+  a real release finishes at once, and without a button probe the release is
+  trusted as before.
+- `test_preview_snips.py`: newest first, the on-screen snip is selected and
+  marked, a refresh keeps the selection and a new snip takes it, Remove emits
+  the selected file, and an empty lab disables the buttons.
 
 ---
 

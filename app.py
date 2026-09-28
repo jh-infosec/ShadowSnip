@@ -61,6 +61,11 @@ class ShadowSnipApp(QObject):
         self.preview.note_added.connect(self._on_note_from_preview)
         self.preview.snip_move_requested.connect(self.move_current_snip)
         self.preview.settings_requested.connect(self.open_settings)
+        self.preview.snip_remove_requested.connect(self.remove_lab_snip)
+        self.preview.snip_open_requested.connect(self.open_lab_snip)
+        # Whether the window was up when a snip started, so a cancelled snip
+        # can put it back instead of leaving you with nothing on screen.
+        self._reshow_preview = False
 
         self.tray = QSystemTrayIcon(build_icon(), self)
         self.tray.setToolTip("ShadowSnip")
@@ -172,6 +177,12 @@ class ShadowSnipApp(QObject):
         else:
             self.action_section.setText("Set section...")
 
+        # The snip list is built from the images in the lab folder, so it is
+        # shown for any running lab, record or not.
+        self.preview.set_snips_visible(bool(name))
+        if name:
+            self.preview.set_lab_snips(lab.snip_rows(self.cfg), self._last_lab_file)
+
         engaged = self.autocopy.engaged if hasattr(self, "autocopy") else False
         self.action_auto.setChecked(engaged)
         self.preview.set_auto_copy(engaged)
@@ -184,7 +195,18 @@ class ShadowSnipApp(QObject):
             QSystemTrayIcon.ActivationReason.Trigger,
             QSystemTrayIcon.ActivationReason.DoubleClick,
         ):
-            self.preview.open_window()
+            self.show_window()
+
+    def show_window(self) -> None:
+        """Bring the window up for a relaunch or a tray click.
+
+        During a snip the overlay owns the screen, and the window is hidden
+        on purpose so it is not in the picture; it comes back afterwards.
+        """
+        if self.busy:
+            self._reshow_preview = True
+            return
+        self.preview.open_window()
 
     def _open_save_folder(self) -> None:
         target = lab.active_folder(self.cfg)
@@ -350,6 +372,81 @@ class ShadowSnipApp(QObject):
         )
         self._refresh_menu_text()
 
+    def remove_lab_snip(self, filename: str) -> None:
+        """Take a snip out of the running lab, after asking.
+
+        For the wrong snip filed into the lab. The image goes to the lab's
+        `removed` folder rather than the recycle bin, so a slip of the mouse on
+        this button costs nothing either.
+        """
+        if not filename or not lab.is_active(self.cfg):
+            return
+        row = next(
+            (r for r in lab.snip_rows(self.cfg) if r["file"] == filename), None
+        )
+        if row is None:
+            self.preview.set_status(f"{filename} is no longer in this lab.")
+            self._refresh_menu_text()
+            return
+
+        label = f"{row['number']:03d}"
+        detail = [f"Snip {label} ({filename})"]
+        if row["caption"]:
+            detail.append(f"Caption: {row['caption']}")
+        if row["notes"]:
+            detail.append(
+                f"{len(row['notes'])} attached note(s) go with it unless they "
+                "are also attached to another snip."
+            )
+        detail.append(
+            "\nThe image is moved to the lab's 'removed' folder and dropped "
+            "from lab.md. It is not deleted."
+        )
+        answer = QMessageBox.question(
+            self.preview if self.preview.isVisible() else None,
+            "Remove snip from lab",
+            "\n".join(detail),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            removed = lab.remove_snip(self.cfg, filename)
+        except lab.LabError as exc:
+            self.preview.set_status(f"Could not remove the snip: {exc}")
+            return
+        if removed is None:
+            self.preview.set_status(f"{filename} is not in this lab.")
+            self._refresh_menu_text()
+            return
+
+        if filename == self._last_lab_file:
+            self._last_lab_file = ""
+            self.preview.forget_snip_on_screen()
+        notes = removed["notes"]
+        extra = f" with note {', '.join(notes)}" if notes else ""
+        self.preview.set_status(
+            f"Snip {label} removed from lab {lab.active_name(self.cfg)}{extra}. "
+            f"It is in {lab.REMOVED_DIR}\\ inside the lab folder."
+        )
+        self._refresh_menu_text()
+
+    def open_lab_snip(self, filename: str) -> None:
+        target = lab.active_folder(self.cfg)
+        if target is None or not filename:
+            return
+        path = target / filename
+        if not path.is_file():
+            self.preview.set_status(f"{filename} is no longer in the lab folder.")
+            self._refresh_menu_text()
+            return
+        try:
+            storage.open_file(path)
+        except OSError as exc:
+            self.preview.set_status(f"Could not open {filename}: {exc}")
+
     def quick_note(self) -> None:
         """The hotkey and tray path: one line, filed into the current section.
 
@@ -508,7 +605,8 @@ class ShadowSnipApp(QObject):
         # Otherwise a toast still fading out is part of the frozen screen and
         # ends up inside the snip.
         self.toast.hide()
-        was_visible = self.preview.isVisible()
+        was_visible = self.preview.isVisible() and not self.preview.isMinimized()
+        self._reshow_preview = was_visible
         if was_visible:
             self.preview.hide()
         # Give the compositor a moment to actually remove our own window
@@ -530,6 +628,20 @@ class ShadowSnipApp(QObject):
             modal.activateWindow()
 
     def _begin_snip(self) -> None:
+        try:
+            self._start_overlay()
+        except Exception as exc:  # noqa: BLE001 - reported, then recovered
+            # Anything escaping here would leave `busy` set, and every later
+            # snip, tray click and hotkey would be refused until a restart.
+            if self.controller is not None:
+                try:
+                    self.controller.close_all()
+                except Exception:  # noqa: BLE001
+                    pass
+            self._on_cancelled()
+            self._warn(f"The snip could not start: {exc}")
+
+    def _start_overlay(self) -> None:
         grabs = capture.grab_all_screens()
         if not grabs:
             self.controller = None
@@ -549,6 +661,11 @@ class ShadowSnipApp(QObject):
         self._grabs = []
         self.busy = False
         self.autocopy.resume()
+        # The window was hidden so it would not be in the snip. With no snip
+        # taken, put it back rather than leave it looking as if it had closed.
+        if getattr(self, "_reshow_preview", False):
+            self._reshow_preview = False
+            self.preview.open_window()
 
     def _on_selected(self, rect: QRect) -> None:
         self.controller = None
@@ -556,9 +673,12 @@ class ShadowSnipApp(QObject):
         try:
             image = capture.compose_selection(grabs, rect)
             if image is None:
+                if self._reshow_preview:
+                    self.preview.open_window()
                 return
             self._handle_snip(image)
         finally:
+            self._reshow_preview = False
             self.busy = False
             self.autocopy.resume()
 
@@ -631,7 +751,10 @@ class ShadowSnipApp(QObject):
 
     def _caption_setter(self, filename: str):
         def apply(text: str) -> bool:
-            return lab.set_caption(self.cfg, filename, text)
+            done = lab.set_caption(self.cfg, filename, text)
+            if done:
+                self._refresh_menu_text()
+            return done
 
         return apply
 
