@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.4.4"
+APP_VERSION = "0.4.5"
 
 
 def config_dir() -> Path:
@@ -90,6 +90,9 @@ DEFAULTS = {
     "lab_root": "",
     "lab_index": True,
     "lab_caption": True,
+    # The list of the running lab's snips beside the image in the preview
+    # window. Toggled with the Snip list button; remembered between runs.
+    "lab_snip_list": True,
 }
 
 
@@ -202,6 +205,7 @@ def _sanitise(cfg: dict) -> dict:
         "show_preview",
         "lab_index",
         "lab_caption",
+        "lab_snip_list",
         "auto_copy",
         "auto_copy_skip_consoles",
         "auto_copy_double_click",

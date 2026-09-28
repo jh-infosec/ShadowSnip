@@ -63,6 +63,7 @@ class ShadowSnipApp(QObject):
         self.preview.settings_requested.connect(self.open_settings)
         self.preview.snip_remove_requested.connect(self.remove_lab_snip)
         self.preview.snip_open_requested.connect(self.open_lab_snip)
+        self.preview.snip_list_toggled.connect(self.set_snip_list_shown)
         # Whether the window was up when a snip started, so a cancelled snip
         # can put it back instead of leaving you with nothing on screen.
         self._reshow_preview = False
@@ -179,8 +180,9 @@ class ShadowSnipApp(QObject):
 
         # The snip list is built from the images in the lab folder, so it is
         # shown for any running lab, record or not.
-        self.preview.set_snips_visible(bool(name))
-        if name:
+        shown = bool(self.cfg.get("lab_snip_list", True))
+        self.preview.set_snips_visible(bool(name), shown)
+        if name and shown:
             self.preview.set_lab_snips(lab.snip_rows(self.cfg), self._last_lab_file)
 
         engaged = self.autocopy.engaged if hasattr(self, "autocopy") else False
@@ -431,6 +433,12 @@ class ShadowSnipApp(QObject):
             f"Snip {label} removed from lab {lab.active_name(self.cfg)}{extra}. "
             f"It is in {lab.REMOVED_DIR}\\ inside the lab folder."
         )
+        self._refresh_menu_text()
+
+    def set_snip_list_shown(self, on: bool) -> None:
+        """The Snip list button. Remembered, so it stays how you left it."""
+        self.cfg["lab_snip_list"] = bool(on)
+        self._persist()
         self._refresh_menu_text()
 
     def open_lab_snip(self, filename: str) -> None:

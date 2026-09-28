@@ -112,6 +112,8 @@ class PreviewWindow(QWidget):
     snip_remove_requested = Signal(str)
     # A lab filename: open the image.
     snip_open_requested = Signal(str)
+    # The Snip list button: show (True) or hide (False) the lab snip list.
+    snip_list_toggled = Signal(bool)
 
     def __init__(self, parent=None, icon: QIcon | None = None):
         super().__init__(parent)
@@ -156,6 +158,7 @@ class PreviewWindow(QWidget):
         # long, or narrower when the snip needs the room.
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(6)
         self.splitter.addWidget(self.canvas)
         self.splitter.addWidget(self.snips_panel)
         self.splitter.setStretchFactor(0, 3)
@@ -168,6 +171,15 @@ class PreviewWindow(QWidget):
         self.btn_new = QPushButton("New snip")
         self.btn_new.setObjectName("Primary")
         self.btn_lab = QPushButton("Start lab")
+        # Only shown while a lab runs, since that is the only time there is a
+        # list to show. Checked means the list is showing.
+        self.btn_snips = QPushButton("Snip list")
+        self.btn_snips.setCheckable(True)
+        self.btn_snips.setChecked(True)
+        self.btn_snips.setVisible(False)
+        self.btn_snips.setToolTip(
+            "Show or hide the list of this lab's snips beside the image"
+        )
         self.btn_auto = QPushButton("Copy on select")
         self.btn_auto.setCheckable(True)
         self.btn_auto.setToolTip(
@@ -186,6 +198,7 @@ class PreviewWindow(QWidget):
 
         self.btn_new.clicked.connect(self.new_snip_requested.emit)
         self.btn_lab.clicked.connect(self.lab_toggle_requested.emit)
+        self.btn_snips.toggled.connect(self._on_snips_toggled)
         self.btn_auto.clicked.connect(self.auto_copy_toggled.emit)
         self.btn_save.clicked.connect(self.save_as)
         self.btn_copy.clicked.connect(self.copy_again)
@@ -197,6 +210,7 @@ class PreviewWindow(QWidget):
         bar.setSpacing(8)
         bar.addWidget(self.btn_new)
         bar.addWidget(self.btn_lab)
+        bar.addWidget(self.btn_snips)
         bar.addWidget(self.btn_auto)
         bar.addWidget(self.btn_save)
         bar.addWidget(self.btn_copy)
@@ -365,14 +379,18 @@ class PreviewWindow(QWidget):
         )
         self.btn_remove_snip.clicked.connect(self._emit_remove)
 
+        # The two buttons share the row equally, so neither sits hard against
+        # an edge of the panel with a gap in the middle.
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
-        buttons.addWidget(self.btn_open_snip)
-        buttons.addStretch(1)
-        buttons.addWidget(self.btn_remove_snip)
+        buttons.setSpacing(8)
+        buttons.addWidget(self.btn_open_snip, 1)
+        buttons.addWidget(self.btn_remove_snip, 1)
 
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # Inset from the splitter handle, so the list and the buttons do not
+        # butt up against the image.
+        layout.setContentsMargins(6, 0, 0, 0)
         layout.setSpacing(6)
         layout.addWidget(self.snips_title)
         layout.addWidget(self.snips_list, 1)
@@ -501,11 +519,26 @@ class PreviewWindow(QWidget):
         self.note_added.emit(text, attach)
 
     # -- the lab's snip list -------------------------------------------------
-    def set_snips_visible(self, visible: bool) -> None:
-        self.snips_panel.setVisible(visible)
-        if not visible:
+    def set_snips_visible(self, lab_running: bool, shown: bool = True) -> None:
+        """Offer the Snip list button during a lab, and show the list if it is on."""
+        self.btn_snips.setVisible(lab_running)
+        blocked = self.btn_snips.blockSignals(True)
+        try:
+            self.btn_snips.setChecked(shown)
+        finally:
+            self.btn_snips.blockSignals(blocked)
+        self.snips_panel.setVisible(lab_running and shown)
+        if not lab_running:
             self.snips_list.clear()
             self._sync_snip_buttons()
+
+    def snips_shown(self) -> bool:
+        return self.snips_panel.isVisibleTo(self)
+
+    def _on_snips_toggled(self, on: bool) -> None:
+        self.snips_panel.setVisible(on and self.btn_snips.isVisibleTo(self))
+        self._render()
+        self.snip_list_toggled.emit(on)
 
     def set_lab_snips(self, rows, current_file: str = "") -> None:
         """Fill the list from lab.snip_rows(), newest first.

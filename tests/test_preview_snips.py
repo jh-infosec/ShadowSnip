@@ -81,3 +81,37 @@ def test_a_refresh_keeps_the_selection_but_a_new_snip_takes_it(window):
                      "caption": "", "notes": []}]
     window.set_lab_snips(newer, current_file="003_c.png")
     assert window.selected_snip() == "003_c.png"
+
+
+def test_the_snip_list_button_only_appears_during_a_lab(window):
+    window.set_snips_visible(False, True)
+    assert not window.btn_snips.isVisibleTo(window)
+    assert not window.snips_shown()
+
+    window.set_snips_visible(True, True)
+    assert window.btn_snips.isVisibleTo(window)
+    assert window.btn_snips.isChecked()
+    assert window.snips_shown()
+
+
+def test_the_snip_list_can_be_hidden_and_reports_it(window):
+    window.set_snips_visible(True, True)
+    got = []
+    window.snip_list_toggled.connect(got.append)
+    window.btn_snips.click()
+    window.snip_list_toggled.disconnect()
+
+    assert got == [False]
+    assert not window.snips_shown()
+    assert window.btn_snips.isVisibleTo(window)
+
+
+def test_restoring_the_stored_state_does_not_echo_back(window):
+    got = []
+    window.snip_list_toggled.connect(got.append)
+    window.set_snips_visible(True, False)
+    window.snip_list_toggled.disconnect()
+
+    assert got == []
+    assert not window.snips_shown()
+    assert not window.btn_snips.isChecked()

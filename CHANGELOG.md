@@ -1,6 +1,15 @@
 # Changelog
 
-## Latest: 0.4.4
+## Latest: 0.4.5
+
+**Added**: a **Snip list** button on the toolbar while a lab runs, to show or
+hide the lab snip list. Hidden, the image gets the full width. Your choice is
+remembered between runs.
+
+**Fixed**: the Open button under the snip list sat hard against the left
+edge. Open and Remove from lab now share the row equally, inset from the image.
+
+### 0.4.4 in brief
 
 **Added**: a **Lab snips** list beside the image while a lab is running,
 newest first. Each row shows the number, time, section, caption and attached
@@ -19,6 +28,29 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.4.5] - 2026-09-28
+
+### Added
+- A checkable **Snip list** button on the toolbar, beside **Stop lab**, shown
+  only while a lab is running. Unchecked hides the lab snip list and gives the
+  image the full width of the window. Stored as `lab_snip_list` (default on),
+  so it stays how you left it across snips, labs and restarts. While hidden the
+  list is not rebuilt, so nothing reads the lab folder for it.
+
+### Fixed
+- The **Open** button under the lab snip list sat flush against the left edge,
+  with **Remove from lab** pushed to the far right and an empty gap between.
+  The two buttons now split the row equally, and the whole panel is inset 6 px
+  from a slightly wider splitter handle so it no longer butts up against the
+  image.
+
+### Tests
+- The Snip list button appears only during a lab, hiding the list reports it,
+  and restoring the stored state does not echo back as a new toggle.
+- `lab_snip_list` defaults on and survives a save and load.
 
 ---
 

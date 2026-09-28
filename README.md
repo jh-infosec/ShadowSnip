@@ -235,7 +235,8 @@ Sections and notes both need the lab record switched on — that is the
 While a lab is running, the preview window lists every snip in it beside the
 image, newest first: number, time, section, caption and attached notes. Select
 one and the box underneath shows exactly how it was filed. The snip on screen
-is bold and marked `*`.
+is bold and marked `*`. The **Snip list** button on the toolbar hides or
+shows the list, and ShadowSnip remembers which you chose.
 
 **Remove from lab** (or Delete on the list) takes the selected snip out of the
 lab after asking. Nothing is deleted: the image goes to a `removed` folder

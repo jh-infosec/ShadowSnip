@@ -242,3 +242,11 @@ def test_add_name_tidies_a_hand_typed_field():
 )
 def test_without_exe_strips_only_a_real_exe_suffix(name, expected):
     assert config.without_exe(name) == expected
+
+
+def test_the_lab_snip_list_is_shown_by_default_and_remembered(isolated_config):
+    assert config.load()["lab_snip_list"] is True
+    cfg = config.load()
+    cfg["lab_snip_list"] = False
+    config.save(cfg)
+    assert config.load()["lab_snip_list"] is False
