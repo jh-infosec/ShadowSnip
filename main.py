@@ -3,6 +3,11 @@
     python main.py           start in the tray
     python main.py --snip    start and take a snip straight away, or hand the
                              request to the copy that is already running
+    python main.py --tray    start quietly in the tray, without the window;
+                             for the run-at-login shortcut
+
+Started normally (double-clicking the .exe, the Start menu, a taskbar pin) it
+opens the window, so there is something to see that it has started.
 
 Only one copy runs at a time; a second launch wakes the first one instead.
 Launching it again (the taskbar pin, the Start menu, the .exe) brings the
@@ -83,6 +88,7 @@ def _hand_off_to_running_instance(want_snip: bool) -> str:
 
 def main() -> int:
     want_snip = "--snip" in sys.argv[1:]
+    quiet = "--tray" in sys.argv[1:]
     _set_dpi_awareness()
 
     app = QApplication(sys.argv)
@@ -144,6 +150,10 @@ def main() -> int:
 
     if want_snip:
         QTimer.singleShot(200, shadow.request_snip)
+    elif not quiet:
+        # Launched by hand: show the window. Before 0.4.8 a fresh start went
+        # straight to the tray, which looked like nothing had happened.
+        QTimer.singleShot(0, shadow.show_window)
 
     return app.exec()
 

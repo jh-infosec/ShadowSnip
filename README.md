@@ -41,7 +41,8 @@ click the tray icon to open the preview window.
 | --- | --- |
 | Start a snip | `Ctrl+Shift+S`, the tray menu, or `python main.py --snip` |
 | Jot a note into the lab | `Ctrl+Shift+N`, or **Add note...** in the tray menu |
-| Open the window | click the tray icon, or start ShadowSnip again (the taskbar pin) |
+| Open the window | starting ShadowSnip opens it; afterwards click the tray icon, or start it again (the taskbar pin) |
+| Start hidden in the tray | `ShadowSnip.exe --tray` (for the login shortcut) |
 | Start or stop a lab | **Start lab** in the preview window, or the tray menu |
 | Drag a region | left mouse button |
 | Grab the whole screen under the cursor | `F` or `Space` |
@@ -235,8 +236,17 @@ Sections and notes both need the lab record switched on — that is the
 While a lab is running, the preview window lists every snip in it beside the
 image, newest first: number, time, section, caption and attached notes. Select
 one and the box underneath shows exactly how it was filed. The snip on screen
-is bold and marked `*`. The **Snip list** button on the toolbar hides or
+is bold and marked `*`. The list updates by itself as soon as a snip lands. While
+a lab runs the lab button is amber and reads **Stop lab: name**. The **Snip list** button on the toolbar hides or
 shows the list, and ShadowSnip remembers which you chose.
+
+Hovering a row shows a bigger preview, and the selected row is outlined in
+blue. The
+selected snip appears larger under the list with its caption and notes, which
+you can edit in place: **Save changes** writes them into `lab.md`, emptying a
+note removes it, and the empty box adds a new one. Moving to another snip saves
+what you typed. Click the thumbnail, press **Expand**, double-click a row or
+press Space to see the snip full size; Left and Right step through the lab.
 
 **Remove from lab** (or Delete on the list) takes the selected snip out of the
 lab after asking. Nothing is deleted: the image goes to a `removed` folder

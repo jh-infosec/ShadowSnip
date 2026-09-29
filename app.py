@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRect, QTimer, Qt
+from PySide6.QtCore import QFileSystemWatcher, QObject, QRect, QTimer, Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -64,6 +64,22 @@ class ShadowSnipApp(QObject):
         self.preview.snip_remove_requested.connect(self.remove_lab_snip)
         self.preview.snip_open_requested.connect(self.open_lab_snip)
         self.preview.snip_list_toggled.connect(self.set_snip_list_shown)
+        self.preview.snip_details_saved.connect(self.save_snip_details)
+
+        # The snip list follows the lab folder itself rather than relying on
+        # every code path that writes into it remembering to refresh. A snip,
+        # a removal, a caption or note (lab.json is replaced), even an image
+        # copied in by hand in Explorer: the folder changes, the list follows.
+        # Changes are gathered for a moment first, because one snip is several
+        # writes (the image, lab.json, lab.md) and the list only needs
+        # rebuilding once.
+        self._watched_lab = ""
+        self._lab_watcher = QFileSystemWatcher(self)
+        self._lab_watcher.directoryChanged.connect(self._on_lab_folder_changed)
+        self._snip_list_timer = QTimer(self)
+        self._snip_list_timer.setSingleShot(True)
+        self._snip_list_timer.setInterval(120)
+        self._snip_list_timer.timeout.connect(self._refresh_snip_list)
         # Whether the window was up when a snip started, so a cancelled snip
         # can put it back instead of leaving you with nothing on screen.
         self._reshow_preview = False
@@ -182,8 +198,8 @@ class ShadowSnipApp(QObject):
         # shown for any running lab, record or not.
         shown = bool(self.cfg.get("lab_snip_list", True))
         self.preview.set_snips_visible(bool(name), shown)
-        if name and shown:
-            self.preview.set_lab_snips(lab.snip_rows(self.cfg), self._last_lab_file)
+        self._watch_lab_folder()
+        self._refresh_snip_list()
 
         engaged = self.autocopy.engaged if hasattr(self, "autocopy") else False
         self.action_auto.setChecked(engaged)
@@ -199,6 +215,36 @@ class ShadowSnipApp(QObject):
         ):
             self.show_window()
 
+    # -- the live snip list -------------------------------------------------
+    def _watch_lab_folder(self) -> None:
+        """Point the folder watcher at the running lab, or at nothing."""
+        target = lab.active_folder(self.cfg)
+        wanted = str(target) if target is not None and target.is_dir() else ""
+        if wanted == self._watched_lab:
+            return
+        watched = self._lab_watcher.directories()
+        if watched:
+            self._lab_watcher.removePaths(watched)
+        if wanted:
+            self._lab_watcher.addPath(wanted)
+        self._watched_lab = wanted
+
+    def _on_lab_folder_changed(self, _path: str) -> None:
+        self._snip_list_timer.start()
+
+    def _refresh_snip_list(self) -> None:
+        """Rebuild the snip list and the tray count from the lab folder."""
+        name = lab.active_name(self.cfg)
+        if not name:
+            return
+        self.tray.setToolTip(
+            f"ShadowSnip - lab: {name} "
+            f"({lab.count(self.cfg)} snips, {lab.note_count(self.cfg)} notes)"
+        )
+        if not self.cfg.get("lab_snip_list", True):
+            return
+        self.preview.set_lab_snips(lab.snip_rows(self.cfg), self._last_lab_file)
+
     def show_window(self) -> None:
         """Bring the window up for a relaunch or a tray click.
 
@@ -208,6 +254,7 @@ class ShadowSnipApp(QObject):
         if self.busy:
             self._reshow_preview = True
             return
+        self._refresh_snip_list()
         self.preview.open_window()
 
     def _open_save_folder(self) -> None:
@@ -282,8 +329,14 @@ class ShadowSnipApp(QObject):
             f"Lab {lab.active_name(self.cfg)} started; this snip filed as "
             f"{lab_path.name}"
         )
+        # Filed after the menu refresh in start_lab, so without this the list
+        # opened empty with the snip you were looking at missing from it.
+        self._refresh_menu_text()
 
     def stop_lab(self) -> None:
+        # Edits typed into the snip list belong to this lab, so they are
+        # written before it stops rather than lost with it.
+        self.preview.flush_snip_edits()
         name = lab.active_name(self.cfg)
         total = lab.count(self.cfg)
         lab.stop(self.cfg)
@@ -434,6 +487,46 @@ class ShadowSnipApp(QObject):
             f"It is in {lab.REMOVED_DIR}\\ inside the lab folder."
         )
         self._refresh_menu_text()
+
+    def save_snip_details(self, filename: str, caption: str, notes, new_note: str) -> None:
+        """Edits from the snip list: a caption, changed notes, a new note.
+
+        The list is rebuilt afterwards rather than now: this runs inside the
+        list's own selection change when you move off a snip with unsaved
+        edits, and rebuilding the list from inside that would pull the rug
+        out from under it.
+        """
+        if not lab.is_active(self.cfg):
+            self.preview.set_status("No lab is running, so the edits had nowhere to go.")
+            return
+        label = filename.split("_", 1)[0]
+        done = []
+        try:
+            if lab.caption_of(self.cfg, filename) not in (None, caption):
+                lab.set_caption(self.cfg, filename, caption)
+                done.append("caption")
+                if filename == self._last_lab_file:
+                    # The caption box under the image is for the same snip.
+                    self.preview.caption.setText(caption)
+            updated = removed = 0
+            for note_id, text in dict(notes or {}).items():
+                result = lab.update_note(self.cfg, note_id, text)
+                updated += result == "updated"
+                removed += result == "removed"
+            if updated:
+                done.append(f"{updated} note{'s' if updated > 1 else ''} edited")
+            if removed:
+                done.append(f"{removed} note{'s' if removed > 1 else ''} removed")
+            if new_note.strip():
+                entry = lab.add_note(self.cfg, new_note, attach=[filename])
+                if entry is not None:
+                    done.append(f"note {entry['id']} added")
+        except lab.LabError as exc:
+            self.preview.set_status(f"Could not save the edits to {label}: {exc}")
+            return
+        if done:
+            self.preview.set_status(f"Saved {label}: {', '.join(done)}")
+        QTimer.singleShot(0, self._refresh_menu_text)
 
     def set_snip_list_shown(self, on: bool) -> None:
         """The Snip list button. Remembered, so it stays how you left it."""
@@ -613,6 +706,8 @@ class ShadowSnipApp(QObject):
         # Otherwise a toast still fading out is part of the frozen screen and
         # ends up inside the snip.
         self.toast.hide()
+        # The full-size viewer would otherwise be frozen into the snip.
+        self.preview.hide_viewer()
         was_visible = self.preview.isVisible() and not self.preview.isMinimized()
         self._reshow_preview = was_visible
         if was_visible:

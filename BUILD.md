@@ -19,7 +19,8 @@ Python install and the packages in `requirements.txt`.
 
 To run it at login: right-click `run_shadowsnip.pyw`, **Send to > Desktop**,
 then move that shortcut into the startup folder. Press **Win+R**, type
-`shell:startup`, Enter, and drop the shortcut in.
+`shell:startup`, Enter, and drop the shortcut in. Add ` --tray` to the end of
+the shortcut's **Target** to start in the tray without opening the window.
 
 ## 3. Standalone .exe (recommended)
 
@@ -38,6 +39,11 @@ The result is `dist\ShadowSnip.exe`. The `.spec` sets no console and embeds
 To run it at login: right-click `ShadowSnip.exe`, **Create shortcut**, then
 move the shortcut into `shell:startup` as above. A shortcut rather than the
 exe itself, so Windows starts it from its real folder.
+
+Started by hand, ShadowSnip opens its window. For login you probably want it
+to start quietly in the tray instead: right-click the startup shortcut,
+**Properties**, and add ` --tray` to the end of **Target**, after the closing
+quote, so it reads `"...\ShadowSnip.exe" --tray`.
 
 ## Tests
 

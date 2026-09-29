@@ -59,7 +59,9 @@ def test_a_snip_still_runs_with_no_dialog_open(monkeypatch):
         busy=False,
         autocopy=SimpleNamespace(pause=lambda: None),
         toast=SimpleNamespace(hide=lambda: None),
-        preview=SimpleNamespace(isVisible=lambda: False, hide=lambda: None),
+        preview=SimpleNamespace(
+            isVisible=lambda: False, hide=lambda: None, hide_viewer=lambda: None
+        ),
         _blocked_by_dialog=lambda: None,
         _begin_snip=lambda: None,
     )

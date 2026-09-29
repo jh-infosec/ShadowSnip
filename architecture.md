@@ -17,6 +17,7 @@ lab.py               lab sessions: numbering, sections, notes, the lab.md tree
 autocopy.py          copy on select: mouse hook, guards, clipboard read-back
 toast.py             the one-second clip confirmation near the cursor
 preview.py           post-snip window
+labsnips.py          lab snip list, thumbnails, in-place editing, full-size viewer
 settings_dialog.py   settings form and hotkey recorder
 ```
 

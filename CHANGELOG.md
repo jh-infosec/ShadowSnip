@@ -1,6 +1,46 @@
 # Changelog
 
-## Latest: 0.4.5
+## Latest: 0.4.8
+
+**Changed**: starting ShadowSnip by hand now opens its window straight away
+instead of going quietly to the tray. Add `--tray` to the startup shortcut if
+you want it to start hidden at login.
+
+**Changed**: the selected snip in the lab list is outlined in blue, matching
+the thumbnail's hover, instead of being filled with the system accent colour
+(which was red on some machines).
+
+**Changed**: the small thumbnails in the list rows are gone; the selected
+snip's preview is right underneath. Hover previews stay.
+
+**Added**: the version is shown bottom-right in the window.
+
+### 0.4.7 in brief
+
+**Added**: the lab snip list shows a thumbnail on every row, and hovering a
+row shows a bigger preview with how the snip was filed.
+
+**Added**: the selected snip is shown larger under the list, with its caption
+and notes editable right there and a **Save changes** button. Empty a note and
+save to remove it; type in the new box to add one. Moving to another snip
+saves your edits first.
+
+**Added**: click the thumbnail, press **Expand**, double-click a row or press
+Space on the list to see a snip full size. Left and Right step through the
+lab, and the list follows.
+
+### 0.4.6 in brief
+
+**Changed**: the lab button turns amber and reads **Stop lab: name** with a
+dot while a lab is running, so it is obvious at a glance that snips are being
+filed into a lab.
+
+**Fixed**: the lab snip list now watches the lab folder and updates by itself
+the moment a snip, removal, caption or note lands, with no refresh needed.
+Starting a lab while a snip was on screen filed that snip without showing it
+in the list; it shows now.
+
+### 0.4.5 in brief
 
 **Added**: a **Snip list** button on the toolbar while a lab runs, to show or
 hide the lab snip list. Hidden, the image gets the full width. Your choice is
@@ -28,6 +68,115 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.4.8] - 2026-09-29
+
+### Changed
+- A normal launch (double-clicking the .exe, the Start menu, a taskbar pin)
+  opens the window once the tray icon is up. `--tray` starts in the tray
+  without it, for the run-at-login shortcut; `--snip` still goes straight to a
+  snip. BUILD.md shows where to add `--tray`.
+- The lab snip list draws its own selection: a rounded 1.6 px blue edge
+  (`#2f8cff`) with a faint blue wash, the same blue as the enlarged
+  thumbnail's hover border, which is now 2 px to match. The Windows 11 style
+  paints item selection in the system accent colour and ignores stylesheets
+  for it, so the list is given the Fusion style and its highlight colour is
+  pinned. That Fusion style is shared and owned by the application: a style
+  freed before the widget using it crashes on exit.
+- Row thumbnails removed from the list. At 56 x 34 they were too small to
+  read, and the selected snip is shown larger just below. The hover preview
+  and the thumbnail cache for the large preview remain.
+
+### Added
+- `ShadowSnip vX.Y.Z` bottom-right of the preview window, beside the status
+  line, read from `config.APP_VERSION`.
+
+### Tests
+- No row thumbnails; the list's highlight colour is pinned rather than the
+  platform's; the version label matches `config.APP_VERSION`.
+
+---
+
+## [0.4.7] - 2026-09-28
+
+### Added
+- `labsnips.py`, a new flat module holding the lab snip list, the selected
+  snip's editor and the full-size viewer. The preview window embeds it; all
+  writes still go through `app.py` into `lab.py`, so the panel is tested with
+  plain dictionaries.
+- Row thumbnails (56 x 34) in the snip list, decoded straight to their display
+  size by `QImageReader` and cached per file until the file changes, so the
+  list does not get slower as a lab grows.
+- A hover tooltip on every row with a preview up to 380 x 260 and the snip's
+  file, section, time, caption and notes.
+- Under the list, in a splitter you can drag: the selected snip at 150 px
+  high, its filing line, an **Expand** button, the caption, one box per
+  attached note, and a box for a new note. **Save changes** (or Enter in the
+  caption) writes them; it reads **Saved** and is disabled when there is
+  nothing to save. Emptying a note and saving removes it to the `removed` list
+  in `lab.json`. Unsaved edits are saved when you move to another snip, when a
+  newer snip takes the selection, when the window closes and before a lab
+  stops. A refresh from the folder watcher leaves edits in progress alone.
+  Snips with no lab record (the record switched off, or an image copied in by
+  hand) are shown read-only with the reason.
+- A full-size viewer: a plain window sized to 85% of the screen under the
+  pointer, opened by clicking the thumbnail, **Expand**, double-clicking a row,
+  or Space or Enter on the list. Left and Right (or Up and Down) step through
+  the lab in capture order, with Previous and Next buttons, and the list
+  selection follows. It is not modal, so the snip hotkey still works, and it is
+  closed before a snip so it cannot end up in the picture.
+- `lab.update_note()` rewrites a note (recording when it was edited) or
+  removes it when emptied; `lab.caption_of()` reads a snip's caption.
+  `lab.snip_rows()` rows now carry `path`, `note_entries` (id and text) and
+  `recorded`.
+
+### Changed
+- Double-clicking a row opens the viewer; **Open** still opens the image in
+  your default program.
+- The preview window opens at 1100 x 760 to fit the editor.
+
+### Tests
+- `test_lab_edit.py`: rewriting, removing by emptying, no write for the same
+  text, unknown notes, `caption_of`, and the new row fields.
+- `test_labsnips_panel.py`: row thumbnails, the selected snip's thumbnail and
+  words, the hover preview, save emitting only what changed, new notes,
+  save-on-move, refresh not wiping edits, read-only unrecorded snips, the
+  viewer opening on the selected snip and cycling with the list following, and
+  the thumbnail cache.
+- End to end through the real app: an edit in the panel lands in `lab.json`
+  and the list shows it.
+
+---
+
+## [0.4.6] - 2026-09-28
+
+### Changed
+- While a lab is running the lab button is amber, bold, and reads
+  `● Stop lab: <name>` (names over 22 characters are shortened; the
+  tooltip has the full name). Amber because green already means a toggle is on
+  (Snip list, Attach to this snip) and red means Remove. Done with a
+  `labActive` style property, so the look follows the lab state from every
+  path that starts or stops one.
+
+### Fixed
+- The lab snip list is driven by a `QFileSystemWatcher` on the running lab's
+  folder. Any change there (a snip, a removal, `lab.json` being replaced by a
+  caption or note, an image dropped in from Explorer) rebuilds the list after
+  a 120 ms pause that gathers the several writes one snip makes. The tray
+  tooltip's snip and note count updates the same way. The watch moves with
+  the lab and is dropped when it stops. Opening the window from the tray or a
+  relaunch also rebuilds the list first.
+- Starting a lab over a snip on screen filed that snip into the lab after the
+  window had been refreshed, so the list opened without it. It refreshes after
+  filing now.
+
+### Tests
+- `test_live_snip_list.py` drives the real app object: a snip is listed and
+  selected immediately, an image dropped into the lab folder appears on its
+  own, the watch follows the lab and stops with it, starting a lab over a snip
+  lists that snip, and the lab button changes state with the lab.
 
 ---
 

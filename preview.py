@@ -20,29 +20,28 @@ from PySide6.QtGui import (
     QShortcut,
 )
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSplitter,
-    QTreeWidget,
-    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+import config
 import storage
+from labsnips import LabSnipsPanel
 
 STYLE = """
 QWidget#Root { background: #1b1b1f; }
 QLabel { color: #e6e6ec; }
 QLabel#Status { color: #9a9aa6; font-size: 11px; }
+QLabel#Version { color: #5f5f6b; font-size: 11px; }
 QLabel#Canvas { background: #101013; border: 1px solid #2c2c33; }
 QLineEdit, QPlainTextEdit, QComboBox {
     background: #232329; color: #e6e6ec; border: 1px solid #3a3a44;
@@ -62,12 +61,23 @@ QPushButton:pressed { background: #232329; }
 QPushButton#Primary { background: #0a63c4; border-color: #0a63c4; }
 QPushButton:checked { background: #1d6b3a; border-color: #2e8b4f; }
 QPushButton#Primary:hover { background: #1273da; }
+/* Save changes with nothing to save: clearly not a live button. */
+QPushButton#Primary:disabled { background: #1c2533; border-color: #26344a; color: #6c7a8c; }
 /* Settings is not one of the snip actions, so it does not look like one.
    A muted violet reads as a different kind of control while staying quieter
    than the blue on New snip -- it should be findable, not competing. */
 QPushButton#Settings { background: #3b3550; border-color: #4d4470; }
 QPushButton#Settings:hover { background: #474060; }
 QPushButton#Settings:pressed { background: #322d45; }
+/* A running lab is saving every snip somewhere new, so the button that
+   controls it says so from across the room. Amber, because green already
+   means "toggle on" (Snip list, Attach) and red means Remove. */
+QPushButton[labActive="true"] {
+    background: #8a5a0f; border-color: #c98a1e; color: #fff4e0;
+    font-weight: 600;
+}
+QPushButton[labActive="true"]:hover { background: #9c6813; }
+QPushButton[labActive="true"]:pressed { background: #744b0c; }
 /* Remove takes a snip out of the lab, so it is the one button that looks
    like it costs something. */
 QPushButton#Danger { background: #4a2328; border-color: #6e2f37; }
@@ -78,11 +88,11 @@ QTreeWidget {
     alternate-background-color: #1a1a20;
 }
 QTreeWidget::item { padding: 3px 0; }
-QTreeWidget::item:selected { background: #0a63c4; color: #ffffff; }
-QLabel#SnipDetail {
-    background: #15151a; border: 1px solid #2c2c33; border-radius: 4px;
-    padding: 6px 8px; color: #c8c8d2;
-}
+/* The selected row is drawn by labsnips.OutlinedTree: a blue edge, not a
+   solid fill. The item itself stays transparent so the edge reads. */
+QTreeWidget { outline: 0; }
+QTreeWidget::item:selected { background: transparent; color: #ffffff; }
+QTreeWidget::item:hover { background: rgba(47, 140, 255, 18); }
 QScrollBar:vertical, QScrollBar:horizontal { background: #15151a; border: none; }
 QScrollBar:vertical { width: 10px; }
 QScrollBar:horizontal { height: 10px; }
@@ -114,6 +124,8 @@ class PreviewWindow(QWidget):
     snip_open_requested = Signal(str)
     # The Snip list button: show (True) or hide (False) the lab snip list.
     snip_list_toggled = Signal(bool)
+    # Edits from the snip list: (file, caption, {note_id: text}, new_note).
+    snip_details_saved = Signal(str, str, object, str)
 
     def __init__(self, parent=None, icon: QIcon | None = None):
         super().__init__(parent)
@@ -125,14 +137,12 @@ class PreviewWindow(QWidget):
         self._copy_again = None
         self._caption_cb = None
         self._section_text = ""
-        self._current_lab_file = ""
-
         self.setObjectName("Root")
         self.setWindowTitle("ShadowSnip")
         if icon is not None:
             self.setWindowIcon(icon)
         self.setStyleSheet(STYLE)
-        self.resize(1040, 680)
+        self.resize(1100, 760)
 
         self.canvas = QLabel()
         self.canvas.setObjectName("Canvas")
@@ -150,8 +160,16 @@ class PreviewWindow(QWidget):
         self.lab_panel = self._build_lab_panel()
         self.lab_panel.setVisible(False)
 
-        self.snips_panel = self._build_snips_panel()
+        self.snips_panel = LabSnipsPanel()
         self.snips_panel.setVisible(False)
+        self.snips_panel.remove_requested.connect(self.snip_remove_requested.emit)
+        self.snips_panel.open_requested.connect(self.snip_open_requested.emit)
+        self.snips_panel.details_saved.connect(self.snip_details_saved.emit)
+        # Short names for the parts other code and the tests reach for.
+        self.snips_list = self.snips_panel.list
+        self.snips_title = self.snips_panel.title
+        self.btn_remove_snip = self.snips_panel.btn_remove
+        self.btn_open_snip = self.snips_panel.btn_open
 
         # The image and, during a lab, the list of what is in it side by side.
         # A splitter so the list can be dragged wider when the captions are
@@ -230,7 +248,18 @@ class PreviewWindow(QWidget):
         layout.addWidget(self.splitter, 1)
         layout.addWidget(self.caption)
         layout.addWidget(self.lab_panel)
-        layout.addWidget(self.status)
+        # The version sits bottom-right, out of the way of the status text but
+        # always there when you need to say which build you are running.
+        self.version = QLabel(f"ShadowSnip v{config.APP_VERSION}")
+        self.version.setObjectName("Version")
+        self.version.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.addWidget(self.status, 1)
+        footer.addWidget(self.version)
+        layout.addLayout(footer)
 
         QShortcut(QKeySequence.StandardKey.Save, self, self.save_as)
         QShortcut(QKeySequence.StandardKey.Copy, self, self.copy_again)
@@ -309,94 +338,6 @@ class PreviewWindow(QWidget):
         layout.setSpacing(6)
         layout.addLayout(section_row)
         layout.addLayout(note_row)
-        return panel
-
-    def _build_snips_panel(self) -> QWidget:
-        """Every snip in the running lab, newest first, with where it was filed.
-
-        The question this answers is "what did the last snip land as, and did
-        the note go with it" -- without leaving the window to open lab.md.
-        """
-        panel = QWidget()
-
-        self.snips_title = QLabel("Lab snips")
-        self.snips_title.setObjectName("FieldLabel")
-
-        self.snips_list = QTreeWidget()
-        self.snips_list.setColumnCount(5)
-        self.snips_list.setHeaderLabels(["#", "Time", "Section", "Caption", "Notes"])
-        self.snips_list.setRootIsDecorated(False)
-        self.snips_list.setAlternatingRowColors(True)
-        self.snips_list.setUniformRowHeights(True)
-        self.snips_list.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection
-        )
-        self.snips_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        header = self.snips_list.header()
-        header.setStretchLastSection(True)
-        for column in (0, 1):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
-        self.snips_list.setColumnWidth(2, 110)
-        self.snips_list.setColumnWidth(3, 110)
-        self.snips_list.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        self.snips_list.setTextElideMode(Qt.TextElideMode.ElideRight)
-        self.snips_list.itemSelectionChanged.connect(self._sync_snip_buttons)
-
-        # The whole story of the selected snip, since the columns cut long
-        # sections and notes short: where it was filed, its caption, and every
-        # note attached to it.
-        self.snip_detail = QLabel()
-        self.snip_detail.setObjectName("SnipDetail")
-        self.snip_detail.setWordWrap(True)
-        self.snip_detail.setTextFormat(Qt.TextFormat.PlainText)
-        self.snip_detail.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        self.snip_detail.setAlignment(
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
-        )
-        self.snip_detail.setMinimumHeight(64)
-        self.snips_list.itemDoubleClicked.connect(
-            lambda item, _column: self._emit_open(item)
-        )
-        # Scoped to the list itself, so Delete in the note or caption box
-        # still deletes text rather than asking to remove a snip.
-        delete_key = QShortcut(QKeySequence.StandardKey.Delete, self.snips_list)
-        delete_key.setContext(Qt.ShortcutContext.WidgetShortcut)
-        delete_key.activated.connect(self._emit_remove)
-
-        self.btn_open_snip = QPushButton("Open")
-        self.btn_open_snip.setToolTip("Open the selected snip's image")
-        self.btn_open_snip.clicked.connect(lambda: self._emit_open(None))
-        self.btn_remove_snip = QPushButton("Remove from lab")
-        self.btn_remove_snip.setObjectName("Danger")
-        self.btn_remove_snip.setToolTip(
-            "Take the selected snip out of the lab and lab.md. The image is "
-            "moved to the lab's removed folder, not deleted. Notes attached "
-            "only to it go with it."
-        )
-        self.btn_remove_snip.clicked.connect(self._emit_remove)
-
-        # The two buttons share the row equally, so neither sits hard against
-        # an edge of the panel with a gap in the middle.
-        buttons = QHBoxLayout()
-        buttons.setContentsMargins(0, 0, 0, 0)
-        buttons.setSpacing(8)
-        buttons.addWidget(self.btn_open_snip, 1)
-        buttons.addWidget(self.btn_remove_snip, 1)
-
-        layout = QVBoxLayout(panel)
-        # Inset from the splitter handle, so the list and the buttons do not
-        # butt up against the image.
-        layout.setContentsMargins(6, 0, 0, 0)
-        layout.setSpacing(6)
-        layout.addWidget(self.snips_title)
-        layout.addWidget(self.snips_list, 1)
-        layout.addWidget(self.snip_detail)
-        layout.addLayout(buttons)
-        self._sync_snip_buttons()
         return panel
 
     # -- content -----------------------------------------------------------
@@ -529,8 +470,7 @@ class PreviewWindow(QWidget):
             self.btn_snips.blockSignals(blocked)
         self.snips_panel.setVisible(lab_running and shown)
         if not lab_running:
-            self.snips_list.clear()
-            self._sync_snip_buttons()
+            self.snips_panel.clear()
 
     def snips_shown(self) -> bool:
         return self.snips_panel.isVisibleTo(self)
@@ -541,136 +481,32 @@ class PreviewWindow(QWidget):
         self.snip_list_toggled.emit(on)
 
     def set_lab_snips(self, rows, current_file: str = "") -> None:
-        """Fill the list from lab.snip_rows(), newest first.
-
-        The snip on screen is marked and selected, so Remove acts on what you
-        are looking at unless you pick something else. With nothing on screen
-        the newest is selected instead: the wrong snip is nearly always the
-        last one.
-        """
-        # A refresh for a caption or a note keeps whatever you had selected. A
-        # new snip on screen takes the selection, so Remove is aimed at it.
-        same_snip = (current_file or "") == self._current_lab_file
-        previous = self.selected_snip() if same_snip else ""
-        self._current_lab_file = current_file or ""
-        rows = list(rows)
-
-        self.snips_list.clear()
-        items: dict[str, QTreeWidgetItem] = {}
-        for row in reversed(rows):
-            items[row["file"]] = self._snip_item(row)
-            self.snips_list.addTopLevelItem(items[row["file"]])
-
-        count = len(rows)
-        self.snips_title.setText(
-            f"Lab snips ({count})" if count else "Lab snips - none yet"
-        )
-
-        choose = None
-        if previous in items:
-            choose = items[previous]
-        elif self._current_lab_file in items:
-            choose = items[self._current_lab_file]
-        elif self.snips_list.topLevelItemCount():
-            choose = self.snips_list.topLevelItem(0)
-        if choose is not None:
-            self.snips_list.setCurrentItem(choose)
-            self.snips_list.scrollToItem(choose)
-        self._sync_snip_buttons()
-
-    def _snip_item(self, row: dict) -> QTreeWidgetItem:
-        number = row.get("number", 0)
-        label = f"{number:03d}" if isinstance(number, int) else str(number)
-        when = str(row.get("time", ""))
-        clock = when.split(" ", 1)[1] if " " in when else when
-        notes = [str(text) for text in row.get("notes", ()) if str(text).strip()]
-        if not notes:
-            note_text = ""
-        elif len(notes) == 1:
-            note_text = notes[0].splitlines()[0]
-        else:
-            note_text = f"({len(notes)}) {notes[0].splitlines()[0]}"
-
-        section = row.get("section", "") or "root"
-        item = QTreeWidgetItem(
-            [label, clock, section, row.get("caption", ""), note_text]
-        )
-        item.setData(0, Qt.ItemDataRole.UserRole, row["file"])
-
-        tip = [row["file"], f"Section: {section}"]
-        if when:
-            tip.append(f"Taken: {when}")
-        if row.get("caption"):
-            tip.append(f"Caption: {row['caption']}")
-        for text in notes:
-            tip.append(f"Note: {text}")
-        if not notes:
-            tip.append("No notes attached")
-        tooltip = "\n".join(tip)
-        item.setData(1, Qt.ItemDataRole.UserRole, self._detail_text(row, label, section, when, notes))
-        for column in range(item.columnCount()):
-            item.setToolTip(column, tooltip)
-
-        if row["file"] == self._current_lab_file:
-            font = item.font(0)
-            font.setBold(True)
-            for column in range(item.columnCount()):
-                item.setFont(column, font)
-            item.setText(0, f"{label} *")
-            item.setToolTip(0, tooltip + "\n(on screen now)")
-        return item
-
-    @staticmethod
-    def _detail_text(row, label, section, when, notes) -> str:
-        lines = [f"{label}  {row['file']}"]
-        lines.append(f"Filed under: {section}")
-        lines.append(f"Caption: {row['caption']}" if row.get("caption") else "No caption")
-        if notes:
-            for text in notes:
-                lines.append(f"Note: {' / '.join(part.strip() for part in text.splitlines() if part.strip())}")
-        else:
-            lines.append("No notes attached")
-        return "\n".join(lines)
+        """Fill the lab snip list from lab.snip_rows(). See labsnips.py."""
+        self.snips_panel.set_rows(rows, current_file)
 
     def selected_snip(self) -> str:
-        item = self.snips_list.currentItem()
-        if item is None or not item.isSelected():
-            return ""
-        return str(item.data(0, Qt.ItemDataRole.UserRole) or "")
-
-    def _sync_snip_buttons(self) -> None:
-        chosen = bool(self.selected_snip())
-        self.btn_remove_snip.setEnabled(chosen)
-        self.btn_open_snip.setEnabled(chosen)
-        item = self.snips_list.currentItem()
-        if chosen and item is not None:
-            text = str(item.data(1, Qt.ItemDataRole.UserRole) or "")
-            if item.data(0, Qt.ItemDataRole.UserRole) == self._current_lab_file:
-                text += "\n(the snip on screen)"
-            self.snip_detail.setText(text)
-        elif self.snips_list.topLevelItemCount():
-            self.snip_detail.setText("Select a snip to see how it was filed.")
-        else:
-            self.snip_detail.setText(
-                "Snips taken while this lab runs are listed here, newest first."
-            )
+        return self.snips_panel.selected()
 
     def _emit_remove(self) -> None:
-        filename = self.selected_snip()
-        if filename:
-            self.snip_remove_requested.emit(filename)
+        self.snips_panel._emit_remove()
 
-    def _emit_open(self, item) -> None:
-        if item is not None:
-            filename = str(item.data(0, Qt.ItemDataRole.UserRole) or "")
-        else:
-            filename = self.selected_snip()
-        if filename:
-            self.snip_open_requested.emit(filename)
+    def flush_snip_edits(self) -> bool:
+        """Save any caption or note edits waiting in the snip list."""
+        return self.snips_panel.flush()
+
+    def hide_viewer(self) -> None:
+        self.snips_panel.hide_viewer()
+
+    def closeEvent(self, event):
+        # Closing the window only hides it, but edits typed into the snip list
+        # should not wait for the next time it is opened.
+        self.snips_panel.flush()
+        self.snips_panel.hide_viewer()
+        super().closeEvent(event)
 
     def forget_snip_on_screen(self) -> None:
         """The snip on screen was removed from the lab: stop offering lab actions for it."""
-        self._current_lab_file = ""
+        self.snips_panel.set_current("")
         self._caption_cb = None
         self.caption.clear()
         self.caption.setVisible(False)
@@ -679,8 +515,27 @@ class PreviewWindow(QWidget):
 
     # -- lab state ---------------------------------------------------------
     def set_lab_name(self, name: str) -> None:
-        """Reflect the engaged lab on the toolbar button."""
-        self.btn_lab.setText(f"Stop lab ({name})" if name else "Start lab")
+        """Reflect the engaged lab on the toolbar button, text and colour."""
+        # Long lab names are cut so the toolbar keeps its shape; the tooltip
+        # carries the full name.
+        short = name if len(name) <= 22 else name[:21] + "\u2026"
+        self.btn_lab.setText(f"\u25cf Stop lab: {short}" if name else "Start lab")
+        self.btn_lab.setToolTip(
+            f"Every snip is also being filed into lab '{name}'. Click to stop."
+            if name
+            else "Name a lab; every snip after that is also filed into it"
+        )
+        active = bool(name)
+        if self.btn_lab.property("labActive") != active:
+            self.btn_lab.setProperty("labActive", active)
+            # A dynamic property only changes the look once the style is
+            # re-applied to the widget.
+            self.btn_lab.style().unpolish(self.btn_lab)
+            self.btn_lab.style().polish(self.btn_lab)
+            self.btn_lab.update()
+
+    def lab_running(self) -> bool:
+        return bool(self.btn_lab.property("labActive"))
 
     def attach_lab(self, folder_path: Path | None, caption_cb=None) -> None:
         """Point the folder button and the caption box at a lab, or clear them."""

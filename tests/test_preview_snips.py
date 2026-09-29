@@ -19,7 +19,8 @@ def window():
 
 ROWS = [
     {"file": "001_a.png", "number": 1, "time": "2026-09-27 19:01:10",
-     "section": "box/nmap", "caption": "scan", "notes": ["ports"]},
+     "section": "box/nmap", "caption": "scan", "notes": ["ports"],
+     "note_entries": [{"id": "n001", "text": "ports"}], "recorded": True},
     {"file": "002_b.png", "number": 2, "time": "2026-09-27 19:05:44",
      "section": "", "caption": "", "notes": []},
 ]
@@ -42,9 +43,11 @@ def test_newest_first_and_the_newest_selected(window):
 def test_the_snip_on_screen_is_selected_and_marked(window):
     window.set_lab_snips(ROWS, current_file="001_a.png")
     assert window.selected_snip() == "001_a.png"
-    assert "on screen" in window.snip_detail.text()
-    assert "Filed under: box/nmap" in window.snip_detail.text()
-    assert "Note: ports" in window.snip_detail.text()
+    panel = window.snips_panel
+    assert "on screen" in panel.where.text()
+    assert "box/nmap" in panel.where.text()
+    assert panel.caption_edit.text() == "scan"
+    assert [e.toPlainText() for _i, e in panel._note_editors] == ["ports"]
 
 
 def test_remove_emits_the_selected_file(window):
@@ -115,3 +118,9 @@ def test_restoring_the_stored_state_does_not_echo_back(window):
     assert got == []
     assert not window.snips_shown()
     assert not window.btn_snips.isChecked()
+
+
+def test_the_version_is_shown_bottom_right(window):
+    import config
+
+    assert window.version.text() == f"ShadowSnip v{config.APP_VERSION}"

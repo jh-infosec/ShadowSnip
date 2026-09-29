@@ -464,7 +464,9 @@ def snip_rows(cfg: dict) -> list[dict]:
     list is right even with the lab record switched off, and a snip copied in
     by hand still shows up. Each row carries:
 
-        file, number, time, section, caption, notes (texts attached to it)
+        file, number, time, section, caption, notes (texts attached to it),
+        note_entries ({"id", "text"} for each of those notes, for editing),
+        path (the image), recorded (whether lab.json has an entry for it)
     """
     target = active_folder(cfg)
     if target is None:
@@ -473,16 +475,19 @@ def snip_rows(cfg: dict) -> list[dict]:
     state = _load_state(target)
     recorded = state.get("entries", []) if isinstance(state.get("entries"), list) else []
     by_file: dict[str, dict] = {}
-    attached: dict[str, list[str]] = {}
+    attached: dict[str, list[dict]] = {}
     for entry in recorded:
         if not isinstance(entry, dict):
             continue
         if entry_kind(entry) == "snip" and entry.get("file"):
             by_file[str(entry["file"])] = entry
         elif entry_kind(entry) == "note":
-            text = str(entry.get("text", "")).strip()
+            note = {
+                "id": str(entry.get("id", "")),
+                "text": str(entry.get("text", "")).strip(),
+            }
             for name in entry.get("attach", ()):
-                attached.setdefault(str(name), []).append(text)
+                attached.setdefault(str(name), []).append(note)
 
     rows = []
     for path in _images(target):
@@ -498,11 +503,60 @@ def snip_rows(cfg: dict) -> list[dict]:
                 "time": str(entry.get("time", "")),
                 "section": entry_section(entry) if entry else "",
                 "caption": str(entry.get("caption", "")).strip(),
-                "notes": attached.get(path.name, []),
+                "notes": [note["text"] for note in attached.get(path.name, [])],
+                "note_entries": [dict(note) for note in attached.get(path.name, [])],
+                "path": str(path),
+                "recorded": bool(entry),
             }
         )
     rows.sort(key=lambda row: (row["number"], row["file"]))
     return rows
+
+
+def update_note(cfg: dict, note_id: str, text: str) -> str | None:
+    """Rewrite a note's text, or remove the note when the text is emptied.
+
+    Clearing a note and saving is how a note is deleted from the snip editor,
+    so an empty text moves the note to the `removed` list in lab.json, the same
+    place a removed snip's notes go, rather than leaving an empty quote in
+    lab.md.
+
+    Returns "updated", "removed", "unchanged", or None when there is no lab,
+    no record, or no such note.
+    """
+    target = active_folder(cfg)
+    if target is None or not cfg.get("lab_index", True):
+        return None
+    state = _load_state(target)
+    if not state:
+        return None
+    text = str(text or "").strip()
+    recorded = state.get("entries", [])
+    for index, entry in enumerate(recorded):
+        if not isinstance(entry, dict) or entry_kind(entry) != "note":
+            continue
+        if str(entry.get("id", "")) != str(note_id):
+            continue
+        if not text:
+            entry["removed"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            state.setdefault("removed", []).append(recorded.pop(index))
+            _save_state(target, state, cfg)
+            return "removed"
+        if str(entry.get("text", "")).strip() == text:
+            return "unchanged"
+        entry["text"] = text
+        entry["edited"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _save_state(target, state, cfg)
+        return "updated"
+    return None
+
+
+def caption_of(cfg: dict, filename: str) -> str | None:
+    """The recorded caption of a snip, or None when it has no record."""
+    for entry in reversed(entries(cfg)):
+        if isinstance(entry, dict) and entry_kind(entry) == "snip" and entry.get("file") == filename:
+            return str(entry.get("caption", "")).strip()
+    return None
 
 
 # -- reading the record ----------------------------------------------------
