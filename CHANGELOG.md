@@ -1,6 +1,21 @@
 # Changelog
 
-## Latest: 0.4.8
+## Latest: 0.5.0
+
+ShadowSnip is now described for what it is mostly for: capturing evidence
+during a penetration test and turning it into the writeup.
+
+**Added**: an **Outline** tab in the lab panel showing `lab.md` as a tree of
+sections, snips and notes. Drag a snip or note onto a section to file it
+there, or above or below another entry to move it. A snip takes its notes
+with it.
+
+**Added**: a **Preview** tab that shows `lab.md` rendered as the report will
+read, screenshots scaled to fit, with a button to open the file itself.
+
+**Changed**: the blue edge around the selected snip is thinner.
+
+### 0.4.8 in brief
 
 **Changed**: starting ShadowSnip by hand now opens its window straight away
 instead of going quietly to the tray. Add `--tray` to the startup shortcut if
@@ -68,6 +83,60 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.5.0] - 2026-09-29
+
+A minor version rather than a patch: the lab panel is now where a report is
+arranged and read, not only where snips are listed, and the project is
+positioned around pentest writeups.
+
+### Added
+- **Outline** tab (`labsnips.OutlineTree`): `lab.md` as a tree. Sections are
+  bold with a snip count, nested as their breadcrumbs are; the top of the
+  report is its own node; snips show number and caption with the hover
+  preview; notes rendered under a snip are its children; loose notes stand on
+  their own. The current section appears even when empty, so it can take a
+  drop.
+- Drag and drop in the outline. Onto a section: the end of that section.
+  Above an entry: just before it. Onto or below an entry: just after it. Onto
+  a note under a snip: after that snip. Onto empty space: the top of the
+  report. Sections themselves are not draggable. The tree never moves an item
+  itself; it asks, `app.py` calls `lab.move_entry()`, and the tree is rebuilt
+  from the saved record, so it always shows what `lab.md` now says.
+  Collapsed sections stay collapsed across rebuilds. Clicking a snip, or a
+  note under one, selects that snip in the editor below, and selecting a snip
+  in the Snips tab selects it in the outline.
+- **Preview** tab (`labsnips.MarkdownPreview`): `lab.md` rendered by Qt, with
+  images loaded at the panel's width so a full-screen capture fits. It is only
+  re-rendered when the tab is showing. The snip editor hides on this tab to
+  give the report the full height. **Open lab.md** opens the file in your
+  default program.
+- `lab.outline()` describes the report's shape; `lab.move_entry()` re-files a
+  snip or note, or places it before another entry. A snip carries the notes
+  rendered beneath it. The first manual move pins the section order into
+  `section_order` in `lab.json`, and `render_index` honours it, so moving the
+  first snip out of a section does not reorder the report's headings.
+- README opens with what ShadowSnip is for (evidence capture and writeups for
+  penetration testing) and a **Why it exists** section. ROADMAP sets v0.6 as
+  the pentest report release: findings with severity, redaction, export,
+  command output as text, methodology sections and annotation.
+
+### Changed
+- The selected-row edge in the lab lists is 1 px instead of 1.6 px.
+
+### Tests
+- `test_lab_outline.py`: the outline follows the report, an empty current
+  section is offered, moving to a section, snips taking their notes,
+  reordering within a section, a foreign `before` key falling back to the end,
+  section order surviving the first section being emptied, moving loose
+  notes, and refusals without a record or entry.
+- `test_outline_tree.py`: the tree mirrors the report, every drop rule,
+  no-op and section drags ignored, collapsed state and selection surviving a
+  rebuild, clicks naming the snip, the preview scaling images to fit, the three
+  tabs, and the Preview tab hiding the editor.
+- End to end: a move in the outline lands in `lab.md` and the tree follows.
 
 ---
 

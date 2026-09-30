@@ -13,11 +13,13 @@ overlay.py           the dimmed selection windows
 imageops.py          QImage -> Pillow, compression, DIB encoding
 clipboard.py         Win32 clipboard writer (PNG + CF_DIB), Qt fallback
 storage.py           latest-file replacement, history, atomic writes
-lab.py               lab sessions: numbering, sections, notes, the lab.md tree
+lab.py               lab sessions: numbering, sections, notes, the lab.md tree,
+                     outline and moves
 autocopy.py          copy on select: mouse hook, guards, clipboard read-back
 toast.py             the one-second clip confirmation near the cursor
 preview.py           post-snip window
-labsnips.py          lab snip list, thumbnails, in-place editing, full-size viewer
+labsnips.py          lab panel: snip list, report outline, rendered preview,
+                     in-place editing, full-size viewer
 settings_dialog.py   settings form and hotkey recorder
 ```
 
@@ -51,6 +53,13 @@ preview.PreviewWindow       optional; every control here is opt-in
 ```
 
 ## Design decisions
+
+**Built for pentest writeups.** The lab is the centre of the design: the
+record (`lab.json`) is structured as the report is, sections first, so the
+report is a rendering of what was captured rather than something assembled
+afterwards. The outline and preview are views of that record, and every edit
+made in them goes back through `lab.py`, so there is one writer and `lab.md`
+never disagrees with what the window shows.
 
 **Freeze first, select second.** Screens are captured before the overlay
 appears. The overlay draws those frozen frames, so the picture cannot change

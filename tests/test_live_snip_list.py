@@ -121,3 +121,28 @@ def test_an_edit_in_the_snip_list_lands_in_the_lab(shadow):
     (row,) = lab.snip_rows(s.cfg)
     assert row["notes"] == ["22 and 80 open"]
     assert _pump(qapp, lambda: panel.list.topLevelItem(0).text(3) == "nmap full scan")
+
+
+def test_a_move_in_the_outline_lands_in_lab_md(shadow):
+    s, qapp = shadow
+    _start_lab(s)
+    image = QImage(120, 80, QImage.Format.Format_RGB32)
+    image.fill(QColor(50, 50, 50))
+    s._handle_snip(image)
+    first = s._last_lab_file
+    lab.set_section(s.cfg, "host/smb")
+    s._refresh_menu_text()
+
+    s.preview.snips_panel.outline.move_requested.emit(f"snip:{first}", "host/smb", "")
+
+    md = (lab.active_folder(s.cfg) / lab.INDEX_NAME).read_text(encoding="utf-8")
+    assert md.index("### smb") < md.index(first)
+    assert _pump(
+        qapp,
+        lambda: any(
+            item.data(0, 0x0100) == f"snip:{first}"
+            and item.data(0, 0x0101) == "host/smb"
+            for item in s.preview.snips_panel.outline._all_items()
+        ),
+    )
+    assert "smb" in s.preview.snips_panel._md_text

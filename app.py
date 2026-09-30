@@ -65,6 +65,8 @@ class ShadowSnipApp(QObject):
         self.preview.snip_open_requested.connect(self.open_lab_snip)
         self.preview.snip_list_toggled.connect(self.set_snip_list_shown)
         self.preview.snip_details_saved.connect(self.save_snip_details)
+        self.preview.lab_entry_move_requested.connect(self.move_lab_entry)
+        self.preview.lab_md_open_requested.connect(self.open_lab_md)
 
         # The snip list follows the lab folder itself rather than relying on
         # every code path that writes into it remembering to refresh. A snip,
@@ -244,6 +246,12 @@ class ShadowSnipApp(QObject):
         if not self.cfg.get("lab_snip_list", True):
             return
         self.preview.set_lab_snips(lab.snip_rows(self.cfg), self._last_lab_file)
+        folder = lab.active_folder(self.cfg)
+        try:
+            md_text = (folder / lab.INDEX_NAME).read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            md_text = ""
+        self.preview.set_lab_outline(lab.outline(self.cfg), md_text, folder)
 
     def show_window(self) -> None:
         """Bring the window up for a relaunch or a tray click.
@@ -527,6 +535,39 @@ class ShadowSnipApp(QObject):
         if done:
             self.preview.set_status(f"Saved {label}: {', '.join(done)}")
         QTimer.singleShot(0, self._refresh_menu_text)
+
+    def move_lab_entry(self, key: str, section: str, before: str) -> None:
+        """A drag in the outline: re-file a snip or note, or reorder it."""
+        if not lab.is_active(self.cfg):
+            return
+        try:
+            moved = lab.move_entry(self.cfg, key, section, before or None)
+        except lab.LabError as exc:
+            self.preview.set_status(f"Could not rearrange the lab: {exc}")
+            return
+        kind, _, ident = key.partition(":")
+        what = f"snip {ident.split('_', 1)[0]}" if kind == "snip" else f"note {ident}"
+        if moved:
+            self.preview.set_status(
+                f"Moved {what} to {lab.normalise_section(section) or 'the top of the report'}"
+            )
+        else:
+            self.preview.set_status(f"Could not move {what}: it is not in the lab record.")
+        # Rebuilt after the drop has finished, not from inside it.
+        QTimer.singleShot(0, self._refresh_menu_text)
+
+    def open_lab_md(self) -> None:
+        folder = lab.active_folder(self.cfg)
+        if folder is None:
+            return
+        path = folder / lab.INDEX_NAME
+        if not path.is_file():
+            self.preview.set_status("There is no lab.md yet. It is written with the first snip or note.")
+            return
+        try:
+            storage.open_file(path)
+        except OSError as exc:
+            self.preview.set_status(f"Could not open lab.md: {exc}")
 
     def set_snip_list_shown(self, on: bool) -> None:
         """The Snip list button. Remembered, so it stays how you left it."""

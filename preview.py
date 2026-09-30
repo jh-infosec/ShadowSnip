@@ -104,6 +104,19 @@ QHeaderView::section {
     border-right: 1px solid #2c2c33; padding: 4px 6px;
 }
 QSplitter::handle { background: #2c2c33; }
+QTabWidget::pane { border: none; }
+QTabBar::tab {
+    background: #1f1f25; color: #9a9aa6; padding: 5px 14px;
+    border: 1px solid #2c2c33; border-bottom: none;
+    border-top-left-radius: 4px; border-top-right-radius: 4px;
+    margin-right: 2px;
+}
+QTabBar::tab:selected { background: #2a2a31; color: #e6e6ec; border-color: #3a3a44; }
+QTabBar::tab:hover:!selected { color: #e6e6ec; }
+QTextBrowser {
+    background: #15151a; color: #e6e6ec; border: 1px solid #2c2c33;
+    border-radius: 4px; padding: 8px;
+}
 """
 
 
@@ -126,6 +139,9 @@ class PreviewWindow(QWidget):
     snip_list_toggled = Signal(bool)
     # Edits from the snip list: (file, caption, {note_id: text}, new_note).
     snip_details_saved = Signal(str, str, object, str)
+    # From the outline: (entry key, section, key to go before or "").
+    lab_entry_move_requested = Signal(str, str, str)
+    lab_md_open_requested = Signal()
 
     def __init__(self, parent=None, icon: QIcon | None = None):
         super().__init__(parent)
@@ -165,6 +181,8 @@ class PreviewWindow(QWidget):
         self.snips_panel.remove_requested.connect(self.snip_remove_requested.emit)
         self.snips_panel.open_requested.connect(self.snip_open_requested.emit)
         self.snips_panel.details_saved.connect(self.snip_details_saved.emit)
+        self.snips_panel.move_requested.connect(self.lab_entry_move_requested.emit)
+        self.snips_panel.open_md_requested.connect(self.lab_md_open_requested.emit)
         # Short names for the parts other code and the tests reach for.
         self.snips_list = self.snips_panel.list
         self.snips_title = self.snips_panel.title
@@ -483,6 +501,9 @@ class PreviewWindow(QWidget):
     def set_lab_snips(self, rows, current_file: str = "") -> None:
         """Fill the lab snip list from lab.snip_rows(). See labsnips.py."""
         self.snips_panel.set_rows(rows, current_file)
+
+    def set_lab_outline(self, data: dict, md_text: str = "", md_folder=None) -> None:
+        self.snips_panel.set_outline(data, md_text, md_folder)
 
     def selected_snip(self) -> str:
         return self.snips_panel.selected()

@@ -598,10 +598,7 @@ def render_index(state: dict) -> str:
     if not isinstance(recorded, list):
         recorded = []
 
-    grouped: dict[str, list[dict]] = {}
-    for entry in recorded:
-        if isinstance(entry, dict):
-            grouped.setdefault(entry_section(entry), []).append(entry)
+    grouped = _ordered_groups(state)
 
     # Notes attached to a snip in the same section render under that snip, so
     # they must not also render on their own.
@@ -615,6 +612,192 @@ def render_index(state: dict) -> str:
         lines.extend(_render_entries(grouped.get(path, []), consumed))
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _ordered_groups(state: dict, include=()) -> dict[str, list[dict]]:
+    """Entries grouped by section, sections in report order.
+
+    Report order is first use, unless the outline has been rearranged: moving
+    an entry by hand records `section_order` in lab.json, so emptying the
+    first section of its first snip does not quietly reshuffle the report.
+    Sections in `include` are added even when empty, so the outline can offer
+    them as places to drop things.
+    """
+    recorded = state.get("entries", [])
+    if not isinstance(recorded, list):
+        recorded = []
+    grouped: dict[str, list[dict]] = {}
+    for entry in recorded:
+        if isinstance(entry, dict):
+            grouped.setdefault(entry_section(entry), []).append(entry)
+    for path in include:
+        if path:
+            grouped.setdefault(normalise_section(path), [])
+
+    order = state.get("section_order")
+    if not isinstance(order, list) or not order:
+        return grouped
+    rank = {normalise_section(p): i for i, p in enumerate(order)}
+    keys = list(grouped)
+    known = sorted((k for k in keys if k in rank), key=rank.get)
+    rest = [k for k in keys if k and k not in rank]
+    ordered: dict[str, list[dict]] = {}
+    if "" in grouped:
+        ordered[""] = grouped[""]
+    for key in known + rest:
+        if key:
+            ordered[key] = grouped[key]
+    return ordered
+
+
+# -- the outline -----------------------------------------------------------
+def outline(cfg: dict) -> dict:
+    """The shape of lab.md, for the outline tree in the window.
+
+    Returns {"name", "record", "sections": [...]}, where each section is
+    {"path", "name", "depth", "entries"} in report order, the top of the report
+    first with path "". Entries are what lab.md shows there, in order:
+
+        {"kind": "snip", "key", "file", "label", "caption", "notes": [note...]}
+        {"kind": "note", "key", "id", "text", "evidence": [files]}
+
+    A snip's `notes` are those rendered beneath it. The current section is
+    included even when nothing is filed in it yet, so it can be dropped onto.
+    """
+    target = active_folder(cfg)
+    if target is None:
+        return {"name": "", "record": False, "sections": []}
+    record = bool(cfg.get("lab_index", True))
+    state = _load_state(target) if record else {}
+    current = normalise_section(state.get("section", ""))
+    grouped = _ordered_groups(state, include=[current])
+    consumed = _attached_note_ids(grouped)
+
+    def nodes(here):
+        out = []
+        for entry in here:
+            if entry_kind(entry) == "note":
+                note_id = str(entry.get("id", ""))
+                if note_id in consumed:
+                    continue
+                out.append(
+                    {
+                        "kind": "note",
+                        "key": f"note:{note_id}",
+                        "id": note_id,
+                        "text": str(entry.get("text", "")).strip(),
+                        "evidence": [str(n) for n in entry.get("attach", ()) if str(n).strip()],
+                    }
+                )
+                continue
+            filename = str(entry.get("file", ""))
+            number = entry.get("number", 0)
+            beneath = [
+                {
+                    "kind": "note",
+                    "key": f"note:{note.get('id', '')}",
+                    "id": str(note.get("id", "")),
+                    "text": str(note.get("text", "")).strip(),
+                    "evidence": [filename],
+                }
+                for note in here
+                if entry_kind(note) == "note" and filename in note.get("attach", ())
+            ]
+            out.append(
+                {
+                    "kind": "snip",
+                    "key": f"snip:{filename}",
+                    "file": filename,
+                    "label": f"{number:03d}" if isinstance(number, int) else str(number),
+                    "caption": str(entry.get("caption", "")).strip(),
+                    "notes": beneath,
+                }
+            )
+        return out
+
+    sections = [{"path": "", "name": "", "depth": -1, "entries": nodes(grouped.get("", []))}]
+    for path, depth in _walk_sections(grouped):
+        sections.append(
+            {
+                "path": path,
+                "name": path.rsplit(SECTION_SEPARATOR, 1)[-1],
+                "depth": depth,
+                "entries": nodes(grouped.get(path, [])),
+            }
+        )
+    return {"name": state.get("name", target.name), "record": record, "sections": sections}
+
+
+def move_entry(cfg: dict, key: str, section, before_key: str | None = None) -> bool:
+    """Move a snip or note to a section, optionally just before another entry.
+
+    `key` is "snip:<file>" or "note:<id>", as outline() hands out. A snip takes
+    the notes rendered beneath it along, so evidence and the sentence about it
+    are never separated by a drag. Without `before_key`, or when that entry is
+    not in the target section, the entry goes to the end of the section.
+
+    Returns False when there is no lab, no record, or no such entry.
+    """
+    target = active_folder(cfg)
+    if target is None or not cfg.get("lab_index", True):
+        return False
+    state = _load_state(target)
+    recorded = state.get("entries") if state else None
+    if not isinstance(recorded, list):
+        return False
+
+    moving = _find_entry(recorded, key)
+    if moving is None:
+        return False
+    old_section = entry_section(moving)
+    group = [moving]
+    if entry_kind(moving) == "snip":
+        filename = moving.get("file")
+        group += [
+            e for e in recorded
+            if isinstance(e, dict) and e is not moving
+            and entry_kind(e) == "note"
+            and entry_section(e) == old_section
+            and filename in e.get("attach", ())
+        ]
+
+    # Pin the order the sections are in now, before this move can change
+    # which section is used first.
+    if not isinstance(state.get("section_order"), list):
+        state["section_order"] = [p for p in _ordered_groups(state) if p]
+
+    cleaned = normalise_section(section)
+    remaining = [e for e in recorded if not any(e is g for g in group)]
+    for entry in group:
+        entry["section"] = cleaned
+
+    anchor = _find_entry(remaining, before_key) if before_key else None
+    if anchor is not None and entry_section(anchor) == cleaned:
+        index = next(i for i, e in enumerate(remaining) if e is anchor)
+    else:
+        index = len(remaining)
+        for i in range(len(remaining) - 1, -1, -1):
+            entry = remaining[i]
+            if isinstance(entry, dict) and entry_section(entry) == cleaned:
+                index = i + 1
+                break
+    state["entries"] = remaining[:index] + group + remaining[index:]
+    if cleaned and cleaned not in state["section_order"]:
+        state["section_order"].append(cleaned)
+    _save_state(target, state, cfg)
+    return True
+
+
+def _find_entry(recorded, key) -> dict | None:
+    kind, _, ident = str(key or "").partition(":")
+    for entry in recorded:
+        if not isinstance(entry, dict):
+            continue
+        if kind == "snip" and entry_kind(entry) == "snip" and entry.get("file") == ident:
+            return entry
+        if kind == "note" and entry_kind(entry) == "note" and str(entry.get("id", "")) == ident:
+            return entry
+    return None
 
 
 def _attached_note_ids(grouped: dict[str, list[dict]]) -> set[str]:

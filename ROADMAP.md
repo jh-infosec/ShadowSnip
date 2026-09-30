@@ -1,6 +1,26 @@
 # ShadowSnip roadmap
 
-## v0.5 - integration (next)
+ShadowSnip's main purpose is evidence capture for penetration testing and the
+writeup that follows. The next versions lean into that.
+
+## v0.6 - the pentest report (next)
+
+- **Findings.** Mark a section as a finding with a severity (Critical, High,
+  Medium, Low, Info), the affected host, and description, impact and
+  remediation fields. It renders in `lab.md` as a standard finding block, so
+  the report drafts itself as findings are confirmed.
+- **Redaction.** Blur or black-box part of a snip (passwords, hashes, client
+  names) before it is filed. Client reports need it.
+- **Export.** A single HTML file or a .docx with the images embedded, ready to
+  hand over, instead of `lab.md` plus a folder of images.
+- **Command output as text.** While a lab runs, highlighted text can be filed
+  as a code block, so commands in the report are copyable.
+- **Methodology sections.** One click to lay out Recon, Enumeration, Initial
+  access, Privilege escalation and Post-exploitation when a lab starts.
+- **Annotation.** Arrows, boxes and highlights to point at the line that
+  matters.
+
+## v0.7 - integration
 
 - Run at login toggle in Settings, writing the shortcut itself and reading
   back the real state rather than a stored flag.
@@ -12,7 +32,7 @@
   route to different projects.
 - Signed release binaries so SmartScreen stops warning on first run.
 
-## v0.6 - capture modes
+## v0.8 - capture modes
 
 - Window mode: highlight and grab the window under the cursor.
 - Freeform (lasso) selection, matching Snipping Tool's freeform mode.
@@ -20,22 +40,21 @@
 - Snap the selection to detected UI element edges while dragging.
 - Magnifier loupe near the cursor for pixel-exact edges.
 
-## v0.7 - after the snip
+## v0.9 - after the snip
 
 - Lightweight annotation: pen, arrow, rectangle, highlighter, and a redaction
   block for screenshots that carry credentials or client data.
 - Re-crop in the preview window without taking a new snip.
 - Clipboard history strip: the last N snips, one click to re-copy.
 - "Copy as" menu: PNG, JPEG, WebP, or a data URI.
-- Reorder or drop entries in a lab index without editing `lab.json` by hand.
 
 ## Notes and sections, still open
 
-- Editing a note after the fact needs `lab.json` opened by hand. 0.4.4 added
-  the list view of a lab's snips and removal, and 0.4.7 added editing captions
-  and notes in place. Moving a note between sections, notes that are not
-  attached to any snip, and restoring a removed snip from inside the app are
-  still missing.
+- 0.4.4 added the lab snip list and removal, 0.4.7 editing captions and notes
+  in place, and 0.5.0 the outline, where snips and notes are moved between
+  sections by dragging. Still missing: editing a note that is not attached to
+  any snip, reordering the sections themselves, and restoring a removed snip
+  from inside the app.
 - Export beyond markdown. `lab.md` pastes into most things, but a
   self-contained HTML with the images inlined, or a .docx built against a
   client template, would drop straight into a report rather than needing the
@@ -46,8 +65,7 @@
   answer is no, and the `_Evidence:_` reference is the compromise. **Move snip
   here** covers the common case from the other direction, by moving the snip to
   the note rather than the note to the snip.
-- Notes cannot be moved between sections, only snips. The same button for a
-  note needs a way to say *which* note, which is really the list view above.
+- Notes can now be moved between sections by dragging them in the outline.
 
 ## Copy on select, still open
 

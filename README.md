@@ -1,13 +1,50 @@
 # ShadowSnip
 
-A Snipping Tool work-alike for Windows that copies a **compressed** PNG to the
-clipboard the instant a snip finishes, and writes the same snip to disk in the
-background. Saving a permanent copy afterwards is optional — the next snip
-simply replaces the standing file.
+**Evidence capture for penetration testing, and the writeup that comes out of
+it.** ShadowSnip is a Windows snipping tool built around one job: getting from
+a live engagement, a lab or a CTF box to a finished report without losing
+track of which screenshot proved what.
+
+Start a lab, set the section you are working in, and snip as you go. Every
+snip is numbered, filed under that section, and written into `lab.md`, a
+markdown report that grows while you work. Captions and notes attach to the
+evidence they describe. When the testing is done, the structure of the report
+is already there: rearrange it in the **Outline**, read it in the **Preview**,
+and paste it into your writeup.
 
 ```
-press hotkey -> screens freeze -> drag -> clipboard + disk, immediately
+Start lab "client-internal"  ->  section "10.0.0.5 / SMB"  ->  snip, caption, note
+                             ->  section "10.0.0.5 / Web"  ->  snip, snip
+lab.md: numbered evidence, under the right headings, with your notes in place
 ```
+
+It is also a fast everyday snipping tool: a **compressed** PNG goes to the
+clipboard the instant a snip finishes, and the same snip is written to disk in
+the background.
+
+## Why it exists
+
+Screenshots are the evidence in a pentest report, and they are usually the
+messiest part of writing one. Dozens of `Screenshot (143).png` files, taken in
+a hurry, have to be matched back to hosts, services and findings days later,
+and the one that proves the finding is always the one that is missing.
+
+ShadowSnip records that structure while the work is happening instead:
+
+- **Sections** say where you are (host, service, finding), so every snip and
+  note is filed as it is taken.
+- **Numbering** keeps evidence in capture order, which is the order the attack
+  path happened in.
+- **Captions and notes** put the sentence about a screenshot next to it, while
+  you still remember what it shows.
+- **The outline and preview** let you fix the report's structure before you
+  paste it, rather than after.
+- **Copy on select** catches commands and output as text without breaking
+  stride.
+
+It is built for Hack The Box and similar labs, practice exams, and client
+engagements alike. See [Known limits](#known-limits) before using it on client
+data: lab folders are not encrypted.
 
 ## What it does differently
 
@@ -32,8 +69,9 @@ pip install -r requirements.txt
 python main.py
 ```
 
-ShadowSnip starts in the notification area. Press **Ctrl+Shift+S** to snip;
-click the tray icon to open the preview window.
+ShadowSnip opens its window and puts an icon in the notification area. Press
+**Ctrl+Shift+S** to snip; click the tray icon to bring the window back.
+`--tray` starts it in the tray without the window, for the login shortcut.
 
 ## Using it
 
@@ -154,6 +192,20 @@ Each lab folder holds the images plus two files:
 `lab.md` is meant to be pasted straight into a writeup. If the caption box is
 switched on, whatever is typed in the preview window after a snip appears in
 the index above that image.
+
+### The report: Outline and Preview
+
+The lab panel beside the image has three tabs:
+
+| Tab | What it is for |
+| --- | --- |
+| **Snips** | Every snip in the lab, newest first, with its section, caption and notes |
+| **Outline** | `lab.md` as a tree: sections, the snips in them, the notes under those. Drag a snip or note onto a section to file it there, or above or below another entry to move it to that spot. A snip always takes its attached notes with it. |
+| **Preview** | `lab.md` rendered as it will read, screenshots scaled to fit, with **Open lab.md** to edit the file itself |
+
+Rearranging in the outline is saved to `lab.json` and `lab.md` straight away.
+Once you have moved something by hand, the order of the sections is kept as it
+is, so emptying a section's first snip does not reshuffle the report.
 
 ### Sections
 

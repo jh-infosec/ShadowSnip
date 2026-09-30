@@ -14,6 +14,14 @@ plain dictionaries.
   snip as large as the screen allows, with Left and Right (or Up and Down)
   cycling through the lab in capture order. The list follows the viewer.
 
+## The report
+
+Beside **Snips** are two more tabs. **Outline** is lab.md as a tree: sections,
+the snips filed in them, the notes under those. Drag an entry onto a section
+to file it there, or above or below another entry to put it at that spot; a
+snip always takes its attached notes with it. **Preview** is lab.md rendered
+as it will read, screenshots scaled to fit.
+
 ## Editing
 
 The caption and every note attached to the selected snip are editable under
@@ -35,6 +43,7 @@ from PySide6.QtCore import QSize, Qt, QUrl, Signal
 from PySide6.QtGui import (
     QColor,
     QCursor,
+    QImage,
     QGuiApplication,
     QImageReader,
     QKeySequence,
@@ -43,6 +52,7 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
     QShortcut,
+    QTextDocument,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -56,6 +66,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSplitter,
     QStyleFactory,
+    QTabWidget,
+    QTextBrowser,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -217,7 +229,7 @@ class OutlinedTree(QTreeWidget):
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             pen = QPen(QColor(SELECT_EDGE))
-            pen.setWidthF(1.6)
+            pen.setWidthF(1.0)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(rect, 4, 4)
@@ -381,12 +393,315 @@ class SnipViewer(QWidget):
         self.move(frame.topLeft())
 
 
+# -- the report outline -------------------------------------------------------
+KEY_ROLE = Qt.ItemDataRole.UserRole
+SECTION_ROLE = Qt.ItemDataRole.UserRole + 1
+ROOT_LABEL = "Top of the report"
+
+
+class OutlineTree(OutlinedTree):
+    """lab.md as a tree: sections, the snips in them, the notes under those.
+
+    Dragging a snip or a note onto a section files it there; dropping it
+    above or below another entry puts it at that spot. The tree never moves
+    anything itself. It says what was asked for through `move_requested`, the
+    application writes lab.json, and the tree is rebuilt from the result, so
+    what you see is always what lab.md now says.
+    """
+
+    # (entry key, target section, key of the entry to go before or "")
+    move_requested = Signal(str, str, str)
+    # A snip filename, when a snip or a note under one is clicked.
+    snip_chosen = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setHeaderHidden(True)
+        self.setColumnCount(1)
+        self.setIndentation(16)
+        self.setUniformRowHeights(True)
+        self.setAlternatingRowColors(False)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self._collapsed: set[str] = set()
+        self.itemCollapsed.connect(lambda item: self._collapsed.add(item.data(0, KEY_ROLE)))
+        self.itemExpanded.connect(lambda item: self._collapsed.discard(item.data(0, KEY_ROLE)))
+        self.itemClicked.connect(self._on_clicked)
+        self.tooltip_for = None  # set by the panel: filename -> hover html
+
+    # -- filling ------------------------------------------------------------
+    def set_outline(self, data: dict) -> None:
+        chosen = self.current_key()
+        blocked = self.blockSignals(True)
+        try:
+            self.clear()
+            parents: dict[str, QTreeWidgetItem] = {}
+            for section in data.get("sections", []):
+                path = section["path"]
+                item = self._section_item(section)
+                parent_path = path.rsplit("/", 1)[0] if "/" in path else ""
+                if path and parent_path in parents and parent_path:
+                    parents[parent_path].addChild(item)
+                else:
+                    self.addTopLevelItem(item)
+                parents[path] = item
+                for entry in section["entries"]:
+                    item.addChild(self._entry_item(entry, path))
+            for item in parents.values():
+                item.setExpanded(item.data(0, KEY_ROLE) not in self._collapsed)
+                for index in range(item.childCount()):
+                    child = item.child(index)
+                    if child.childCount():
+                        child.setExpanded(child.data(0, KEY_ROLE) not in self._collapsed)
+            if chosen:
+                self.select_key(chosen)
+        finally:
+            self.blockSignals(blocked)
+
+    def _section_item(self, section: dict) -> QTreeWidgetItem:
+        path = section["path"]
+        count = sum(1 for e in section["entries"] if e["kind"] == "snip")
+        name = section["name"] or ROOT_LABEL
+        item = QTreeWidgetItem([f"{name}   ({count})" if count else name])
+        item.setData(0, KEY_ROLE, f"section:{path}")
+        item.setData(0, SECTION_ROLE, path)
+        font = item.font(0)
+        font.setBold(True)
+        item.setFont(0, font)
+        item.setForeground(0, QColor("#c9d6ea"))
+        item.setToolTip(
+            0,
+            (f"Section {path}" if path else "Entries before the first heading")
+            + "\nDrop a snip or note here to file it under this section.",
+        )
+        # A section is somewhere to drop things, not something to drag.
+        item.setFlags(
+            Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+            | Qt.ItemFlag.ItemIsDropEnabled
+        )
+        return item
+
+    def _entry_item(self, entry: dict, section: str) -> QTreeWidgetItem:
+        if entry["kind"] == "snip":
+            text = f"{entry['label']}   {entry['caption'] or '(no caption)'}"
+            item = QTreeWidgetItem([text])
+            if self.tooltip_for is not None:
+                item.setToolTip(0, self.tooltip_for(entry["file"]))
+            item.setData(0, Qt.ItemDataRole.UserRole + 2, entry["file"])
+            for note in entry.get("notes", []):
+                child = self._note_item(note, section, attached=True)
+                child.setData(0, Qt.ItemDataRole.UserRole + 2, entry["file"])
+                item.addChild(child)
+        else:
+            item = self._note_item(entry, section, attached=False)
+        item.setData(0, KEY_ROLE, entry["key"])
+        item.setData(0, SECTION_ROLE, section)
+        item.setFlags(
+            Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+            | Qt.ItemFlag.ItemIsDragEnabled | Qt.ItemFlag.ItemIsDropEnabled
+        )
+        return item
+
+    @staticmethod
+    def _note_item(note: dict, section: str, attached: bool) -> QTreeWidgetItem:
+        first = (note["text"].splitlines() or [""])[0]
+        item = QTreeWidgetItem([f"\u270e {first}"])
+        font = item.font(0)
+        font.setItalic(True)
+        item.setFont(0, font)
+        item.setForeground(0, QColor("#9a9aa6"))
+        tip = note["text"]
+        if not attached and note.get("evidence"):
+            tip += "\n\nEvidence: " + ", ".join(note["evidence"])
+        item.setToolTip(0, tip)
+        item.setData(0, KEY_ROLE, note["key"])
+        item.setData(0, SECTION_ROLE, section)
+        item.setFlags(
+            Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+            | Qt.ItemFlag.ItemIsDragEnabled | Qt.ItemFlag.ItemIsDropEnabled
+        )
+        return item
+
+    # -- selection ----------------------------------------------------------
+    def current_key(self) -> str:
+        item = self.currentItem()
+        return str(item.data(0, KEY_ROLE) or "") if item is not None else ""
+
+    def select_key(self, key: str, reveal: bool = False) -> None:
+        """Select an entry. `reveal` opens collapsed sections to show it.
+
+        A rebuild re-selects without revealing, so a section you collapsed
+        stays collapsed; picking a snip in the Snips tab reveals it.
+        """
+        for item in self._all_items():
+            if item.data(0, KEY_ROLE) != key:
+                continue
+            hidden = False
+            parent = item.parent()
+            while parent is not None:
+                if not parent.isExpanded():
+                    hidden = True
+                    if reveal:
+                        self._collapsed.discard(parent.data(0, KEY_ROLE))
+                parent = parent.parent()
+            blocked = self.blockSignals(True)
+            try:
+                auto = self.hasAutoScroll()
+                self.setAutoScroll(False)
+                self.setCurrentItem(item)
+                self.setAutoScroll(auto)
+                if reveal or not hidden:
+                    self.scrollToItem(item)
+            finally:
+                self.blockSignals(blocked)
+            return
+
+    def _all_items(self):
+        stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]
+        while stack:
+            item = stack.pop(0)
+            yield item
+            stack.extend(item.child(i) for i in range(item.childCount()))
+
+    def _on_clicked(self, item, _column) -> None:
+        filename = item.data(0, Qt.ItemDataRole.UserRole + 2)
+        if filename:
+            self.snip_chosen.emit(str(filename))
+
+    # -- dragging -------------------------------------------------------------
+    def dropEvent(self, event):
+        source = self.currentItem()
+        target = self.itemAt(event.position().toPoint())
+        where = self.resolve_drop(source, target, self.dropIndicatorPosition())
+        # The tree is rebuilt from lab.json after the move, so Qt must not
+        # also move the item itself.
+        event.setDropAction(Qt.DropAction.IgnoreAction)
+        event.accept()
+        if where is not None:
+            key, section, before = where
+            self.move_requested.emit(key, section, before or "")
+
+    def resolve_drop(self, source, target, position):
+        """Where a drop lands, as (key, section, before_key), or None.
+
+        - onto a section, anywhere on it: the end of that section
+        - above an entry: just before it
+        - onto or below an entry: just after it
+        - onto a note under a snip: just after that snip
+        - onto empty space: the end of the top of the report
+        """
+        if source is None:
+            return None
+        key = str(source.data(0, KEY_ROLE) or "")
+        if not key or key.startswith("section:"):
+            return None
+        if target is None:
+            return key, "", None
+
+        target_key = str(target.data(0, KEY_ROLE) or "")
+        if target_key.startswith("section:"):
+            return key, str(target.data(0, SECTION_ROLE) or ""), None
+
+        # A note shown under a snip stands for that snip.
+        parent = target.parent()
+        if parent is not None and not str(parent.data(0, KEY_ROLE) or "").startswith("section:"):
+            target, target_key = parent, str(parent.data(0, KEY_ROLE) or "")
+            position = QAbstractItemView.DropIndicatorPosition.BelowItem
+
+        if target_key == key:
+            return None
+        section = str(target.data(0, SECTION_ROLE) or "")
+        if position == QAbstractItemView.DropIndicatorPosition.AboveItem:
+            return key, section, target_key
+
+        # After the target: before whichever entry follows it in its section.
+        holder = target.parent()
+        siblings = (
+            [holder.child(i) for i in range(holder.childCount())]
+            if holder is not None
+            else [self.topLevelItem(i) for i in range(self.topLevelItemCount())]
+        )
+        entries = [
+            item for item in siblings
+            if not str(item.data(0, KEY_ROLE) or "").startswith("section:")
+        ]
+        after = None
+        for index, item in enumerate(entries):
+            if item is target and index + 1 < len(entries):
+                after = str(entries[index + 1].data(0, KEY_ROLE) or "")
+        if after == key:
+            return None  # already right there
+        return key, section, after
+
+
+# -- the rendered lab.md ------------------------------------------------------
+class MarkdownPreview(QTextBrowser):
+    """lab.md as it reads, images scaled to the width of the panel.
+
+    Qt renders markdown itself. The one thing it does not do is shrink an
+    image to fit, and a 2560-pixel screenshot in a 400-pixel panel is useless,
+    so images are loaded here at the panel's width instead.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setOpenLinks(False)
+        self._text = ""
+        self._width = 0
+        self._images: dict[tuple[str, int], QImage] = {}
+
+    def show_markdown(self, text: str, folder) -> None:
+        if folder is not None:
+            self.document().setBaseUrl(QUrl.fromLocalFile(str(folder) + "/"))
+        self._text = text
+        self._images.clear()
+        self._render()
+
+    def _render(self) -> None:
+        position = self.verticalScrollBar().value()
+        self._width = max(120, self.viewport().width() - 24)
+        self.setMarkdown(self._text)
+        self.verticalScrollBar().setValue(position)
+
+    def loadResource(self, kind, url):
+        if kind == QTextDocument.ResourceType.ImageResource.value or kind == QTextDocument.ResourceType.ImageResource:
+            resolved = self.document().baseUrl().resolved(url)
+            path = resolved.toLocalFile()
+            key = (path, self._width)
+            if key not in self._images:
+                image = QImage(path)
+                if not image.isNull() and image.width() > self._width:
+                    image = image.scaledToWidth(
+                        self._width, Qt.TransformationMode.SmoothTransformation
+                    )
+                self._images[key] = image
+            return self._images[key]
+        return super().loadResource(kind, url)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        width = max(120, self.viewport().width() - 24)
+        if self._text and abs(width - self._width) > 24:
+            self._render()
+
+
 # -- the panel ----------------------------------------------------------------
 class LabSnipsPanel(QWidget):
     remove_requested = Signal(str)
     open_requested = Signal(str)
     # (file, caption, {note_id: new_text} for changed notes, new_note_text)
     details_saved = Signal(str, str, object, str)
+    # From the outline: (entry key, section, key to go before or "")
+    move_requested = Signal(str, str, str)
+    # The Preview tab's button: open lab.md itself.
+    open_md_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -432,12 +747,58 @@ class LabSnipsPanel(QWidget):
             shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
             shortcut.activated.connect(slot)
 
+        # The report outline: lab.md as a tree you can drag things around in.
+        self.outline = OutlineTree()
+        self.outline.tooltip_for = self._tooltip_for_file
+        self.outline.move_requested.connect(self.move_requested.emit)
+        self.outline.snip_chosen.connect(self.select)
+        self.outline_hint = QLabel(
+            "Drag snips and notes between sections, or up and down, to "
+            "rearrange lab.md."
+        )
+        self.outline_hint.setObjectName("SnipWhere")
+        self.outline_hint.setWordWrap(True)
+        outline_page = QWidget()
+        outline_layout = QVBoxLayout(outline_page)
+        outline_layout.setContentsMargins(0, 6, 0, 0)
+        outline_layout.setSpacing(6)
+        outline_layout.addWidget(self.outline, 1)
+        outline_layout.addWidget(self.outline_hint)
+
+        # lab.md rendered, as the report will read.
+        self.md_preview = MarkdownPreview()
+        self.btn_open_md = QPushButton("Open lab.md")
+        self.btn_open_md.setToolTip("Open lab.md in your default editor")
+        self.btn_open_md.clicked.connect(self.open_md_requested.emit)
+        preview_page = QWidget()
+        preview_layout = QVBoxLayout(preview_page)
+        preview_layout.setContentsMargins(0, 6, 0, 0)
+        preview_layout.setSpacing(6)
+        preview_layout.addWidget(self.md_preview, 1)
+        md_bar = QHBoxLayout()
+        md_bar.addStretch(1)
+        md_bar.addWidget(self.btn_open_md)
+        preview_layout.addLayout(md_bar)
+        self._md_text = ""
+        self._md_folder = None
+        self._md_stale = False
+
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.addTab(self.list, "Snips")
+        self.tabs.addTab(outline_page, "Outline")
+        self.tabs.addTab(preview_page, "Preview")
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        # documentMode draws a light base line under the tabs that reads as a
+        # stray white rule on the dark theme.
+        self.tabs.tabBar().setDrawBase(False)
+
         self.detail = self._build_detail()
 
         self.splitter = QSplitter(Qt.Orientation.Vertical)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(6)
-        self.splitter.addWidget(self.list)
+        self.splitter.addWidget(self.tabs)
         self.splitter.addWidget(self.detail)
         self.splitter.setStretchFactor(0, 2)
         self.splitter.setStretchFactor(1, 3)
@@ -585,6 +946,46 @@ class LabSnipsPanel(QWidget):
         if self.viewer is not None:
             self.viewer.set_items(self._viewer_items())
 
+    def set_outline(self, data: dict, md_text: str = "", md_folder=None) -> None:
+        """The report's shape and text, from lab.outline() and lab.md."""
+        self.outline.set_outline(data)
+        if not data.get("record", True):
+            self.outline_hint.setText(
+                "The outline comes from the lab record. Turn on Keep a lab "
+                "record in Settings to see and rearrange it."
+            )
+        self.outline.select_key(f"snip:{self.selected()}")
+        self._md_text = md_text
+        self._md_folder = md_folder
+        self._md_stale = True
+        if self.tabs.currentIndex() == 2:
+            self._show_markdown()
+
+    def _on_tab_changed(self, index: int) -> None:
+        # The rendered report is for reading, so it gets the full height; the
+        # snip editor comes back on the Snips and Outline tabs, where clicking
+        # a snip is how you pick what to edit.
+        self.detail.setVisible(index != 2)
+        if index == 2 and self._md_stale:
+            self._show_markdown()
+
+    def _show_markdown(self) -> None:
+        self._md_stale = False
+        self.md_preview.show_markdown(
+            self._md_text or "_Nothing in lab.md yet._", self._md_folder
+        )
+
+    def _tooltip_for_file(self, filename: str) -> str:
+        row = self._rows.get(filename)
+        if row is None:
+            return filename
+        section = row.get("section", "") or "root"
+        return self._hover_html(
+            row, label_of(row), section, str(row.get("time", "")),
+            [str(t) for t in row.get("notes", ()) if str(t).strip()],
+            filename == self._current_lab_file,
+        )
+
     def set_current(self, filename: str) -> None:
         """Mark a different snip (or none) as the one on screen."""
         self._current_lab_file = filename or ""
@@ -593,6 +994,9 @@ class LabSnipsPanel(QWidget):
         self.flush()
         self._rows = {}
         self.list.clear()
+        self.outline.clear()
+        self.md_preview.clear()
+        self._md_text = ""
         self._load_editor("")
         if self.viewer is not None:
             self.viewer.close()
@@ -673,6 +1077,8 @@ class LabSnipsPanel(QWidget):
         if self._dirty and self._editing_file and selected != self._editing_file:
             self.flush()
         self._load_editor(selected)
+        if selected:
+            self.outline.select_key(f"snip:{selected}", reveal=True)
 
     def _load_editor(self, filename: str) -> None:
         row = self._rows.get(filename)
