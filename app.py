@@ -373,7 +373,7 @@ class ShadowSnipApp(QObject):
             action = self.labs_menu.addAction(name)
             action.triggered.connect(
                 lambda _checked=False, n=name: storage.open_folder(
-                    lab.folder(self.cfg, n)
+                    lab.root(self.cfg) / n
                 )
             )
 

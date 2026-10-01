@@ -103,35 +103,105 @@ def root(cfg: dict) -> Path:
     return Path(cfg["save_dir"]) / "labs"
 
 
+# Characters Windows refuses in a file name. The two separators are the ones
+# that matter for safety; the rest would fail at mkdir anyway, and saying so
+# up front gives a clearer message than the OS does.
+_FORBIDDEN_CHARS = set('<>:"/\\|?*')
+# Device names. `CON` or `NUL` as a folder name reaches the device, not a
+# folder, with or without an extension.
+_RESERVED_NAMES = (
+    {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+MAX_NAME = 120
+
+
+def name_problem(name) -> str:
+    """Why `name` cannot be a lab name, or "" when it can.
+
+    A lab name becomes one folder directly inside the labs root, and every
+    capture and the generated lab.json and lab.md are written into it. So a
+    name must be exactly one plain folder name: no separators, no `.` or
+    `..`, no drive prefix, nothing Windows would quietly turn into something
+    else. Without this, a name like `..\\..\\Documents\\other` would send
+    every snip, and an overwritten lab.json and lab.md, somewhere else.
+    """
+    name = str(name if name is not None else "").strip()
+    if not name:
+        return "a lab needs a name"
+    if any(ch in _FORBIDDEN_CHARS or ord(ch) < 32 for ch in name):
+        return 'a lab name cannot contain \\ / : * ? " < > | or control characters'
+    if name in (".", ".."):
+        return "a lab name cannot be . or .."
+    if name.endswith("."):
+        # Windows drops a trailing dot, so `lab.` and `lab` would be the same
+        # folder under two names.
+        return "a lab name cannot end with a dot"
+    if name.split(".", 1)[0].upper() in _RESERVED_NAMES:
+        return f"'{name}' is a reserved device name on Windows"
+    if len(name) > MAX_NAME:
+        return f"a lab name can be at most {MAX_NAME} characters"
+    return ""
+
+
 def folder(cfg: dict, name: str) -> Path:
-    return root(cfg) / name
+    """The folder of the lab called `name`, always directly inside the root.
+
+    Raises LabError for a name that is not a single plain folder name, and,
+    as a second line of defence, for any path that does not resolve to a
+    direct child of the labs root.
+    """
+    name = str(name if name is not None else "").strip()
+    problem = name_problem(name)
+    if problem:
+        raise LabError(problem)
+    base = root(cfg)
+    target = base / name
+    try:
+        inside = target.resolve(strict=False).parent == base.resolve(strict=False)
+    except (OSError, ValueError, RuntimeError):
+        inside = False
+    if not inside:
+        raise LabError(f"'{name}' does not resolve to a folder inside {base}")
+    return target
 
 
 def active_name(cfg: dict) -> str:
-    return str(cfg.get("active_lab", "")).strip()
+    """The engaged lab's name, or "" when none is engaged.
+
+    A stored name that would not be accepted by start() (a hand-edited or
+    older config) is treated as no lab at all, rather than as a lab whose
+    snips are silently written somewhere outside the labs root.
+    """
+    name = str(cfg.get("active_lab", "") or "").strip()
+    return name if name and not name_problem(name) else ""
 
 
 def is_active(cfg: dict) -> bool:
-    return bool(active_name(cfg))
+    return active_folder(cfg) is not None
 
 
 def active_folder(cfg: dict) -> Path | None:
     name = active_name(cfg)
-    return folder(cfg, name) if name else None
+    if not name:
+        return None
+    try:
+        return folder(cfg, name)
+    except LabError:
+        return None
 
 
 # -- lifecycle -------------------------------------------------------------
 def start(cfg: dict, name: str) -> Path:
     """Create or resume the lab called `name` and return its folder.
 
-    The name is used as the folder name exactly as given. Windows rejects a
-    few characters and a handful of reserved words, so creation is reported
-    rather than left to fail silently.
+    The name is used as the folder name exactly as given, once it has passed
+    name_problem(): one plain folder name, directly inside the labs root.
+    Anything else is refused with the reason, never adjusted, so the folder
+    is always the one you typed.
     """
-    name = str(name).strip()
-    if not name:
-        raise LabError("a lab needs a name")
-
+    name = str(name if name is not None else "").strip()
     target = folder(cfg, name)
     try:
         target.mkdir(parents=True, exist_ok=True)

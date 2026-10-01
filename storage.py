@@ -40,14 +40,18 @@ def save_latest(data: bytes, ext: str, cfg: dict) -> Path:
     """Replace the standing snip file and return its path."""
     folder = save_dir(cfg)
     target = folder / f"{cfg['latest_name']}.{ext}"
-    # Drop stale siblings so switching format does not leave two 'latest' files.
+    # Write first. If this fails, the previous latest file, whatever its
+    # format, is still there; removing it beforehand would leave neither.
+    path = write_atomic(target, data)
+    # Only now drop stale siblings, so switching format does not leave two
+    # 'latest' files.
     for other in folder.glob(f"{cfg['latest_name']}.*"):
         if other != target and other.suffix.lower() in _SUFFIXES:
             try:
                 other.unlink()
             except OSError:
                 pass
-    return write_atomic(target, data)
+    return path
 
 
 def save_history(data: bytes, ext: str, cfg: dict) -> Path | None:

@@ -124,6 +124,11 @@ being clicked. ShadowSnip applies the same rule Windows does, two presses
 inside your double-click speed and inside the double-click rectangle, and
 counts them itself.
 
+Each run of clicks copies once. A double-click waits until your double-click
+speed has passed (half a second by default) before copying the word, because
+a third click can still arrive and turn it into a line. A triple-click copies
+the line straight away.
+
 Because a stray Ctrl+C can do real damage, some windows are left alone:
 
 | Window | Why |
@@ -312,8 +317,11 @@ no section, so they appear at the root of the tree.
 
 Starting a lab with a name that already exists resumes it and carries on
 numbering, so a crash or a restart costs nothing. The name is used as the
-folder name exactly as typed; if Windows will not accept it as a folder,
-ShadowSnip says so rather than failing quietly.
+folder name exactly as typed, and it must be a single plain folder name inside
+the labs folder: no `\` or `/`, no `.` or `..`, no drive letter, none of
+`: * ? " < > |`, and not a Windows device name such as `CON` or `NUL`. Anything
+else is refused with the reason, never adjusted, so a lab can never write
+outside the labs folder.
 
 ## Where files go
 

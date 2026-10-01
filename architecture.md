@@ -217,6 +217,12 @@ combination, needs no elevation, and fails loudly if the combination is taken.
   `removed` in `lab.json`, so a mistaken removal is recoverable by hand.
 - Lab folder unusable: reported when the lab is started, and no lab is
   engaged, so snips carry on going to the normal save folder.
+- Lab name that could leave the labs root (`..`, separators, a drive prefix,
+  a device name): refused by `lab.name_problem()` with the reason, and any
+  path that does not resolve to a direct child of the root is refused too. A
+  bad name already in the config reads as no lab.
+- Latest file: the new file is written before stale `latest.*` files of other
+  formats are removed, so a failed write never leaves neither.
 - Lab index unwritable: swallowed. The image is already on disk and on the
   clipboard, which is not worth losing over a failed index write.
 - Lab left engaged: the tray badge, the tooltip snip count and the menu entry

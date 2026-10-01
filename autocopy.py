@@ -279,6 +279,13 @@ class AutoCopy(QObject):
         self._clicks = 0
         self._run = _ClickRun()
         self._last_text: str | None = None
+        # One pending click copy at a time. A second click schedules a word
+        # copy; a third click in the same run must replace it with a line
+        # copy, not add a second Ctrl+C beside it.
+        self._click_kind = "word"
+        self._click_timer = QTimer(self)
+        self._click_timer.setSingleShot(True)
+        self._click_timer.timeout.connect(self._fire_click)
 
     # -- lifecycle ---------------------------------------------------------
     @property
@@ -328,6 +335,7 @@ class AutoCopy(QObject):
                 pass
         self._hook = None
         self._proc = None
+        self._click_timer.stop()
         self._down = None
         self._clicks = 0
         self._run.reset()
@@ -336,6 +344,7 @@ class AutoCopy(QObject):
     def pause(self) -> None:
         """Stop reacting without tearing the hook down, during a snip."""
         self._paused = True
+        self._click_timer.stop()
         self._down = None
         self._clicks = 0
         self._run.reset()
@@ -355,8 +364,7 @@ class AutoCopy(QObject):
             if code >= 0 and not self._paused:
                 if wparam == WM_LBUTTONDOWN:
                     x, y, when = _event(lparam)
-                    self._down = (x, y)
-                    self._clicks = self._run.press(when, x, y)
+                    self._on_press(x, y, when)
                 elif wparam == WM_LBUTTONUP:
                     start, self._down = self._down, None
                     if start is not None:
@@ -367,6 +375,14 @@ class AutoCopy(QObject):
             self._clicks = 0
         return _user32.CallNextHookEx(self._hook or 0, code, wparam, lparam)
 
+    def _on_press(self, x: int, y: int, when: int) -> None:
+        self._down = (x, y)
+        self._clicks = self._run.press(when, x, y)
+        if self._clicks >= 2:
+            # This press carries on a run whose copy is still waiting. Hold it:
+            # the release decides what the run copies now.
+            self._click_timer.stop()
+
     def _on_release(self, start, end) -> None:
         """Decide what a finished button press was, and schedule the copy.
 
@@ -375,6 +391,7 @@ class AutoCopy(QObject):
         """
         if self._is_drag(start, end):
             # A drag is not a click, and the run it interrupted is over.
+            self._click_timer.stop()
             self._run.reset()
             self._clicks = 0
             QTimer.singleShot(0, lambda: self._capture("selection"))
@@ -382,13 +399,31 @@ class AutoCopy(QObject):
 
         clicks = self._clicks
         if clicks < 2 or clicks > MAX_CLICKS:
+            if clicks > MAX_CLICKS:
+                self._click_timer.stop()
             return
         if not self._cfg.get("auto_copy_double_click", True):
             return
-        kind = CLICK_KINDS.get(clicks, "selection")
-        QTimer.singleShot(
-            DOUBLE_CLICK_SETTLE_MS, lambda: self._capture(kind)
-        )
+        self._click_kind = CLICK_KINDS.get(clicks, "selection")
+        self._click_timer.start(self._click_delay(clicks))
+
+    def _click_delay(self, clicks: int) -> int:
+        """How long to wait before copying what a click run selected.
+
+        The last click a run can have (a triple-click) copies after the short
+        settle. Anything shorter waits out the double-click interval first,
+        because another click can still arrive and change what is selected: a
+        double-click copied at once would copy the word, and the third click a
+        moment later would copy the line as well, two keystrokes for one
+        gesture. Waiting costs a word copy about half a second at Windows'
+        default double-click speed; it is the only way to copy each run once.
+        """
+        if clicks >= MAX_CLICKS:
+            return DOUBLE_CLICK_SETTLE_MS
+        return max(DOUBLE_CLICK_SETTLE_MS, int(self._run.interval_ms))
+
+    def _fire_click(self) -> None:
+        self._capture(self._click_kind)
 
     def _is_drag(self, start, end) -> bool:
         minimum = int(self._cfg.get("auto_copy_min_drag", 8) or 0)

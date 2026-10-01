@@ -1,6 +1,22 @@
 # Changelog
 
-## Latest: 0.5.0
+## Latest: 0.5.1
+
+Fixes for three issues found in an external code review of 0.5.0.
+
+**Fixed**: a lab name could write outside the labs folder. A name such as
+`..\..\Documents\other` placed snips, `lab.json` and `lab.md` elsewhere,
+possibly over existing files. Lab names must now be one plain folder name and
+anything else is refused with the reason.
+
+**Fixed**: a triple-click could copy the word and then the line. Each run of
+clicks now copies once; a double-click's word copy waits out the double-click
+speed in case a third click is coming.
+
+**Fixed**: changing the image format could lose the latest snip if the new
+file failed to write. The new file is written before the old one is removed.
+
+### 0.5.0 in brief
 
 ShadowSnip is now described for what it is mostly for: capturing evidence
 during a penetration test and turning it into the writeup.
@@ -83,6 +99,52 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.5.1] - 2026-10-01
+
+Three issues from an external static review of v0.5.0 (commit `811c769`),
+each confirmed and fixed with regression tests.
+
+### Fixed
+- **Lab names could escape the labs root (path traversal).** `folder()` joined
+  the root and the name, and `start()` only trimmed whitespace, so `..`,
+  separators, an absolute path or a drive-relative `C:name` sent captures and
+  a freshly written `lab.json` and `lab.md` outside the labs folder, replacing
+  whatever was there. `lab.name_problem()` now admits only a single plain
+  folder name: no `\` or `/`, no `.` or `..`, none of `< > : " | ? *` or
+  control characters, no trailing dot, not a Windows device name (`CON`,
+  `NUL`, `COM1` and so on, with or without an extension), at most 120
+  characters. `folder()` raises `LabError` with that reason, and as a second
+  check refuses any path that does not resolve to a direct child of the labs
+  root (a symlink or junction pointing elsewhere, for instance). A stored
+  `active_lab` that fails the check, from a hand-edited or older config, now
+  reads as no lab at all, rather than as a lab writing somewhere unexpected.
+  The **Open a lab** menu builds its paths from the root directly.
+- **A triple-click could send two copies.** The second click scheduled a word
+  copy 60 ms later and the third scheduled a line copy, and nothing cancelled
+  the first. Click copies now go through one restartable timer: a press that
+  continues a run holds the pending copy, its release reschedules it with the
+  new kind, and a drag, `pause()` or `release()` cancels it. Because a third
+  click usually lands after 60 ms, cancelling alone was not enough, so a
+  double-click now waits out the double-click interval (Windows' setting,
+  500 ms by default) before copying the word. A triple-click, the most a run
+  can have, still copies after the 60 ms settle. One copy per run, at the cost
+  of a word copy arriving about half a second later.
+- **Switching format could lose the latest snip.** `save_latest()` deleted
+  `latest.*` files of other formats before writing the new one; if that write
+  failed, neither remained. It now writes first and removes the stale
+  siblings only after the write succeeded.
+
+### Tests
+- `test_review_fixes.py`: 18 names that could leave the root are refused and
+  write nothing, ordinary names (including `con-test` and `a.b`) still work, a
+  bad stored name means no lab, a symlinked lab folder pointing outside is
+  refused, and the reason is reported; a double-click waits the interval, a
+  triple-click copies only the line, the third press holds the pending copy, a
+  drag and a pause cancel it; and the old latest file survives a failed write
+  while a successful one still removes it.
 
 ---
 
