@@ -125,6 +125,38 @@ removal, the viewer) is the same code on both.
 | Cancel | `Esc` or right mouse button |
 | Save a permanent copy (preview window) | `Ctrl+S` |
 | Copy again (preview window) | `Ctrl+C` |
+| Undo the last mark on the snip | `Ctrl+Z`, or the round undo button |
+| Save caption and note edits in the lab panel | `Ctrl+Enter`, or **Save changes** |
+
+## Marking up a snip
+
+The snip in the preview window can be drawn on straight away. The tool strip
+above it has:
+
+| Tool | What it does |
+| --- | --- |
+| **Pen** | Draws in any of 30 colours, 1 to 24 px wide |
+| **Highlighter** | A see-through marker in six bright colours, 6 to 48 px wide, so the text under it stays readable |
+| **Eraser** | Drag across a pen line, highlight or redaction to remove the whole mark |
+| **Crop** | Drag the area to keep |
+| **Redact** | Drag over something to hide it, with **Black out** (solid black, nothing of the original survives) or **Blur** (smeared; hides text, but the layout can still show) |
+| **Undo** | The round arrow, or `Ctrl+Z`: takes back the last mark, erase or crop, one at a time |
+
+Click a tool to pick it up. Click it again to open its options: width and
+colour for the pen and highlighter, blur or black out for redaction. Click once
+more to put it down. Widths and colours are remembered between runs. Each new
+snip starts with no tool selected, so a stray click cannot draw on it.
+
+**Edits are saved as you go.** Half a second after the last change, the edited
+snip replaces every copy ShadowSnip made of it: the clipboard, `latest.png`,
+the copy in the lab, and the history copy if history is on. Each edit is drawn
+fresh from the original capture, so editing again and again costs nothing in
+quality, and undo can always go back to the start.
+
+For passwords, hashes and client details, use **Black out**: a blur can still
+show how long a line was. A redaction protects the files ShadowSnip writes; a
+copy pasted somewhere before you redacted, or held in Windows clipboard history
+(`Win+V`), is outside its reach, so redact before pasting.
 
 Selections can cross monitors, including monitors on different scale factors.
 The snip finishes when you let go of the button, and only then: Windows can
@@ -238,9 +270,9 @@ Each lab folder holds the images plus two files:
 | `lab.json` | the record: name, start time, current section, one entry per snip and per note |
 | `lab.md` | rendered from `lab.json`, the section tree with every image and note in place |
 
-`lab.md` is meant to be pasted straight into a writeup. If the caption box is
-switched on, whatever is typed in the preview window after a snip appears in
-the index above that image.
+`lab.md` is meant to be pasted straight into a writeup. Captions and notes are
+added in the lab panel beside the image (see below), and appear in `lab.md`
+above and beneath their image.
 
 ### The report: Outline and Preview
 
@@ -297,15 +329,13 @@ Two ways in, for two different moments:
 
 | Route | For |
 | --- | --- |
-| The note box in the preview window, **Ctrl+Enter** to file | Writing about the snip you are looking at |
+| **Add a note to this snip** in the lab panel, **Ctrl+Enter** or **Save changes** to file | Writing about a snip: the one on screen, or any other you select in the list |
 | `Ctrl+Shift+N` from anywhere | One line, caught without breaking stride |
 
-A note typed in the preview window attaches to the snip on screen by default,
-and renders directly beneath that image as a quote — evidence, then the
-sentence about the evidence, which is the arrangement a report wants. Untick
-**Attach to this snip** and it stands on its own in the section instead. The
-quick-note hotkey never attaches; it just files a line under the current
-section.
+A note added in the lab panel is attached to the selected snip and renders
+directly beneath that image as a quote: evidence, then the sentence about the
+evidence, which is the arrangement a report wants. The quick-note hotkey never
+attaches; it files a line on its own under the current section.
 
 A note attached to a snip that ended up in a *different* section stays where it
 was written and carries an `_Evidence: 002_...png_` reference instead. A note
@@ -343,10 +373,13 @@ shows the list, and ShadowSnip remembers which you chose.
 
 Hovering a row shows a bigger preview, and the selected row is outlined in
 blue. The
-selected snip appears larger under the list with its caption and notes, which
-you can edit in place: **Save changes** writes them into `lab.md`, emptying a
-note removes it, and the empty box adds a new one. Moving to another snip saves
-what you typed. Click the thumbnail, press **Expand**, double-click a row or
+selected snip appears larger under the list with its caption and notes. They
+are shown locked, so clicking through snips cannot change them by accident:
+hover over one to see the whole text when it is too long for its box, and
+double-click it to edit. **Save changes** (or Enter in the caption, or
+Ctrl+Enter) writes them into `lab.md`, emptying a note removes it, and the
+empty box at the bottom adds a new one. Moving to another snip saves what you
+typed. Click the thumbnail, press **Expand**, double-click a row or
 press Space to see the snip full size; Left and Right step through the lab.
 
 **Remove from lab** (or Delete on the list) takes the selected snip out of the
@@ -416,7 +449,6 @@ the tray icon → **Settings**.
 | Never copy from | Extra executable names to leave alone, on top of the built-in password managers. Two buttons fill it in for you |
 | Labs folder | Where labs live. Blank means a `labs` folder inside the save folder; stop an active lab before changing this or the save folder |
 | Keep a lab record | Keeps `lab.json` and the rendered `lab.md` up to date. Sections and notes need it |
-| Offer a caption box | Shows a caption field in the preview window during a lab |
 
 Every copy-on-select setting, **Never copy from** included, can be filled in
 whether or not **Copy highlighted text** is ticked. Building the exclusion

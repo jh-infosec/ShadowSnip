@@ -69,10 +69,16 @@ def test_an_empty_lab_disables_the_buttons(window):
 def test_forgetting_the_snip_on_screen_drops_its_lab_actions(window):
     window.attach_lab(None, caption_cb=lambda text: True)
     window.forget_snip_on_screen()
-    assert not window.caption.isVisibleTo(window)
     assert not window.btn_move_snip.isEnabled()
-    assert not window.attach_note.isEnabled()
+    assert window._caption_cb is None
 
+
+def test_the_caption_and_note_boxes_under_the_image_are_gone(window):
+    """Captions and notes are edited in the lab panel, on the snip they belong to."""
+    assert not hasattr(window, "caption")
+    assert not hasattr(window, "note_edit")
+    assert not hasattr(window, "attach_note")
+    assert window.section_edit is not None  # the section row stays
 
 def test_a_refresh_keeps_the_selection_but_a_new_snip_takes_it(window):
     window.set_lab_snips(ROWS, current_file="002_b.png")

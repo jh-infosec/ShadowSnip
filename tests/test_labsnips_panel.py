@@ -159,3 +159,62 @@ def test_the_thumb_cache_reloads_a_changed_file(rows, tmp_path):
     assert cache.get(path, QSize(56, 34)) is first
     cache.keep_only([])
     assert cache._cache == {}
+
+
+# -- locked fields: hover shows it all, double-click edits ---------------------------
+def test_caption_and_notes_start_locked(panel):
+    assert panel.caption_edit.isReadOnly()
+    assert all(editor.isReadOnly() for _id, editor in panel._note_editors)
+    assert not panel.new_note.isReadOnly()  # typed into directly
+
+
+def test_double_click_unlocks_and_leaving_locks_again(panel):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    QTest.mouseDClick(panel.caption_edit, Qt.MouseButton.LeftButton,
+                      Qt.KeyboardModifier.NoModifier, QPoint(5, 5))
+    assert not panel.caption_edit.isReadOnly()
+    QTest.keyClicks(panel.caption_edit, " plus")
+    assert panel.is_dirty() and panel.caption_edit.text().endswith(" plus")
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QFocusEvent
+
+    # Leaving the field. Sent directly: an offscreen test window never
+    # becomes the active window, so moving focus by hand would not reach it.
+    QApplication.sendEvent(panel.caption_edit, QFocusEvent(QEvent.Type.FocusOut))
+    assert panel.caption_edit.isReadOnly()
+    assert panel.caption_edit.text().endswith(" plus")  # kept until saved
+
+
+def test_a_long_caption_shows_in_full_on_hover(panel, rows):
+    rows[2]["caption"] = "a very long caption " * 12
+    panel.set_rows(rows, current_file="003_snip.png")
+    panel.caption_edit.resize(120, 28)
+    panel.caption_edit._update_tooltip()
+    tip = panel.caption_edit.toolTip()
+    assert "a very long caption a very long caption" in tip
+    assert "Double-click to edit" in tip
+
+
+def test_a_short_caption_only_says_how_to_edit(panel):
+    panel.caption_edit.resize(400, 28)
+    panel.caption_edit._update_tooltip()
+    assert panel.caption_edit.toolTip() == "Double-click to edit"
+
+
+def test_a_long_note_shows_in_full_on_hover(panel, rows):
+    rows[2]["note_entries"] = [{"id": "n003", "text": "line\n" * 12}]
+    panel.set_rows(rows, current_file="003_snip.png")
+    _id, editor = panel._note_editors[0]
+    editor._update_tooltip()
+    assert editor.toolTip().count("line") >= 12
+
+
+def test_enter_in_the_caption_saves_and_locks(panel):
+    panel.caption_edit.unlock()
+    panel.caption_edit.setText("new caption")
+    panel.caption_edit.textEdited.emit("new caption")
+    panel.caption_edit.returnPressed.emit()
+    assert panel.saved[-1][1] == "new caption"
+    assert panel.caption_edit.isReadOnly()

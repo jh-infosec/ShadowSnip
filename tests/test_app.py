@@ -39,6 +39,7 @@ def test_a_snip_is_refused_while_a_modal_dialog_is_open(monkeypatch):
     state = SimpleNamespace(
         busy=False,
         autocopy=SimpleNamespace(pause=lambda: paused.append(True)),
+        preview=SimpleNamespace(flush_edits=lambda: False),
         _blocked_by_dialog=lambda: blocked.append(True),
     )
 
@@ -60,7 +61,8 @@ def test_a_snip_still_runs_with_no_dialog_open(monkeypatch):
         autocopy=SimpleNamespace(pause=lambda: None),
         toast=SimpleNamespace(hide=lambda: None),
         preview=SimpleNamespace(
-            isVisible=lambda: False, hide=lambda: None, hide_viewer=lambda: None
+            isVisible=lambda: False, hide=lambda: None, hide_viewer=lambda: None,
+            flush_edits=lambda: False,
         ),
         _blocked_by_dialog=lambda: None,
         _begin_snip=lambda: None,

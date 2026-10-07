@@ -9,14 +9,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import (
     QCursor,
     QGuiApplication,
     QIcon,
     QImage,
     QKeySequence,
-    QPixmap,
     QShortcut,
 )
 from PySide6.QtWidgets import (
@@ -24,9 +23,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
-    QPlainTextEdit,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -35,7 +32,11 @@ from PySide6.QtWidgets import (
 
 import config
 import storage
+from annotate import AnnotCanvas, AnnotToolbar
 from labsnips import LabSnipsPanel
+
+# How long after the last mark the edited snip is saved, in milliseconds.
+EDIT_SAVE_MS = 500
 
 STYLE = """
 QWidget#Root { background: #1b1b1f; }
@@ -142,6 +143,10 @@ class PreviewWindow(QWidget):
     # From the outline: (entry key, section, key to go before or "").
     lab_entry_move_requested = Signal(str, str, str)
     lab_md_open_requested = Signal()
+    # The snip on screen was marked up: the edited image, to save everywhere.
+    snip_edited = Signal(QImage)
+    # Pen and highlighter colours and widths, the redact mode.
+    annotation_prefs_changed = Signal(dict)
 
     def __init__(self, parent=None, icon: QIcon | None = None):
         super().__init__(parent)
@@ -153,6 +158,7 @@ class PreviewWindow(QWidget):
         self._copy_again = None
         self._caption_cb = None
         self._section_text = ""
+        self._edit_pending = False
         self.setObjectName("Root")
         self.setWindowTitle("ShadowSnip")
         if icon is not None:
@@ -160,18 +166,27 @@ class PreviewWindow(QWidget):
         self.setStyleSheet(STYLE)
         self.resize(1100, 760)
 
-        self.canvas = QLabel()
-        self.canvas.setObjectName("Canvas")
-        self.canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.canvas.setMinimumSize(QSize(320, 200))
-
-        # Only shown while a lab is engaged. What is typed here goes into the
-        # lab index next to this snip.
-        self.caption = QLineEdit()
-        self.caption.setPlaceholderText("Caption for the lab index (optional)")
-        self.caption.setVisible(False)
-        self.caption.returnPressed.connect(self._save_caption)
-        self.caption.editingFinished.connect(self._save_caption)
+        # The snip, and the tools to mark it up. See annotate.py.
+        self.canvas = AnnotCanvas()
+        self.tools = AnnotToolbar()
+        self.tools.setVisible(False)
+        self.tools.tool_changed.connect(self.canvas.set_tool)
+        self.tools.undo_requested.connect(self.canvas.undo)
+        self.tools.prefs_changed.connect(self._on_annotation_prefs)
+        self.canvas.undo_changed.connect(self.tools.set_undo_enabled)
+        self.canvas.edited.connect(self._on_canvas_edited)
+        # Edits are saved a moment after the last one, not on every stroke:
+        # each save re-encodes the snip and rewrites up to four files.
+        self._edit_timer = QTimer(self)
+        self._edit_timer.setSingleShot(True)
+        self._edit_timer.setInterval(EDIT_SAVE_MS)
+        self._edit_timer.timeout.connect(self.flush_edits)
+        image_pane = QWidget()
+        image_layout = QVBoxLayout(image_pane)
+        image_layout.setContentsMargins(0, 0, 0, 0)
+        image_layout.setSpacing(6)
+        image_layout.addWidget(self.tools)
+        image_layout.addWidget(self.canvas, 1)
 
         self.lab_panel = self._build_lab_panel()
         self.lab_panel.setVisible(False)
@@ -195,7 +210,7 @@ class PreviewWindow(QWidget):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(6)
-        self.splitter.addWidget(self.canvas)
+        self.splitter.addWidget(image_pane)
         self.splitter.addWidget(self.snips_panel)
         self.splitter.setStretchFactor(0, 3)
         self.splitter.setStretchFactor(1, 2)
@@ -264,7 +279,6 @@ class PreviewWindow(QWidget):
         layout.setSpacing(10)
         layout.addLayout(bar)
         layout.addWidget(self.splitter, 1)
-        layout.addWidget(self.caption)
         layout.addWidget(self.lab_panel)
         # The version sits bottom-right, out of the way of the status text but
         # always there when you need to say which build you are running.
@@ -282,14 +296,19 @@ class PreviewWindow(QWidget):
         QShortcut(QKeySequence.StandardKey.Save, self, self.save_as)
         QShortcut(QKeySequence.StandardKey.Copy, self, self.copy_again)
         QShortcut(QKeySequence("Esc"), self, self.close)
-        # Ctrl+Enter files the note without reaching for the mouse. Scoped to
-        # the window rather than the box, so it works wherever focus happens
-        # to be after a snip.
-        QShortcut(QKeySequence("Ctrl+Return"), self, self._emit_note)
-        QShortcut(QKeySequence("Ctrl+Enter"), self, self._emit_note)
+        # Ctrl+Enter saves the caption and notes being edited in the lab panel.
+        QShortcut(QKeySequence("Ctrl+Return"), self, self.snips_panel.save)
+        QShortcut(QKeySequence("Ctrl+Enter"), self, self.snips_panel.save)
+        # Ctrl+Z undoes the last mark on the snip. A text box with focus keeps
+        # its own Ctrl+Z, because Qt lets the focused editor claim the key.
+        QShortcut(QKeySequence.StandardKey.Undo, self, self.canvas.undo)
 
     def _build_lab_panel(self) -> QWidget:
-        """The section breadcrumb and the note box, shown only during a lab."""
+        """The section breadcrumb, shown only during a lab.
+
+        Captions and notes are written in the lab panel beside the image, on
+        the snip they belong to, so there is one place to edit them.
+        """
         panel = QWidget()
 
         # Editable, and pre-filled with the sections this lab already uses.
@@ -324,38 +343,10 @@ class PreviewWindow(QWidget):
         section_row.addWidget(self.section_edit, 1)
         section_row.addWidget(self.btn_move_snip)
 
-        self.note_edit = QPlainTextEdit()
-        self.note_edit.setPlaceholderText(
-            "Notes for the writeup. Ctrl+Enter files them."
-        )
-        self.note_edit.setFixedHeight(72)
-
-        self.btn_note = QPushButton("Add note")
-        self.btn_note.clicked.connect(self._emit_note)
-        self.attach_note = QPushButton("Attach to this snip")
-        self.attach_note.setCheckable(True)
-        self.attach_note.setChecked(True)
-        self.attach_note.setToolTip(
-            "An attached note renders directly under this image in lab.md, "
-            "rather than on its own in the section"
-        )
-
-        note_buttons = QVBoxLayout()
-        note_buttons.setContentsMargins(0, 0, 0, 0)
-        note_buttons.addWidget(self.btn_note)
-        note_buttons.addWidget(self.attach_note)
-        note_buttons.addStretch(1)
-
-        note_row = QHBoxLayout()
-        note_row.setContentsMargins(0, 0, 0, 0)
-        note_row.addWidget(self.note_edit, 1)
-        note_row.addLayout(note_buttons)
-
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
         layout.addLayout(section_row)
-        layout.addLayout(note_row)
         return panel
 
     # -- content -----------------------------------------------------------
@@ -368,12 +359,15 @@ class PreviewWindow(QWidget):
         self._latest_path = latest_path
         self._copy_again = copy_again
 
-        self.caption.clear()
-        self.note_edit.clear()
         self.attach_lab(folder_path, caption_cb)
+        self._edit_timer.stop()
+        self.canvas.load(image)
+        # A new snip starts with no tool in hand, so a stray click cannot
+        # draw on it.
+        self.tools.select(None)
+        self.tools.setVisible(True)
 
         self.status.setText(status)
-        self._render()
         if self.isMinimized():
             self.setWindowState(
                 (self.windowState() & ~Qt.WindowState.WindowMinimized)
@@ -383,27 +377,45 @@ class PreviewWindow(QWidget):
         self.raise_()
         self.activateWindow()
 
-    def _render(self) -> None:
-        if self._image is None:
-            return
-        pixmap = QPixmap.fromImage(self._image)
-        area = self.canvas.size()
-        if pixmap.width() > area.width() or pixmap.height() > area.height():
-            pixmap = pixmap.scaled(
-                area,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        self.canvas.setPixmap(pixmap)
+    # -- marking up the snip -------------------------------------------------
+    def _on_canvas_edited(self) -> None:
+        self._edit_pending = True
+        self._edit_timer.start()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._render()
+    def flush_edits(self) -> bool:
+        """Hand any unsaved mark-up to the application now. True if there was some.
+
+        Called after a pause in editing, and before anything that would
+        replace or hide the snip (a new snip, closing the window), so an edit
+        is never lost or, worse, saved onto the next snip.
+        """
+        if not self._edit_timer.isActive() and not self._edit_pending:
+            return False
+        self._edit_timer.stop()
+        self._edit_pending = False
+        image = self.canvas.image()
+        if image is None:
+            return False
+        self.snip_edited.emit(image)
+        return True
+
+    def set_annotation_prefs(self, prefs: dict) -> None:
+        self.tools.set_prefs(prefs)
+        self.canvas.prefs = dict(self.tools.prefs)
+
+    def _on_annotation_prefs(self, prefs: dict) -> None:
+        self.canvas.prefs = dict(prefs)
+        self.annotation_prefs_changed.emit(dict(prefs))
+
+    def set_disk_bytes(self, data: bytes, ext: str) -> None:
+        """What Save as writes, after an edit replaced the snip."""
+        self._disk_bytes = data
+        self._disk_ext = ext
 
     def open_window(self) -> None:
         """Bring the window up from a tray click, with or without a snip yet."""
         if self._image is None:
-            self.canvas.setText("No snip yet - press the hotkey or New snip")
+            self.canvas.set_message("No snip yet - press the hotkey or New snip")
             if not self.status.text():
                 self.status.setText("Ready")
         first_open = not self.isVisible()
@@ -433,8 +445,6 @@ class PreviewWindow(QWidget):
     def set_notes_visible(self, visible: bool) -> None:
         """Show the section and note controls. Only meaningful during a lab."""
         self.lab_panel.setVisible(visible)
-        if not visible:
-            self.note_edit.clear()
 
     def set_sections(self, paths) -> None:
         """Offer the breadcrumbs this lab already uses, keeping what is typed."""
@@ -456,9 +466,6 @@ class PreviewWindow(QWidget):
             # _emit_section.
             self.section_edit.setCurrentText(text)
 
-    def clear_note(self) -> None:
-        self.note_edit.clear()
-
     def _emit_section(self) -> None:
         text = self.section_edit.currentText().strip()
         if text == self._section_text:
@@ -467,15 +474,6 @@ class PreviewWindow(QWidget):
             # lab.json for nothing.
             return
         self.section_changed.emit(text)
-
-    def _emit_note(self) -> None:
-        if not self.lab_panel.isVisible():
-            return
-        text = self.note_edit.toPlainText().strip()
-        if not text:
-            return
-        attach = self.attach_note.isChecked() and self._image is not None
-        self.note_added.emit(text, attach)
 
     # -- the lab's snip list -------------------------------------------------
     def set_snips_visible(self, lab_running: bool, shown: bool = True) -> None:
@@ -495,7 +493,6 @@ class PreviewWindow(QWidget):
 
     def _on_snips_toggled(self, on: bool) -> None:
         self.snips_panel.setVisible(on and self.btn_snips.isVisibleTo(self))
-        self._render()
         self.snip_list_toggled.emit(on)
 
     def set_lab_snips(self, rows, current_file: str = "") -> None:
@@ -523,15 +520,13 @@ class PreviewWindow(QWidget):
         # should not wait for the next time it is opened.
         self.snips_panel.flush()
         self.snips_panel.hide_viewer()
+        self.flush_edits()
         super().closeEvent(event)
 
     def forget_snip_on_screen(self) -> None:
         """The snip on screen was removed from the lab: stop offering lab actions for it."""
         self.snips_panel.set_current("")
         self._caption_cb = None
-        self.caption.clear()
-        self.caption.setVisible(False)
-        self.attach_note.setEnabled(False)
         self.btn_move_snip.setEnabled(False)
 
     # -- lab state ---------------------------------------------------------
@@ -559,13 +554,13 @@ class PreviewWindow(QWidget):
         return bool(self.btn_lab.property("labActive"))
 
     def attach_lab(self, folder_path: Path | None, caption_cb=None) -> None:
-        """Point the folder button and the caption box at a lab, or clear them."""
+        """Point the folder button at a lab, or back at the save folder.
+
+        `caption_cb` is kept for callers that still pass it; captions are
+        edited in the lab panel now.
+        """
         self._caption_cb = caption_cb
-        self.caption.setVisible(caption_cb is not None)
-        if caption_cb is None:
-            self.caption.clear()
-        # Nothing to attach a note to, or to move, until a snip is on screen.
-        self.attach_note.setEnabled(self._image is not None)
+        # Nothing to move until a snip is on screen.
         self.btn_move_snip.setEnabled(self._image is not None)
         if folder_path is not None:
             self._folder_path = folder_path
@@ -614,18 +609,6 @@ class PreviewWindow(QWidget):
                 storage.open_folder(self._folder_path)
         except OSError as exc:
             QMessageBox.warning(self, "ShadowSnip", f"Could not open the folder: {exc}")
-
-    def _save_caption(self) -> None:
-        if self._caption_cb is None:
-            return
-        text = self.caption.text().strip()
-        if not text:
-            return
-        try:
-            if self._caption_cb(text):
-                self.status.setText("Caption written to the lab index")
-        except Exception as exc:  # noqa: BLE001 - surfaced to the user
-            self.status.setText(f"Caption not saved: {exc}")
 
     def center_on_cursor_screen(self) -> None:
         screen = QGuiApplication.screenAt(QCursor.pos())

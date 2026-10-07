@@ -24,6 +24,8 @@ autocopy.py          Windows copy on select: mouse hook, guards, read-back
 autocopy_linux.py    Linux copy on select: the X11 primary selection
 toast.py             the one-second clip confirmation near the cursor
 preview.py           post-snip window
+annotate.py          marking up the snip: pen, highlighter, eraser, crop,
+                     redaction, undo; the tool strip and its popups
 labsnips.py          lab panel: snip list, report outline, rendered preview,
                      in-place editing, full-size viewer
 settings_dialog.py   settings form and hotkey recorder
@@ -51,6 +53,25 @@ already guarded by `sys.platform` with a portable fallback.
 Both copy-on-select implementations fail closed: when the program a selection
 came from cannot be identified, nothing is copied, because the password
 manager block list cannot be applied.
+
+## Marking up a snip
+
+`annotate.AnnotationDoc` holds the original capture and a list of operations:
+strokes (pen or highlighter), redactions (blur or black), crops, and erases
+(which hide earlier marks by id). Nothing is drawn into the original. The image
+that gets saved is rendered fresh from it each time, so undo is dropping the
+last operation and repeated edits do not degrade the picture. Coordinates are
+in the original's pixels; stroke widths are converted from screen pixels when a
+stroke starts.
+
+`AnnotCanvas` turns drags into operations and announces each change. The
+preview window waits half a second after the last one, then hands the rendered
+image to `app.apply_snip_edit()`, which re-encodes it with the same settings as
+a fresh snip and rewrites every copy the snip was saved to: the clipboard,
+`latest`, the lab file and the history file (`_snip_paths`). Pending edits are
+flushed before a new snip starts and when the window closes, so an edit is
+never lost or saved onto the next snip. A lab snip removed while on screen is
+dropped from `_snip_paths`, so an edit cannot recreate it.
 
 ## The snip pipeline
 

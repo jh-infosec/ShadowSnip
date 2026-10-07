@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.7.0"
 
 
 def config_dir() -> Path:
@@ -93,10 +93,16 @@ DEFAULTS = {
     "active_lab": "",
     "lab_root": "",
     "lab_index": True,
+    # No longer used: the caption box under the image it switched on was
+    # replaced by the caption field in the lab panel in 0.7.0. Kept so an
+    # older config still loads.
     "lab_caption": True,
     # The list of the running lab's snips beside the image in the preview
     # window. Toggled with the Snip list button; remembered between runs.
     "lab_snip_list": True,
+    # Mark-up tools: pen and highlighter colour and width, the redact mode.
+    # Checked and clamped by annotate.sanitise_prefs when the window reads it.
+    "annotation": {},
 }
 
 
@@ -232,4 +238,6 @@ def _sanitise(cfg: dict) -> dict:
     # Lab names are kept as typed; only surrounding whitespace is trimmed.
     cfg["active_lab"] = str(cfg.get("active_lab", "") or "").strip()
     cfg["lab_root"] = str(cfg.get("lab_root", "") or "").strip()
+    if not isinstance(cfg.get("annotation"), dict):
+        cfg["annotation"] = {}
     return cfg

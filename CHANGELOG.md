@@ -1,6 +1,22 @@
 # Changelog
 
-## Latest: 0.6.0
+## Latest: 0.7.0
+
+**Added**: mark up a snip right in the preview window. A tool strip above the
+image has a **pen** (30 colours, adjustable width), a see-through
+**highlighter** (6 colours, adjustable width), an **eraser** that removes a
+whole mark, **crop**, and **redact** with a choice of **blur** or **black out**,
+plus a round **undo** button (or Ctrl+Z). Click a tool again for its options.
+
+**Added**: edits are saved as you go. The edited snip replaces the clipboard
+copy, `latest.png`, the lab copy and the history copy, so a redaction never
+leaves the original behind in ShadowSnip's own files.
+
+**Changed**: the caption box and the note box under the image are gone. Captions
+and notes are edited in the lab panel, where they are shown locked: hover to
+read a long one in full, double-click to edit.
+
+### 0.6.0 in brief
 
 **Added**: ShadowSnip runs on **Linux** (X11; Kali's default Xfce desktop is
 X11) as well as Windows. Same app, same labs, outline and preview, from one
@@ -112,6 +128,75 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.7.0] - 2026-10-07
+
+### Added
+- `annotate.py`: marking up the snip on screen.
+  - **Pen**: 30 colours in rows by hue, 1 to 24 px. **Highlighter**: six bright
+    colours, 6 to 48 px, drawn see-through (alpha 110) and as one path, so
+    overlapping segments do not stack into blotches. Both options popups show
+    the width in px, a sample stroke at that width and colour (the highlighter's
+    over sample text), a slider, and the colours as rounded squares. The
+    current colour shows on the tool's icon.
+  - **Eraser**: drag across a mark to remove the whole pen line, highlight or
+    redaction box; one drag is one undo step.
+  - **Crop**: drag the area to keep. Crops can be repeated; undo steps back.
+  - **Redact**: drag over what to hide, as **Black out** (solid black, the
+    original pixels replaced) or **Blur** (the region shrunk 14 times and
+    scaled back, which destroys text detail but can leave layout visible). The
+    popup says which to use for passwords and hashes.
+  - **Undo**: a round arrow button at the end of the strip, and Ctrl+Z (a
+    text box with focus keeps its own Ctrl+Z).
+  - Clicking a tool picks it up, clicking it again opens its options, and
+    clicking once more puts it down. A new snip starts with no tool selected.
+    Colours, widths and the redact mode are remembered (`annotation` in the
+    config, checked by `annotate.sanitise_prefs`).
+- Every mark is an operation on top of the original capture; the saved image
+  is rendered fresh from the original each time, so edits never degrade
+  quality and undo can go all the way back. Stroke widths are converted from
+  screen pixels, so a line is saved as thick as it looked.
+- `app.apply_snip_edit()`: half a second after the last change, the edited
+  snip is re-encoded like a fresh snip and replaces every copy it was saved to:
+  the clipboard, the latest file, the lab file and the history file. A copy
+  whose format no longer matches Settings is left alone and reported. Pending
+  edits are saved before a new snip starts, when the window closes and on quit.
+  A lab snip removed while on screen is not recreated by a later edit.
+- Lab panel: the caption and the notes of the selected snip are shown locked.
+  Hovering shows the full text when it does not fit the box; a double-click
+  unlocks the field, and leaving it locks it again with the edit kept until
+  **Save changes**. Enter in the caption saves and locks. A long caption opens
+  at its start.
+
+### Changed
+- The caption box and the note box (with **Add note** and **Attach to this
+  snip**) under the image are removed; the section row stays. Notes for a snip
+  are added in the lab panel's **Add a note to this snip** box, and Ctrl+Enter
+  now saves the lab panel's edits.
+- Settings no longer has **Offer a caption box**, which controlled the removed
+  box. The stored value is kept so older configs still load.
+
+### Verified
+- Live under X11 with real mouse input: the pen stroke, a black-out and an undo
+  each reached the saved file within a second.
+
+### Tests
+- `test_annotate.py`: pen colour, highlighter transparency, black out leaving
+  only black, blur destroying detail, a redaction covering earlier strokes,
+  crop size, erase and undo, the eraser reaching boxes and missing empty
+  space; canvas gestures for each tool, widths following the screen, crop
+  mapping, clicks not counting as drags, one eraser drag being one step; the
+  tool strip's select, options and put-down cycle, colour and width changes,
+  the palettes, redact mode, undo state, and stored-prefs checking.
+- `test_edit_saving.py` (through the real app): edits wait then save; a
+  redaction reaches the lab, latest, clipboard and history copies; a crop
+  changes the saved size and Save as; a new snip saves pending edits to the
+  old one first; a removed lab snip is not recreated; tool settings persist;
+  a new snip has no tool selected.
+- Lab panel: fields start locked, double-click unlocks and leaving locks, long
+  captions and notes show in full on hover, Enter saves and locks.
 
 ---
 

@@ -18,24 +18,32 @@ both builds attached to every GitHub release by the CI workflow.
   custom shortcuts where a tool can write them).
 - A packaged install: an AppImage, or a .deb for Kali.
 
-## v0.7 - the pentest report (next)
+## Done in v0.7.0 - marking up
+
+Pen, highlighter, eraser, crop, redaction (blur or black out) and undo, on the
+snip in the preview window, saved to every copy as you go.
+
+## Marking up, still open
+
+- Arrows, boxes and text labels, the rest of what annotation usually means.
+- Redo, beside undo.
+- Marking up any lab snip, not only the one on screen.
+- Moving or resizing a mark after it is drawn.
+
+## v0.8 - the pentest report (next)
 
 - **Findings.** Mark a section as a finding with a severity (Critical, High,
   Medium, Low, Info), the affected host, and description, impact and
   remediation fields. It renders in `lab.md` as a standard finding block, so
   the report drafts itself as findings are confirmed.
-- **Redaction.** Blur or black-box part of a snip (passwords, hashes, client
-  names) before it is filed. Client reports need it.
 - **Export.** A single HTML file or a .docx with the images embedded, ready to
   hand over, instead of `lab.md` plus a folder of images.
 - **Command output as text.** While a lab runs, highlighted text can be filed
   as a code block, so commands in the report are copyable.
 - **Methodology sections.** One click to lay out Recon, Enumeration, Initial
   access, Privilege escalation and Post-exploitation when a lab starts.
-- **Annotation.** Arrows, boxes and highlights to point at the line that
-  matters.
 
-## v0.8 - integration
+## v0.9 - integration
 
 - Run at login toggle in Settings, writing the shortcut itself and reading
   back the real state rather than a stored flag.
@@ -47,7 +55,7 @@ both builds attached to every GitHub release by the CI workflow.
   route to different projects.
 - Signed release binaries so SmartScreen stops warning on first run.
 
-## v0.9 - capture modes
+## v0.10 - capture modes
 
 - Window mode: highlight and grab the window under the cursor.
 - Freeform (lasso) selection, matching Snipping Tool's freeform mode.
@@ -55,11 +63,8 @@ both builds attached to every GitHub release by the CI workflow.
 - Snap the selection to detected UI element edges while dragging.
 - Magnifier loupe near the cursor for pixel-exact edges.
 
-## v0.10 - after the snip
+## v0.11 - after the snip
 
-- Lightweight annotation: pen, arrow, rectangle, highlighter, and a redaction
-  block for screenshots that carry credentials or client data.
-- Re-crop in the preview window without taking a new snip.
 - Clipboard history strip: the last N snips, one click to re-copy.
 - "Copy as" menu: PNG, JPEG, WebP, or a data URI.
 

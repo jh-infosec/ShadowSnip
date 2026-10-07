@@ -59,7 +59,12 @@ class ShadowSnipApp(QObject):
         self.preview.lab_toggle_requested.connect(self.toggle_lab)
         self.preview.auto_copy_toggled.connect(self.toggle_auto_copy)
         self.preview.section_changed.connect(self.set_section)
-        self.preview.note_added.connect(self._on_note_from_preview)
+        self.preview.snip_edited.connect(self.apply_snip_edit)
+        self.preview.annotation_prefs_changed.connect(self._save_annotation_prefs)
+        self.preview.set_annotation_prefs(self.cfg.get("annotation") or {})
+        # Every file the snip on screen was written to, so an edit (above all
+        # a redaction) replaces each of them and leaves no original behind.
+        self._snip_paths: dict[str, Path] = {}
         self.preview.snip_move_requested.connect(self.move_current_snip)
         self.preview.settings_requested.connect(self.open_settings)
         self.preview.snip_remove_requested.connect(self.remove_lab_snip)
@@ -330,6 +335,7 @@ class ShadowSnipApp(QObject):
         if lab_path is None:
             return
         self._last_lab_file = lab_path.name
+        self._snip_paths["lab"] = lab_path
         caption_cb = None
         if self.cfg["lab_index"] and self.cfg["lab_caption"]:
             caption_cb = self._caption_setter(lab_path.name)
@@ -341,6 +347,62 @@ class ShadowSnipApp(QObject):
         # Filed after the menu refresh in start_lab, so without this the list
         # opened empty with the snip you were looking at missing from it.
         self._refresh_menu_text()
+
+    # -- marking up the snip on screen -------------------------------------
+    def apply_snip_edit(self, image) -> None:
+        """Save the marked-up snip everywhere the original went.
+
+        The clipboard, the standing latest file, the lab copy and the history
+        copy are all replaced, from the edited image re-encoded with the same
+        settings as a fresh snip. A redaction that only reached some of them
+        would leave the original sitting in the others.
+        """
+        if image is None or image.isNull():
+            return
+        result = imageops.process(image, self.cfg)
+        self._last_png = result.png
+        self._last_image = result.image
+        self._last_disk = (result.disk.data, result.disk.ext)
+        self.preview.set_disk_bytes(result.disk.data, result.disk.ext)
+
+        done, problems = [], []
+        try:
+            clipboard.copy(
+                result.png,
+                result.image,
+                include_dib=self.cfg["clipboard_dib_fallback"],
+            )
+            done.append("clipboard")
+        except Exception as exc:  # noqa: BLE001 - reported to the user
+            problems.append(f"clipboard failed ({exc})")
+
+        for key, path in list(self._snip_paths.items()):
+            if path.suffix.lower().lstrip(".") != result.disk.ext.lower():
+                # The image format was changed in Settings since this snip was
+                # taken. Writing new-format bytes under the old extension would
+                # make a file nothing can open, so say so instead.
+                problems.append(f"{path.name} kept as it was (format changed since)")
+                continue
+            try:
+                storage.write_atomic(path, result.disk.data)
+                done.append({"latest": path.name, "lab": f"lab {path.name}",
+                             "history": "history"}[key])
+            except OSError as exc:
+                problems.append(f"could not update {path.name} ({exc})")
+
+        width, height = result.image.size
+        line = f"Edit saved ({width} x {height}): " + ", ".join(done)
+        if problems:
+            line += "   |   " + "; ".join(problems)
+        self.preview.set_status(line)
+        if "lab" in self._snip_paths:
+            # The thumbnail and the viewer read the file; the folder watcher
+            # sees the change too, this just makes it immediate.
+            self._refresh_snip_list()
+
+    def _save_annotation_prefs(self, prefs: dict) -> None:
+        self.cfg["annotation"] = dict(prefs)
+        self._persist()
 
     def stop_lab(self) -> None:
         # Edits typed into the snip list belong to this lab, so they are
@@ -488,6 +550,8 @@ class ShadowSnipApp(QObject):
 
         if filename == self._last_lab_file:
             self._last_lab_file = ""
+            # The file is in removed/ now; an edit must not recreate it.
+            self._snip_paths.pop("lab", None)
             self.preview.forget_snip_on_screen()
         notes = removed["notes"]
         extra = f" with note {', '.join(notes)}" if notes else ""
@@ -514,9 +578,6 @@ class ShadowSnipApp(QObject):
             if lab.caption_of(self.cfg, filename) not in (None, caption):
                 lab.set_caption(self.cfg, filename, caption)
                 done.append("caption")
-                if filename == self._last_lab_file:
-                    # The caption box under the image is for the same snip.
-                    self.preview.caption.setText(caption)
             updated = removed = 0
             for note_id, text in dict(notes or {}).items():
                 result = lab.update_note(self.cfg, note_id, text)
@@ -614,13 +675,6 @@ class ShadowSnipApp(QObject):
         )
         if ok:
             self._file_note(text, attach=False)
-
-    def _on_note_from_preview(self, text: str, attach: bool) -> None:
-        target = []
-        if attach and self._last_lab_file:
-            target = [self._last_lab_file]
-        if self._file_note(text, attach=bool(target), attach_to=target):
-            self.preview.clear_note()
 
     def _file_note(self, text: str, attach: bool = False, attach_to=None) -> bool:
         try:
@@ -750,6 +804,9 @@ class ShadowSnipApp(QObject):
     def request_snip(self) -> None:
         if self.busy:
             return
+        # Mark-up still waiting to be saved belongs to the snip on screen, so
+        # it is saved now, before a new snip takes that snip's place.
+        self.preview.flush_edits()
         if _modal_dialog_open():
             # The overlay would be frozen behind the dialog: dimmed, unable to
             # take the drag, unable to take Esc, and `busy` would never clear,
@@ -859,6 +916,7 @@ class ShadowSnipApp(QObject):
 
         latest_path: Path | None = None
         lab_path: Path | None = None
+        history_path: Path | None = None
         try:
             latest_path = storage.save_latest(
                 result.disk.data, result.disk.ext, self.cfg
@@ -876,7 +934,9 @@ class ShadowSnipApp(QObject):
                 # so the same snip does not land in three places at once.
                 lab_path = lab.save(result.disk.data, result.disk.ext, self.cfg)
             else:
-                storage.save_history(result.disk.data, result.disk.ext, self.cfg)
+                history_path = storage.save_history(
+                    result.disk.data, result.disk.ext, self.cfg
+                )
         except (OSError, lab.LabError) as exc:
             notes.append(
                 f"could not write to the {'lab' if in_lab else 'history folder'} "
@@ -884,6 +944,11 @@ class ShadowSnipApp(QObject):
             )
 
         self._last_lab_file = lab_path.name if lab_path is not None else ""
+        self._snip_paths = {
+            key: path
+            for key, path in (("latest", latest_path), ("lab", lab_path), ("history", history_path))
+            if path is not None
+        }
         caption_cb = None
         if lab_path is not None and self.cfg["lab_index"] and self.cfg["lab_caption"]:
             caption_cb = self._caption_setter(lab_path.name)
@@ -1025,6 +1090,7 @@ class ShadowSnipApp(QObject):
         QMessageBox.warning(None, "ShadowSnip", message)
 
     def quit(self) -> None:
+        self.preview.flush_edits()
         self.toast.hide()
         self.autocopy.release()
         if hasattr(self.hotkeys, "release_all"):

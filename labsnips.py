@@ -692,6 +692,140 @@ class MarkdownPreview(QTextBrowser):
             self._render()
 
 
+# -- click-to-edit fields -----------------------------------------------------------
+LOCKED_STYLE = """
+QLineEdit[locked="true"], QPlainTextEdit[locked="true"] {
+    background: #1c1c21; border: 1px solid #2c2c33; color: #d6d6de;
+}
+QLineEdit[locked="false"], QPlainTextEdit[locked="false"] {
+    background: #232329; border: 1px solid #2f8cff;
+}
+"""
+
+
+def _tooltip_html(text: str, overflowing: bool, can_edit: bool) -> str:
+    """The hover box: the full text when it does not fit, then how to edit."""
+    hint = "Double-click to edit" if can_edit else ""
+    if not overflowing or not text.strip():
+        return hint
+    body = html.escape(text).replace("\n", "<br>")
+    tail = f"<br><br><i>{hint}</i>" if hint else ""
+    return f"<div style='max-width: 420px'>{body}{tail}</div>"
+
+
+class _Lockable:
+    """Shared behaviour: shown read-only, editable after a double-click.
+
+    A field that edits on a single click is too easy to change by accident
+    while clicking through snips. Locked, the text can still be selected and
+    copied; a double-click unlocks it, and leaving the field locks it again.
+    Whatever was typed stays and is saved with **Save changes**, as before.
+    """
+
+    def _init_lock(self) -> None:
+        self._allowed = True
+        self._reason = ""
+        self.set_locked(True)
+
+    def set_allowed(self, allowed: bool, reason: str = "") -> None:
+        self._allowed = bool(allowed)
+        self._reason = reason
+        if not allowed:
+            self.set_locked(True)
+        self._update_tooltip()
+
+    def set_locked(self, locked: bool) -> None:
+        self.setReadOnly(locked)
+        self.setProperty("locked", "true" if locked else "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self._update_tooltip()
+
+    def is_locked(self) -> bool:
+        return self.isReadOnly()
+
+    def unlock(self) -> None:
+        if not self._allowed:
+            return
+        self.set_locked(False)
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+
+    def _update_tooltip(self) -> None:
+        if not self._allowed:
+            self.setToolTip(self._reason)
+            return
+        self.setToolTip(_tooltip_html(self._full_text(), self._overflowing(), self.isReadOnly()))
+
+
+class ClickToEditLine(_Lockable, QLineEdit):
+    """A one-line field: the caption."""
+
+    def __init__(self, placeholder: str, parent=None):
+        QLineEdit.__init__(self, parent)
+        self._placeholder = placeholder
+        self.setPlaceholderText(placeholder)
+        self._init_lock()
+        self.textChanged.connect(lambda _t: self._update_tooltip())
+
+    def _full_text(self) -> str:
+        return self.text()
+
+    def _overflowing(self) -> bool:
+        room = self.contentsRect().width() - 16
+        return self.fontMetrics().horizontalAdvance(self.text()) > room
+
+    def mouseDoubleClickEvent(self, event):
+        if self.isReadOnly() and self._allowed:
+            self.unlock()
+            self.end(False)
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        if self._allowed:
+            self.set_locked(True)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_tooltip()
+
+
+class ClickToEditNote(_Lockable, QPlainTextEdit):
+    """A note attached to the snip."""
+
+    def __init__(self, text: str = "", parent=None):
+        QPlainTextEdit.__init__(self, text, parent)
+        self._init_lock()
+        self.textChanged.connect(self._update_tooltip)
+
+    def _full_text(self) -> str:
+        return self.toPlainText()
+
+    def _overflowing(self) -> bool:
+        layout = self.document().documentLayout()
+        lines = layout.documentSize().height()  # in lines for a plain text edit
+        visible = max(1, self.viewport().height() // max(1, self.fontMetrics().lineSpacing()))
+        return lines > visible
+
+    def mouseDoubleClickEvent(self, event):
+        if self.isReadOnly() and self._allowed:
+            self.unlock()
+            cursor = self.cursorForPosition(event.position().toPoint())
+            self.setTextCursor(cursor)
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        if self._allowed:
+            self.set_locked(True)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_tooltip()
+
+
 # -- the panel ----------------------------------------------------------------
 class LabSnipsPanel(QWidget):
     remove_requested = Signal(str)
@@ -836,10 +970,12 @@ class LabSnipsPanel(QWidget):
         where_row.addWidget(self.where, 1)
         where_row.addWidget(self.btn_expand)
 
-        self.caption_edit = QLineEdit()
-        self.caption_edit.setPlaceholderText("Caption for lab.md")
+        # Locked until double-clicked; hovering shows the whole caption when
+        # it is too long for the box.
+        self.caption_edit = ClickToEditLine("Double-click to add a caption")
+        self.caption_edit.setStyleSheet(LOCKED_STYLE)
         self.caption_edit.textEdited.connect(self._mark_dirty)
-        self.caption_edit.returnPressed.connect(self.save)
+        self.caption_edit.returnPressed.connect(self._save_and_lock)
 
         self.notes_inner = QWidget()
         self.notes_inner.setObjectName("NotesInner")
@@ -1107,12 +1243,15 @@ class LabSnipsPanel(QWidget):
             self._editing_file = filename
             self._refresh_detail_view(filename)
             self.caption_edit.setText(row.get("caption", ""))
+            # Show the start of a long caption, not wherever setText left the
+            # cursor; the hover box has the rest.
+            self.caption_edit.setCursorPosition(0)
             for note in row.get("note_entries", []):
-                editor = QPlainTextEdit(note.get("text", ""))
+                # Locked until double-clicked, like the caption. Emptying a
+                # note and saving still removes it.
+                editor = ClickToEditNote(note.get("text", ""))
+                editor.setStyleSheet(LOCKED_STYLE)
                 editor.setFixedHeight(52)
-                editor.setToolTip(
-                    f"Note {note.get('id', '')}. Empty it and save to remove it."
-                )
                 editor.textChanged.connect(self._mark_dirty)
                 # Before the new-note box, which stays last.
                 self.notes_layout.insertWidget(len(self._note_editors), editor)
@@ -1149,12 +1288,19 @@ class LabSnipsPanel(QWidget):
         self.where.setText(where)
 
     def _set_editable(self, editable: bool, reason: str) -> None:
-        self.caption_edit.setReadOnly(not editable)
-        self.new_note.setReadOnly(not editable)
+        self.caption_edit.set_allowed(editable, reason)
+        self.caption_edit.set_locked(True)
         for _note_id, editor in self._note_editors:
-            editor.setReadOnly(not editable)
-        self.caption_edit.setToolTip(reason)
+            editor.set_allowed(editable, reason)
+            editor.set_locked(True)
+        # The new-note box is for typing straight into, so it is never locked;
+        # it is only refused for a snip with no lab record.
+        self.new_note.setReadOnly(not editable)
         self.new_note.setPlaceholderText(reason or "Add a note to this snip")
+
+    def _save_and_lock(self) -> None:
+        self.save()
+        self.caption_edit.set_locked(True)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
