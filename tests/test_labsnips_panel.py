@@ -1,4 +1,4 @@
-"""Thumbnails, in-place editing and the viewer in the lab snip list."""
+"""Thumbnails, the detail view and the viewer in the lab snip list."""
 
 from __future__ import annotations
 
@@ -44,9 +44,6 @@ def panel(rows):
     widget = labsnips.LabSnipsPanel()
     widget.resize(420, 600)
     widget.show()
-    saved = []
-    widget.details_saved.connect(lambda *args: saved.append(args))
-    widget.saved = saved
     widget.set_rows(rows, current_file="003_snip.png")
     yield widget
     widget.hide_viewer()
@@ -71,62 +68,30 @@ def test_the_list_does_not_use_the_platform_selection_colour(panel):
 def test_the_selected_snip_shows_a_thumbnail_and_its_words(panel):
     assert panel.selected() == "003_snip.png"
     assert panel.thumb.pixmap() is not None and not panel.thumb.pixmap().isNull()
-    assert panel.caption_edit.text() == "caption 3"
-    assert [e.toPlainText() for _i, e in panel._note_editors] == ["note 3"]
-    assert not panel.btn_save.isEnabled()
+    assert "on screen" in panel.where.text() and "2026-09-28 20:03:00" in panel.where.text()
+
+
+def test_the_panel_has_no_caption_or_note_editors(panel):
+    """Captions and notes are written under the image, not beside it (0.7.3)."""
+    from PySide6.QtWidgets import QLineEdit, QPlainTextEdit
+
+    for name in ("caption_edit", "new_note", "_note_editors", "btn_save", "save", "flush"):
+        assert not hasattr(panel, name), name
+    editors = panel.findChildren(QLineEdit) + panel.findChildren(QPlainTextEdit)
+    assert [e for e in editors if e.isVisible() and not e.isReadOnly()] == []
+
+
+def test_moving_between_snips_changes_the_thumbnail(panel):
+    first = panel.thumb.pixmap().toImage().pixelColor(20, 20)
+    panel.select("001_snip.png")
+    assert panel.selected() == "001_snip.png"
+    assert panel.thumb.pixmap().toImage().pixelColor(20, 20) != first
 
 
 def test_hover_shows_a_bigger_preview(panel):
     tip = panel.list.topLevelItem(0).toolTip(0)
     assert "<img " in tip and "003_snip.png" in tip
     assert "caption 3" in tip
-
-
-def test_editing_enables_save_and_save_emits_only_what_changed(panel):
-    panel.caption_edit.setText("anonymous login")
-    panel.caption_edit.textEdited.emit("anonymous login")
-    assert panel.btn_save.isEnabled()
-
-    panel.save()
-
-    assert panel.saved == [("003_snip.png", "anonymous login", {}, "")]
-    assert not panel.btn_save.isEnabled()
-
-
-def test_a_changed_note_and_a_new_note_are_emitted(panel):
-    _note_id, editor = panel._note_editors[0]
-    editor.setPlainText("note 3, corrected")
-    panel.new_note.setPlainText("second thought")
-
-    panel.save()
-
-    assert panel.saved == [
-        ("003_snip.png", "caption 3", {"n003": "note 3, corrected"}, "second thought")
-    ]
-    assert panel.new_note.toPlainText() == ""
-
-
-def test_moving_to_another_snip_saves_the_edits_first(panel):
-    panel._note_editors[0][1].setPlainText("")  # emptied: remove it
-    panel.select("001_snip.png")
-
-    assert panel.saved == [("003_snip.png", "caption 3", {"n003": ""}, "")]
-    assert panel.caption_edit.text() == "caption 1"
-
-
-def test_a_refresh_does_not_wipe_edits_in_progress(panel, rows):
-    panel.new_note.setPlainText("half typed")
-    panel.set_rows(rows, current_file="003_snip.png")
-
-    assert panel.new_note.toPlainText() == "half typed"
-    assert panel.is_dirty()
-
-
-def test_a_snip_without_a_record_cannot_be_edited(panel, rows):
-    rows[0]["recorded"] = False
-    panel.set_rows(rows, current_file="003_snip.png")
-    panel.select("001_snip.png")
-    assert panel.caption_edit.isReadOnly()
 
 
 def test_expand_opens_the_viewer_on_the_selected_snip_and_cycles(panel):
@@ -159,62 +124,3 @@ def test_the_thumb_cache_reloads_a_changed_file(rows, tmp_path):
     assert cache.get(path, QSize(56, 34)) is first
     cache.keep_only([])
     assert cache._cache == {}
-
-
-# -- locked fields: hover shows it all, double-click edits ---------------------------
-def test_caption_and_notes_start_locked(panel):
-    assert panel.caption_edit.isReadOnly()
-    assert all(editor.isReadOnly() for _id, editor in panel._note_editors)
-    assert not panel.new_note.isReadOnly()  # typed into directly
-
-
-def test_double_click_unlocks_and_leaving_locks_again(panel):
-    from PySide6.QtCore import QPoint, Qt
-    from PySide6.QtTest import QTest
-
-    QTest.mouseDClick(panel.caption_edit, Qt.MouseButton.LeftButton,
-                      Qt.KeyboardModifier.NoModifier, QPoint(5, 5))
-    assert not panel.caption_edit.isReadOnly()
-    QTest.keyClicks(panel.caption_edit, " plus")
-    assert panel.is_dirty() and panel.caption_edit.text().endswith(" plus")
-    from PySide6.QtCore import QEvent
-    from PySide6.QtGui import QFocusEvent
-
-    # Leaving the field. Sent directly: an offscreen test window never
-    # becomes the active window, so moving focus by hand would not reach it.
-    QApplication.sendEvent(panel.caption_edit, QFocusEvent(QEvent.Type.FocusOut))
-    assert panel.caption_edit.isReadOnly()
-    assert panel.caption_edit.text().endswith(" plus")  # kept until saved
-
-
-def test_a_long_caption_shows_in_full_on_hover(panel, rows):
-    rows[2]["caption"] = "a very long caption " * 12
-    panel.set_rows(rows, current_file="003_snip.png")
-    panel.caption_edit.resize(120, 28)
-    panel.caption_edit._update_tooltip()
-    tip = panel.caption_edit.toolTip()
-    assert "a very long caption a very long caption" in tip
-    assert "Double-click to edit" in tip
-
-
-def test_a_short_caption_only_says_how_to_edit(panel):
-    panel.caption_edit.resize(400, 28)
-    panel.caption_edit._update_tooltip()
-    assert panel.caption_edit.toolTip() == "Double-click to edit"
-
-
-def test_a_long_note_shows_in_full_on_hover(panel, rows):
-    rows[2]["note_entries"] = [{"id": "n003", "text": "line\n" * 12}]
-    panel.set_rows(rows, current_file="003_snip.png")
-    _id, editor = panel._note_editors[0]
-    editor._update_tooltip()
-    assert editor.toolTip().count("line") >= 12
-
-
-def test_enter_in_the_caption_saves_and_locks(panel):
-    panel.caption_edit.unlock()
-    panel.caption_edit.setText("new caption")
-    panel.caption_edit.textEdited.emit("new caption")
-    panel.caption_edit.returnPressed.emit()
-    assert panel.saved[-1][1] == "new caption"
-    assert panel.caption_edit.isReadOnly()

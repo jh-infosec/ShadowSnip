@@ -260,6 +260,10 @@ class SettingsDialog(QDialog):
             "Keep a lab record and lab.md index (needed for sections and notes)"
         )
         self.lab_index_check.setChecked(cfg["lab_index"])
+        self.lab_caption_check = QCheckBox("Offer a caption box after each snip in a lab")
+        self.lab_caption_check.setChecked(cfg["lab_caption"])
+        self.lab_caption_check.setEnabled(cfg["lab_index"])
+        self.lab_index_check.toggled.connect(self.lab_caption_check.setEnabled)
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -289,6 +293,7 @@ class SettingsDialog(QDialog):
         form.addRow("Overlay dimming", self.dim)
         form.addRow("Labs folder", lab_row)
         form.addRow(self.lab_index_check)
+        form.addRow(self.lab_caption_check)
 
         note = QLabel(
             "The clipboard always receives a compressed PNG. The file format "
@@ -418,4 +423,5 @@ class SettingsDialog(QDialog):
         cfg["dim_opacity"] = self.dim.value()
         cfg["lab_root"] = self.lab_root_edit.text().strip()
         cfg["lab_index"] = self.lab_index_check.isChecked()
+        cfg["lab_caption"] = self.lab_caption_check.isChecked()
         return cfg

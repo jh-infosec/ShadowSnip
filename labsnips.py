@@ -1,4 +1,4 @@
-"""The running lab's snips: list, thumbnails, in-place editing, full-size viewer.
+"""The running lab's snips: list, thumbnails, full-size viewer.
 
 This is the right-hand side of the preview window while a lab runs. It knows
 nothing about labs on disk: the application hands it rows from
@@ -22,16 +22,13 @@ to file it there, or above or below another entry to put it at that spot; a
 snip always takes its attached notes with it. **Preview** is lab.md rendered
 as it will read, screenshots scaled to fit.
 
-## Editing
+## Captions
 
-The caption and every note attached to the selected snip are editable under
-its thumbnail, with a box for adding another note. **Save changes** writes
-them. Emptying a note and saving removes that note.
-
-Moving to another snip with unsaved edits saves them first rather than asking.
-Typing into a box is already the decision to change it; a dialog on every
-arrow key while reviewing would be the wrong trade. The same happens when the
-window closes or the lab stops.
+The click-to-edit caption field lives here because the preview window uses it
+for the snip on screen: shown locked, the full text in a hover box when it
+does not fit, editable after a double-click, locked again on leaving it. The
+panel itself only shows snips; captions and notes are written from the boxes
+under the image.
 """
 
 from __future__ import annotations
@@ -61,9 +58,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
-    QPlainTextEdit,
     QPushButton,
-    QScrollArea,
     QSplitter,
     QStyleFactory,
     QTabWidget,
@@ -90,8 +85,6 @@ QLabel#SnipThumb {
 }
 QLabel#SnipThumb:hover { border: 2px solid #2f8cff; }
 QLabel#SnipWhere { color: #9a9aa6; font-size: 11px; }
-QScrollArea#NotesScroll { border: none; background: transparent; }
-QWidget#NotesInner { background: transparent; }
 """
 
 VIEWER_STYLE = """
@@ -694,10 +687,10 @@ class MarkdownPreview(QTextBrowser):
 
 # -- click-to-edit fields -----------------------------------------------------------
 LOCKED_STYLE = """
-QLineEdit[locked="true"], QPlainTextEdit[locked="true"] {
+QLineEdit[locked="true"] {
     background: #1c1c21; border: 1px solid #2c2c33; color: #d6d6de;
 }
-QLineEdit[locked="false"], QPlainTextEdit[locked="false"] {
+QLineEdit[locked="false"] {
     background: #232329; border: 1px solid #2f8cff;
 }
 """
@@ -719,7 +712,6 @@ class _Lockable:
     A field that edits on a single click is too easy to change by accident
     while clicking through snips. Locked, the text can still be selected and
     copied; a double-click unlocks it, and leaving the field locks it again.
-    Whatever was typed stays and is saved with **Save changes**, as before.
     """
 
     def _init_lock(self) -> None:
@@ -791,47 +783,10 @@ class ClickToEditLine(_Lockable, QLineEdit):
         self._update_tooltip()
 
 
-class ClickToEditNote(_Lockable, QPlainTextEdit):
-    """A note attached to the snip."""
-
-    def __init__(self, text: str = "", parent=None):
-        QPlainTextEdit.__init__(self, text, parent)
-        self._init_lock()
-        self.textChanged.connect(self._update_tooltip)
-
-    def _full_text(self) -> str:
-        return self.toPlainText()
-
-    def _overflowing(self) -> bool:
-        layout = self.document().documentLayout()
-        lines = layout.documentSize().height()  # in lines for a plain text edit
-        visible = max(1, self.viewport().height() // max(1, self.fontMetrics().lineSpacing()))
-        return lines > visible
-
-    def mouseDoubleClickEvent(self, event):
-        if self.isReadOnly() and self._allowed:
-            self.unlock()
-            cursor = self.cursorForPosition(event.position().toPoint())
-            self.setTextCursor(cursor)
-            return
-        super().mouseDoubleClickEvent(event)
-
-    def focusOutEvent(self, event):
-        super().focusOutEvent(event)
-        if self._allowed:
-            self.set_locked(True)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._update_tooltip()
-
-
 # -- the panel ----------------------------------------------------------------
 class LabSnipsPanel(QWidget):
     remove_requested = Signal(str)
     open_requested = Signal(str)
-    # (file, caption, {note_id: new_text} for changed notes, new_note_text)
-    details_saved = Signal(str, str, object, str)
     # From the outline: (entry key, section, key to go before or "")
     move_requested = Signal(str, str, str)
     # The Preview tab's button: open lab.md itself.
@@ -842,10 +797,7 @@ class LabSnipsPanel(QWidget):
         self.setStyleSheet(STYLE)
         self._rows: dict[str, dict] = {}
         self._current_lab_file = ""
-        self._editing_file = ""
-        self._dirty = False
-        self._loading = False
-        self._note_editors: list[tuple[str, QPlainTextEdit]] = []
+        self._shown_file = ""
         self._thumbs = ThumbCache()
         self.viewer: SnipViewer | None = None
 
@@ -943,7 +895,7 @@ class LabSnipsPanel(QWidget):
         layout.setSpacing(6)
         layout.addWidget(self.title)
         layout.addWidget(self.splitter, 1)
-        self._load_editor("")
+        self._show_detail("")
 
     def _build_detail(self) -> QWidget:
         panel = QWidget()
@@ -951,7 +903,9 @@ class LabSnipsPanel(QWidget):
         self.thumb = ClickableLabel()
         self.thumb.setObjectName("SnipThumb")
         self.thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.thumb.setFixedHeight(DETAIL_THUMB_HEIGHT)
+        # Takes the room the caption and note boxes used to: captions and
+        # notes for the snip on screen are written under the image instead.
+        self.thumb.setMinimumHeight(DETAIL_THUMB_HEIGHT)
         self.thumb.setMinimumWidth(120)
         self.thumb.setCursor(Qt.CursorShape.PointingHandCursor)
         self.thumb.setToolTip("Click to expand. Left and Right then cycle through the lab.")
@@ -972,36 +926,6 @@ class LabSnipsPanel(QWidget):
 
         # Locked until double-clicked; hovering shows the whole caption when
         # it is too long for the box.
-        self.caption_edit = ClickToEditLine("Double-click to add a caption")
-        self.caption_edit.setStyleSheet(LOCKED_STYLE)
-        self.caption_edit.textEdited.connect(self._mark_dirty)
-        self.caption_edit.returnPressed.connect(self._save_and_lock)
-
-        self.notes_inner = QWidget()
-        self.notes_inner.setObjectName("NotesInner")
-        self.notes_layout = QVBoxLayout(self.notes_inner)
-        self.notes_layout.setContentsMargins(0, 0, 0, 0)
-        self.notes_layout.setSpacing(6)
-        self.new_note = QPlainTextEdit()
-        self.new_note.setPlaceholderText("Add a note to this snip")
-        self.new_note.setFixedHeight(48)
-        self.new_note.textChanged.connect(self._mark_dirty)
-        self.notes_layout.addWidget(self.new_note)
-        self.notes_layout.addStretch(1)
-
-        self.notes_scroll = QScrollArea()
-        self.notes_scroll.setObjectName("NotesScroll")
-        self.notes_scroll.setWidgetResizable(True)
-        self.notes_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.notes_scroll.setWidget(self.notes_inner)
-
-        self.btn_save = QPushButton("Save changes")
-        self.btn_save.setObjectName("Primary")
-        self.btn_save.setToolTip(
-            "Write the caption and notes into lab.md. Empty a note and save to "
-            "remove it. Moving to another snip saves too."
-        )
-        self.btn_save.clicked.connect(self.save)
         self.btn_open = QPushButton("Open")
         self.btn_open.setToolTip("Open the image in your default viewer")
         self.btn_open.clicked.connect(self._emit_open)
@@ -1017,17 +941,14 @@ class LabSnipsPanel(QWidget):
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
         buttons.setSpacing(8)
-        buttons.addWidget(self.btn_save, 1)
         buttons.addWidget(self.btn_open, 1)
         buttons.addWidget(self.btn_remove, 1)
 
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-        layout.addWidget(self.thumb)
+        layout.addWidget(self.thumb, 1)
         layout.addLayout(where_row)
-        layout.addWidget(self.caption_edit)
-        layout.addWidget(self.notes_scroll, 1)
         layout.addLayout(buttons)
         return panel
 
@@ -1035,9 +956,9 @@ class LabSnipsPanel(QWidget):
     def set_rows(self, rows, current_file: str = "") -> None:
         """Fill from lab.snip_rows(), newest first.
 
-        A refresh for the same snip keeps whatever you had selected, and any
-        edits in progress. A new snip on screen takes the selection, so the
-        buttons act on what you are looking at.
+        A refresh for the same snip keeps whatever you had selected. A new
+        snip on screen takes the selection, so the buttons act on what you
+        are looking at.
         """
         same_snip = (current_file or "") == self._current_lab_file
         previous = self.selected() if same_snip else ""
@@ -1070,15 +991,7 @@ class LabSnipsPanel(QWidget):
         self.title.setText(f"Lab snips ({count})" if count else "Lab snips - none yet")
         self._thumbs.keep_only(row.get("path", "") for row in rows)
 
-        selected = self.selected()
-        if self._dirty and self._editing_file and selected != self._editing_file:
-            # The snip being edited was replaced by a newer one on screen. Keep
-            # the words: save them against the snip they were typed for.
-            self.flush()
-        if selected == self._editing_file and self._dirty:
-            self._refresh_detail_view(selected)
-        else:
-            self._load_editor(selected)
+        self._show_detail(self.selected())
         if self.viewer is not None:
             self.viewer.set_items(self._viewer_items())
 
@@ -1127,13 +1040,12 @@ class LabSnipsPanel(QWidget):
         self._current_lab_file = filename or ""
 
     def clear(self) -> None:
-        self.flush()
         self._rows = {}
         self.list.clear()
         self.outline.clear()
         self.md_preview.clear()
         self._md_text = ""
-        self._load_editor("")
+        self._show_detail("")
         if self.viewer is not None:
             self.viewer.close()
 
@@ -1210,70 +1122,32 @@ class LabSnipsPanel(QWidget):
 
     def _on_selection_changed(self) -> None:
         selected = self.selected()
-        if self._dirty and self._editing_file and selected != self._editing_file:
-            self.flush()
-        self._load_editor(selected)
+        self._show_detail(selected)
         if selected:
             self.outline.select_key(f"snip:{selected}", reveal=True)
 
-    def _load_editor(self, filename: str) -> None:
-        row = self._rows.get(filename)
-        self._loading = True
-        try:
-            for _note_id, editor in self._note_editors:
-                self.notes_layout.removeWidget(editor)
-                editor.deleteLater()
-            self._note_editors = []
-            self.new_note.clear()
-
-            if row is None:
-                self._editing_file = ""
-                self.thumb.clear()
-                self.thumb.setText(
-                    "Snips taken while this lab runs are listed above, newest first."
-                    if not self._rows
-                    else "Select a snip"
-                )
-                self.where.setText("")
-                self.caption_edit.clear()
-                self._set_editable(False, "")
-                self._sync_buttons()
-                return
-
-            self._editing_file = filename
-            self._refresh_detail_view(filename)
-            self.caption_edit.setText(row.get("caption", ""))
-            # Show the start of a long caption, not wherever setText left the
-            # cursor; the hover box has the rest.
-            self.caption_edit.setCursorPosition(0)
-            for note in row.get("note_entries", []):
-                # Locked until double-clicked, like the caption. Emptying a
-                # note and saving still removes it.
-                editor = ClickToEditNote(note.get("text", ""))
-                editor.setStyleSheet(LOCKED_STYLE)
-                editor.setFixedHeight(52)
-                editor.textChanged.connect(self._mark_dirty)
-                # Before the new-note box, which stays last.
-                self.notes_layout.insertWidget(len(self._note_editors), editor)
-                self._note_editors.append((str(note.get("id", "")), editor))
-            recorded = bool(row.get("recorded", True))
-            self._set_editable(
-                recorded,
-                "" if recorded else
-                "This snip has no lab record, so it cannot be captioned. "
-                "Keep a lab record in Settings to caption and annotate snips.",
+    def _show_detail(self, filename: str) -> None:
+        """Show the selected snip under the list: its picture and how it was filed."""
+        self._shown_file = filename if filename in self._rows else ""
+        if not self._shown_file:
+            self.thumb.clear()
+            self.thumb.setText(
+                "Snips taken while this lab runs are listed above, newest first."
+                if not self._rows
+                else "Select a snip"
             )
-        finally:
-            self._loading = False
-            self._dirty = False
-            self._sync_buttons()
+            self.where.setText("")
+        else:
+            self._refresh_detail_view(filename)
+        self._sync_buttons()
 
     def _refresh_detail_view(self, filename: str) -> None:
-        """The thumbnail and the filing line, without touching the edit boxes."""
+        """The thumbnail and the filing line for a snip."""
         row = self._rows.get(filename)
         if row is None:
             return
-        size = QSize(max(120, self.thumb.width() - 4), DETAIL_THUMB_HEIGHT - 4)
+        size = QSize(max(120, self.thumb.width() - 4),
+                     max(DETAIL_THUMB_HEIGHT, self.thumb.height()) - 4)
         pixmap = self._thumbs.get(row.get("path", ""), size, self.devicePixelRatioF())
         if pixmap.isNull():
             self.thumb.setText("Image not found")
@@ -1287,83 +1161,18 @@ class LabSnipsPanel(QWidget):
             where += "  |  on screen"
         self.where.setText(where)
 
-    def _set_editable(self, editable: bool, reason: str) -> None:
-        self.caption_edit.set_allowed(editable, reason)
-        self.caption_edit.set_locked(True)
-        for _note_id, editor in self._note_editors:
-            editor.set_allowed(editable, reason)
-            editor.set_locked(True)
-        # The new-note box is for typing straight into, so it is never locked;
-        # it is only refused for a snip with no lab record.
-        self.new_note.setReadOnly(not editable)
-        self.new_note.setPlaceholderText(reason or "Add a note to this snip")
-
-    def _save_and_lock(self) -> None:
-        self.save()
-        self.caption_edit.set_locked(True)
-
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self._editing_file:
-            self._refresh_detail_view(self._editing_file)
-
-    def _mark_dirty(self, *_args) -> None:
-        if self._loading or not self._editing_file:
-            return
-        self._dirty = True
-        self._sync_buttons()
-
-    def is_dirty(self) -> bool:
-        return self._dirty
+        if self._shown_file:
+            self._refresh_detail_view(self._shown_file)
 
     def _sync_buttons(self) -> None:
         chosen = bool(self.selected())
         self.btn_remove.setEnabled(chosen)
         self.btn_open.setEnabled(chosen)
         self.btn_expand.setEnabled(chosen)
-        self.btn_save.setEnabled(self._dirty)
-        self.btn_save.setText("Save changes" if self._dirty else "Saved")
 
     # -- actions ----------------------------------------------------------------
-    def save(self) -> None:
-        self.flush()
-
-    def flush(self) -> bool:
-        """Emit the edits for the snip in the editor, if there are any."""
-        if not self._dirty or not self._editing_file:
-            return False
-        row = self._rows.get(self._editing_file, {})
-        original = {
-            str(note.get("id", "")): str(note.get("text", ""))
-            for note in row.get("note_entries", [])
-        }
-        changed = {}
-        for note_id, editor in self._note_editors:
-            text = editor.toPlainText().strip()
-            if text != original.get(note_id, "").strip():
-                changed[note_id] = text
-        caption = self.caption_edit.text().strip()
-        new_note = self.new_note.toPlainText().strip()
-
-        # Remember what was saved, so a refresh before the lab has been
-        # re-read does not show the old words back.
-        if row:
-            row["caption"] = caption
-            kept = []
-            for note in row.get("note_entries", []):
-                text = changed.get(str(note.get("id", "")), note.get("text", ""))
-                if text:
-                    kept.append({"id": note.get("id", ""), "text": text})
-            row["note_entries"] = kept
-            row["notes"] = [note["text"] for note in kept]
-
-        self._dirty = False
-        self._sync_buttons()
-        self.details_saved.emit(self._editing_file, caption, changed, new_note)
-        if new_note:
-            self.new_note.clear()
-        return True
-
     def _viewer_items(self) -> list[dict]:
         items = []
         for row in sorted(self._rows.values(), key=lambda r: (r["number"], r["file"])):

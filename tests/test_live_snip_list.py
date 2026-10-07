@@ -104,7 +104,7 @@ def test_the_lab_button_changes_colour_while_a_lab_runs(shadow):
     assert s.preview.btn_lab.text() == "Start lab"
 
 
-def test_an_edit_in_the_snip_list_lands_in_the_lab(shadow):
+def test_a_caption_and_note_under_the_image_land_in_the_lab(shadow):
     s, qapp = shadow
     _start_lab(s)
     image = QImage(120, 80, QImage.Format.Format_RGB32)
@@ -112,14 +112,17 @@ def test_an_edit_in_the_snip_list_lands_in_the_lab(shadow):
     s._handle_snip(image)
     panel = s.preview.snips_panel
 
-    panel.caption_edit.setText("nmap full scan")
-    panel.caption_edit.textEdited.emit("nmap full scan")
-    panel.new_note.setPlainText("22 and 80 open")
-    panel.save()
+    s.preview.caption.unlock()
+    s.preview.caption.setText("nmap full scan")
+    s.preview.caption.returnPressed.emit()
+    s.preview.note_edit.setPlainText("22 and 80 open")
+    s.preview.attach_note.setChecked(True)
+    s.preview.btn_note.click()
 
     assert lab.caption_of(s.cfg, s._last_lab_file) == "nmap full scan"
     (row,) = lab.snip_rows(s.cfg)
     assert row["notes"] == ["22 and 80 open"]
+    assert s.preview.note_edit.toPlainText() == ""
     assert _pump(qapp, lambda: panel.list.topLevelItem(0).text(3) == "nmap full scan")
 
 

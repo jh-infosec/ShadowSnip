@@ -27,7 +27,7 @@ preview.py           post-snip window
 annotate.py          marking up the snip: pen, highlighter, eraser, crop,
                      redaction, undo; the tool strip and its popups
 labsnips.py          lab panel: snip list, report outline, rendered preview,
-                     in-place editing, full-size viewer
+                     full-size viewer; the click-to-edit caption field
 settings_dialog.py   settings form and hotkey recorder
 install.sh           Linux installer: launcher, menu entry, autostart
 .github/workflows/   tests on Windows and Linux; builds both on a version tag

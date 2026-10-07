@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.7.2"
+APP_VERSION = "0.7.3"
 
 
 def config_dir() -> Path:
@@ -93,9 +93,7 @@ DEFAULTS = {
     "active_lab": "",
     "lab_root": "",
     "lab_index": True,
-    # No longer used: the caption box under the image it switched on was
-    # replaced by the caption field in the lab panel in 0.7.0. Kept so an
-    # older config still loads.
+    # Offer a caption box under the image after each snip filed in a lab.
     "lab_caption": True,
     # The list of the running lab's snips beside the image in the preview
     # window. Toggled with the Snip list button; remembered between runs.

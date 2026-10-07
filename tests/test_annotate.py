@@ -412,17 +412,27 @@ def test_the_cursor_shows_the_real_size(canvas, tool, key, value, expected):
     assert canvas.footprint() == expected
 
 
+def _colour_at(canvas, point) -> str:
+    """The colour on screen at a point in the canvas, at any display scaling.
+
+    grab() returns physical pixels: at 300% scaling the image is three times
+    the canvas, so a logical point has to be scaled before it is read.
+    """
+    shot = canvas.grab().toImage()
+    ratio = shot.devicePixelRatio()
+    return shot.pixelColor(int(point.x() * ratio), int(point.y() * ratio)).name()
+
+
 def test_the_tool_is_drawn_where_the_pointer_is(canvas):
     canvas.prefs["pen_color"] = "#16c60c"
     canvas.prefs["pen_width"] = 16
     canvas.set_tool("pen")
     centre = canvas._target().center().toPoint()
     _point_at(canvas, centre)
-    shot = canvas.grab().toImage()
-    assert shot.pixelColor(centre).name() == "#16c60c"
+    assert _colour_at(canvas, centre) == "#16c60c"
     # Nothing is drawn while no tool is in hand.
     canvas.set_tool(None)
-    assert canvas.grab().toImage().pixelColor(centre).name() == "#ffffff"
+    assert _colour_at(canvas, centre) == "#ffffff"
 
 
 # -- 0.7.2: badges, restyling redactions, the right-click menu ------------------------------
@@ -438,18 +448,16 @@ def test_the_pen_cursor_has_no_badge_beside_it(canvas):
     canvas.set_tool("pen")
     centre = canvas._target().center().toPoint()
     _point_at(canvas, centre)
-    shot = canvas.grab().toImage()
-    assert shot.pixelColor(centre).name() == "#e81123"  # the dot is drawn...
+    assert _colour_at(canvas, centre) == "#e81123"  # the dot is drawn...
     # ...and where the badge used to sit (down and to the right) is untouched snip.
-    assert shot.pixelColor(centre + QPoint(22, 22)).name() == "#ffffff"
+    assert _colour_at(canvas, centre + QPoint(22, 22)) == "#ffffff"
 
 
 def test_crop_still_carries_its_badge(canvas):
     canvas.set_tool("crop")
     centre = canvas._target().center().toPoint()
     _point_at(canvas, centre)
-    shot = canvas.grab().toImage()
-    assert shot.pixelColor(centre + QPoint(22, 22)).name() != "#ffffff"
+    assert _colour_at(canvas, centre + QPoint(22, 22)) != "#ffffff"
 
 
 def test_a_redaction_can_be_switched_and_switched_back_with_undo():

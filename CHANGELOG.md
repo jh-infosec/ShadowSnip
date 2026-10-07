@@ -1,6 +1,19 @@
 # Changelog
 
-## Latest: 0.7.2
+## Latest: 0.7.3
+
+**Restored**: the caption box, the note box, **Add note** and **Attach to this
+snip** under the snip in the preview window, for the snip on screen, as before
+0.7.0. The caption box is shown locked: hover to read a long caption in full,
+double-click to write or edit it, Enter saves.
+
+**Removed**: the caption and note fields in the lab panel beside the list.
+Under the selected snip's thumbnail there is now just **Open** and **Remove
+from lab**.
+
+**Restored**: the **Offer a caption box** setting.
+
+### 0.7.2 in brief
 
 **Changed**: the pen, highlighter and eraser no longer carry an icon badge by
 the pointer; their footprint is enough. Crop and redact keep theirs.
@@ -154,6 +167,43 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.7.3] - 2026-10-07
+
+### Fixed
+- 0.7.0 removed the wrong set of fields. The boxes under the image are back
+  and the editors in the lab panel are gone, which was the intent.
+
+### Restored
+- `preview.py`: the caption field (now a `ClickToEditLine`: locked, full text
+  in a hover box when it overflows, double-click to edit, locked again on
+  leaving it; saved on Enter or leaving, and only when it changed), the note
+  box, **Add note**, **Attach to this snip**, Ctrl+Enter, and the `note_added`
+  signal. `app._on_note_from_preview` files the note, attached to the snip on
+  screen unless unticked.
+- The **Offer a caption box after each snip in a lab** setting
+  (`lab_caption`), enabled only with the lab record.
+
+### Removed
+- `labsnips.py`: the caption editor, the note editors, the new-note box,
+  **Save changes**, `details_saved`, the save-on-switch logic and
+  `ClickToEditNote`. The detail view is the thumbnail, the filing line,
+  **Expand**, **Open** and **Remove from lab**.
+- `app.save_snip_details` and the edit flush when a lab stops or the window
+  closes, which only existed for the panel editors.
+
+### Tests
+- The panel has no editable fields; moving between snips changes the
+  thumbnail; the boxes under the image exist and follow the lab; the caption
+  starts locked, unlocks on double-click and locks on leaving; Enter saves once
+  and locks; a long caption shows in full on hover; **Add note** emits the text
+  and the attach choice; a caption and an attached note typed under the image
+  land in the lab end to end.
+- The pointer tests read pixels at the display's scaling: `grab()` returns
+  physical pixels, so at 300% the logical point was three times too close to
+  the corner and read the white snip. Checked at 100%, 150%, 200% and 300%.
 
 ---
 

@@ -70,7 +70,7 @@ class ShadowSnipApp(QObject):
         self.preview.snip_remove_requested.connect(self.remove_lab_snip)
         self.preview.snip_open_requested.connect(self.open_lab_snip)
         self.preview.snip_list_toggled.connect(self.set_snip_list_shown)
-        self.preview.snip_details_saved.connect(self.save_snip_details)
+        self.preview.note_added.connect(self._on_note_from_preview)
         self.preview.lab_entry_move_requested.connect(self.move_lab_entry)
         self.preview.lab_md_open_requested.connect(self.open_lab_md)
 
@@ -405,9 +405,6 @@ class ShadowSnipApp(QObject):
         self._persist()
 
     def stop_lab(self) -> None:
-        # Edits typed into the snip list belong to this lab, so they are
-        # written before it stops rather than lost with it.
-        self.preview.flush_snip_edits()
         name = lab.active_name(self.cfg)
         total = lab.count(self.cfg)
         lab.stop(self.cfg)
@@ -561,42 +558,13 @@ class ShadowSnipApp(QObject):
         )
         self._refresh_menu_text()
 
-    def save_snip_details(self, filename: str, caption: str, notes, new_note: str) -> None:
-        """Edits from the snip list: a caption, changed notes, a new note.
-
-        The list is rebuilt afterwards rather than now: this runs inside the
-        list's own selection change when you move off a snip with unsaved
-        edits, and rebuilding the list from inside that would pull the rug
-        out from under it.
-        """
-        if not lab.is_active(self.cfg):
-            self.preview.set_status("No lab is running, so the edits had nowhere to go.")
-            return
-        label = filename.split("_", 1)[0]
-        done = []
-        try:
-            if lab.caption_of(self.cfg, filename) not in (None, caption):
-                lab.set_caption(self.cfg, filename, caption)
-                done.append("caption")
-            updated = removed = 0
-            for note_id, text in dict(notes or {}).items():
-                result = lab.update_note(self.cfg, note_id, text)
-                updated += result == "updated"
-                removed += result == "removed"
-            if updated:
-                done.append(f"{updated} note{'s' if updated > 1 else ''} edited")
-            if removed:
-                done.append(f"{removed} note{'s' if removed > 1 else ''} removed")
-            if new_note.strip():
-                entry = lab.add_note(self.cfg, new_note, attach=[filename])
-                if entry is not None:
-                    done.append(f"note {entry['id']} added")
-        except lab.LabError as exc:
-            self.preview.set_status(f"Could not save the edits to {label}: {exc}")
-            return
-        if done:
-            self.preview.set_status(f"Saved {label}: {', '.join(done)}")
-        QTimer.singleShot(0, self._refresh_menu_text)
+    def _on_note_from_preview(self, text: str, attach: bool) -> None:
+        """A note typed under the image: filed, attached to the snip on screen if asked."""
+        target = []
+        if attach and self._last_lab_file:
+            target = [self._last_lab_file]
+        if self._file_note(text, attach=bool(target), attach_to=target):
+            self.preview.clear_note()
 
     def move_lab_entry(self, key: str, section: str, before: str) -> None:
         """A drag in the outline: re-file a snip or note, or reorder it."""

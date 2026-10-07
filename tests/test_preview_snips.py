@@ -46,8 +46,6 @@ def test_the_snip_on_screen_is_selected_and_marked(window):
     panel = window.snips_panel
     assert "on screen" in panel.where.text()
     assert "box/nmap" in panel.where.text()
-    assert panel.caption_edit.text() == "scan"
-    assert [e.toPlainText() for _i, e in panel._note_editors] == ["ports"]
 
 
 def test_remove_emits_the_selected_file(window):
@@ -71,14 +69,84 @@ def test_forgetting_the_snip_on_screen_drops_its_lab_actions(window):
     window.forget_snip_on_screen()
     assert not window.btn_move_snip.isEnabled()
     assert window._caption_cb is None
+    assert not window.caption.isVisibleTo(window)
+    assert not window.attach_note.isEnabled()
 
 
-def test_the_caption_and_note_boxes_under_the_image_are_gone(window):
-    """Captions and notes are edited in the lab panel, on the snip they belong to."""
-    assert not hasattr(window, "caption")
-    assert not hasattr(window, "note_edit")
-    assert not hasattr(window, "attach_note")
-    assert window.section_edit is not None  # the section row stays
+def test_the_caption_and_note_boxes_are_under_the_image(window):
+    """Restored in 0.7.3: caption, notes, Add note and Attach for the snip on screen."""
+    assert window.section_edit is not None
+    assert window.note_edit is not None
+    assert window.btn_note.text() == "Add note"
+    assert window.attach_note.text() == "Attach to this snip"
+    window.attach_lab(None, caption_cb=lambda text: True)
+    assert window.caption.isVisibleTo(window)
+    window.attach_lab(None, None)
+    assert not window.caption.isVisibleTo(window)
+
+
+def test_the_caption_starts_locked_and_unlocks_on_double_click(window):
+    from PySide6.QtCore import QEvent, QPoint, Qt
+    from PySide6.QtGui import QFocusEvent
+    from PySide6.QtTest import QTest
+
+    window.attach_lab(None, caption_cb=lambda text: True)
+    window.caption.setText("")
+    window.caption.set_locked(True)
+    assert window.caption.isReadOnly()
+    QTest.mouseDClick(window.caption, Qt.MouseButton.LeftButton,
+                      Qt.KeyboardModifier.NoModifier, QPoint(5, 5))
+    assert not window.caption.isReadOnly()
+    # Sent directly: an offscreen window never becomes active.
+    QApplication.sendEvent(window.caption, QFocusEvent(QEvent.Type.FocusOut))
+    assert window.caption.isReadOnly()
+    window.attach_lab(None, None)
+
+
+def test_enter_in_the_caption_saves_once_and_locks(window):
+    got = []
+    window.attach_lab(None, caption_cb=lambda text: got.append(text) or True)
+    window.caption.unlock()
+    window.caption.setText("anonymous ftp")
+    window.caption.returnPressed.emit()
+    window.caption.editingFinished.emit()  # follows Enter; must not save twice
+    assert got == ["anonymous ftp"]
+    assert window.caption.isReadOnly()
+    window.attach_lab(None, None)
+
+
+def test_a_long_caption_shows_in_full_on_hover(window):
+    window.attach_lab(None, caption_cb=lambda text: True)
+    window.caption.setText("a very long caption " * 12)
+    window.caption.resize(120, 28)
+    window.caption._update_tooltip()
+    tip = window.caption.toolTip()
+    assert "a very long caption a very long caption" in tip
+    assert "Double-click to edit" in tip
+    window.caption.resize(2000, 28)
+    window.caption.setText("short")
+    assert window.caption.toolTip() == "Double-click to edit"
+    window.attach_lab(None, None)
+
+
+def test_add_note_emits_the_text_and_the_attach_choice(window):
+    from PySide6.QtGui import QImage
+
+    window.show()
+    window.set_notes_visible(True)
+    window._image = QImage(10, 10, QImage.Format.Format_RGB32)
+    got = []
+    window.note_added.connect(lambda text, attach: got.append((text, attach)))
+    window.note_edit.setPlainText("22 and 80 open")
+    window.attach_note.setEnabled(True)
+    window.attach_note.setChecked(True)
+    window.btn_note.click()
+    window.note_added.disconnect()
+    assert got == [("22 and 80 open", True)]
+    window._image = None
+    window.set_notes_visible(False)
+    window.hide()
+
 
 def test_a_refresh_keeps_the_selection_but_a_new_snip_takes_it(window):
     window.set_lab_snips(ROWS, current_file="002_b.png")
