@@ -147,11 +147,18 @@ put it down. **Right-click** a tool for its options: width and colour for the
 pen and highlighter, blur or black out for redaction. One tool is in hand at a
 time, shown in blue, and hovering any tool says what it does. Over the
 screenshot, the pointer becomes the tool at its real size (the pen's dot, the
-highlighter's tip, the eraser's circle, or guide lines for crop and redact)
-with a small badge showing which tool it is. Widths and colours are remembered
+highlighter's tip, the eraser's circle, or guide lines for crop and redact,
+which also carry a small badge saying which of the two is in hand). Widths and colours are remembered
 between runs. The tools are shown from the first launch, greyed out until there
 is a snip, and each new snip starts with no tool selected, so a stray click
 cannot draw on it. With no tool in hand, Esc closes the window as before.
+
+**Right-click on the snip** for more:
+
+- On a redaction, any time: switch it between **Black out** and **Blur**. The
+  current one is ticked, and undo switches it back.
+- Anywhere on the snip with no tool in hand: **Save as...** and **Copy**, the
+  same as the buttons, including any mark-up not yet saved.
 
 **Edits are saved as you go.** Half a second after the last change, the edited
 snip replaces every copy ShadowSnip made of it: the clipboard, `latest.png`,

@@ -177,6 +177,8 @@ class PreviewWindow(QWidget):
         self.tools.prefs_changed.connect(self._on_annotation_prefs)
         self.canvas.undo_changed.connect(self.tools.set_undo_enabled)
         self.canvas.edited.connect(self._on_canvas_edited)
+        self.canvas.save_as_requested.connect(self.save_as)
+        self.canvas.copy_requested.connect(self.copy_again)
         # Edits are saved a moment after the last one, not on every stroke:
         # each save re-encodes the snip and rewrites up to four files.
         self._edit_timer = QTimer(self)
@@ -582,6 +584,8 @@ class PreviewWindow(QWidget):
 
     # -- actions -----------------------------------------------------------
     def save_as(self) -> None:
+        # Unsaved mark-up first, so Save as writes the snip as it looks now.
+        self.flush_edits()
         if not self._disk_bytes:
             return
         start = storage.suggested_name(self._disk_ext)
@@ -599,6 +603,7 @@ class PreviewWindow(QWidget):
         self.status.setText(f"Saved to {path}")
 
     def copy_again(self) -> None:
+        self.flush_edits()
         if self._copy_again is None:
             return
         try:

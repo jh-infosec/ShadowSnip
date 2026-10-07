@@ -1,6 +1,16 @@
 # Changelog
 
-## Latest: 0.7.1
+## Latest: 0.7.2
+
+**Changed**: the pen, highlighter and eraser no longer carry an icon badge by
+the pointer; their footprint is enough. Crop and redact keep theirs.
+
+**Added**: right-click a redaction to switch it between black out and blur.
+
+**Added**: right-click the snip with no tool in hand for **Save as...** and
+**Copy**.
+
+### 0.7.1 in brief
 
 Fixes from the first Windows test of the mark-up tools.
 
@@ -144,6 +154,33 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.7.2] - 2026-10-07
+
+### Changed
+- The icon badge beside the pointer is drawn for crop and redact only
+  (`annotate.BADGED_TOOLS`), whose cursor is just guide lines. The pen,
+  highlighter and eraser show their footprint alone.
+
+### Added
+- Right-click on a redaction, with or without a tool in hand: **Black out this
+  redaction** / **Blur this redaction**, the current mode ticked. The switch is
+  a `Restyle` operation, so undo switches it back, and choosing the mode it
+  already has adds nothing. With redactions stacked, the topmost one under the
+  pointer is the one changed; erased ones are skipped.
+- Right-click on the snip with no tool in hand: **Save as...** and **Copy**.
+  Both, and the toolbar buttons of the same names, save any pending mark-up
+  first, so they always give the snip as it looks. With a tool in hand, a
+  right-click away from a redaction offers nothing, so it never interrupts
+  drawing; off the screenshot it offers nothing either.
+
+### Tests
+- Badges only for crop and redact, and none drawn beside the pen; switching a
+  redaction and undoing it; the topmost visible redaction found; the menu's
+  rows on a redaction, with no tool, both together, with a tool elsewhere and
+  off the snip; Save as from the menu writing the edited snip.
 
 ---
 

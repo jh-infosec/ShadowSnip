@@ -57,6 +57,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QSlider,
@@ -104,6 +105,8 @@ ERASER_RADIUS = 9
 MIN_DRAG = 4
 
 ACCENT = QColor("#2f8cff")
+# Tools whose cursor carries an icon badge beside the pointer.
+BADGED_TOOLS = ("crop", "redact")
 
 
 # -- operations ---------------------------------------------------------------------
@@ -144,6 +147,18 @@ class Erase:
     targets: frozenset  # ids of the marks hidden
 
 
+@dataclass
+class Restyle:
+    """A redaction switched between black out and blur after it was drawn.
+
+    An operation of its own rather than an edit to the redaction, so undo
+    switches it back like any other change.
+    """
+    id: int
+    target: int  # id of the Redact
+    mode: str  # "blur" or "black"
+
+
 class AnnotationDoc:
     """The original capture and the marks on it, in the order they were made."""
 
@@ -182,6 +197,22 @@ class AnnotationDoc:
                 hidden |= set(op.targets)
         return hidden
 
+    def redact_mode(self, redact: "Redact") -> str:
+        """A redaction's mode now: as drawn, or as last switched."""
+        mode = redact.mode
+        for op in self.ops:
+            if isinstance(op, Restyle) and op.target == redact.id:
+                mode = op.mode
+        return mode
+
+    def redaction_at(self, point: QPointF):
+        """The visible redaction under `point` (image pixels), topmost first, or None."""
+        hidden = self.erased()
+        for op in reversed(self.ops):
+            if isinstance(op, Redact) and op.id not in hidden and QRectF(op.rect).contains(point):
+                return op
+        return None
+
     def crop_rect(self) -> QRect:
         """The part of the original that is kept: the last crop, or all of it."""
         for op in reversed(self.ops):
@@ -213,7 +244,7 @@ class AnnotationDoc:
         skip = self.erased() | set(hidden)
         painter = None
         for op in self.ops:
-            if op.id in skip or isinstance(op, (Crop, Erase)):
+            if op.id in skip or isinstance(op, (Crop, Erase, Restyle)):
                 continue
             if isinstance(op, Stroke):
                 if painter is None:
@@ -226,7 +257,7 @@ class AnnotationDoc:
                     # everything drawn so far has to be on the image first.
                     painter.end()
                     painter = None
-                _apply_redaction(image, op)
+                _apply_redaction(image, op, self.redact_mode(op))
         if painter is not None:
             painter.end()
         return image
@@ -254,11 +285,11 @@ def _paint_stroke(painter: QPainter, stroke: Stroke) -> None:
     painter.drawPath(stroke.path())
 
 
-def _apply_redaction(image: QImage, op: Redact) -> None:
+def _apply_redaction(image: QImage, op: Redact, mode: str | None = None) -> None:
     rect = op.rect.intersected(image.rect())
     if rect.isEmpty():
         return
-    if op.mode == "blur":
+    if (mode or op.mode) == "blur":
         region = image.copy(rect)
         small = region.scaled(
             max(1, rect.width() // BLUR_FACTOR),
@@ -314,6 +345,9 @@ class AnnotCanvas(QWidget):
     edited = Signal()
     # Undo became available or ran out.
     undo_changed = Signal(bool)
+    # From the right-click menu with no tool in hand.
+    save_as_requested = Signal()
+    copy_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -493,6 +527,56 @@ class AnnotCanvas(QWidget):
         else:
             self.update()
 
+    # -- the right-click menu ------------------------------------------------------
+    def context_actions(self, pos: QPointF) -> list:
+        """What a right-click at `pos` offers, as (label, callback, checked) rows.
+
+        Over a redaction: switch it between black out and blur, any time.
+        Anywhere on the snip with no tool in hand: Save as and Copy. With a
+        tool in hand, a right-click elsewhere offers nothing, so it cannot get
+        in the way of drawing.
+        """
+        if self.doc is None or self._rendered is None or not self._target().contains(pos):
+            return []
+        rows = []
+        redaction = self.doc.redaction_at(self.to_image(pos))
+        if redaction is not None:
+            mode = self.doc.redact_mode(redaction)
+            rows.append(("Black out this redaction", lambda r=redaction: self.restyle(r, "black"), mode == "black"))
+            rows.append(("Blur this redaction", lambda r=redaction: self.restyle(r, "blur"), mode == "blur"))
+        if self.tool is None:
+            if rows:
+                rows.append(None)  # a separator
+            rows.append(("Save as...", self.save_as_requested.emit, None))
+            rows.append(("Copy", self.copy_requested.emit, None))
+        return rows
+
+    def restyle(self, redaction: "Redact", mode: str) -> None:
+        if self.doc is None or self.doc.redact_mode(redaction) == mode:
+            return
+        self.doc.add(Restyle(self.doc.new_id(), redaction.id, mode))
+        self._refresh()
+        self.undo_changed.emit(self.doc.can_undo)
+        self.edited.emit()
+
+    def contextMenuEvent(self, event):
+        rows = self.context_actions(QPointF(event.pos()))
+        if not rows:
+            return super().contextMenuEvent(event)
+        menu = QMenu(self)
+        menu.setStyleSheet(MENU_STYLE)
+        for row in rows:
+            if row is None:
+                menu.addSeparator()
+                continue
+            label, callback, checked = row
+            action = menu.addAction(label)
+            if checked is not None:
+                action.setCheckable(True)
+                action.setChecked(checked)
+            action.triggered.connect(lambda _c=False, cb=callback: cb())
+        menu.exec(event.globalPos())
+
     def leaveEvent(self, event):
         self._pointer = None
         self.update()
@@ -626,7 +710,12 @@ class AnnotCanvas(QWidget):
                 painter.drawLine(QPointF(target.left(), pos.y()), QPointF(target.right(), pos.y()))
                 painter.drawLine(QPointF(pos.x(), target.top()), QPointF(pos.x(), target.bottom()))
 
-        # The badge: the tool's icon on a dark chip, down and to the right.
+        # The badge, for crop and redact only: their cursor is just guide
+        # lines, so the icon says which of the two is in hand. The pen,
+        # highlighter and eraser show their own footprint, which is enough.
+        if self.tool not in BADGED_TOOLS:
+            painter.restore()
+            return
         reach = max(size / 2, 4) + 8
         chip = QRectF(pos.x() + reach, pos.y() + reach, 26, 26)
         painter.setPen(QPen(ACCENT, 1))
@@ -935,6 +1024,14 @@ class RedactPopup(QFrame):
 
 
 # -- the tool strip ---------------------------------------------------------------------
+MENU_STYLE = """
+QMenu { background: #1f1f25; color: #e6e6ec; border: 1px solid #3a3a44; padding: 4px; }
+QMenu::item { padding: 6px 22px 6px 24px; border-radius: 4px; }
+QMenu::item:selected { background: #232a38; color: #ffffff; }
+QMenu::separator { height: 1px; background: #3a3a44; margin: 4px 6px; }
+QMenu::indicator { width: 12px; height: 12px; left: 6px; }
+"""
+
 STRIP_STYLE = """
 QWidget#ToolStrip { background: #1a1a1f; border: 1px solid #2c2c33; border-radius: 8px; }
 QToolButton {

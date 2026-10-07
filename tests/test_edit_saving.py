@@ -137,3 +137,17 @@ def test_a_new_snip_has_no_tool_in_hand(shadow):
     shadow.preview.tools.select("pen")
     shadow._handle_snip(_white())
     assert shadow.preview.tools.tool is None and shadow.preview.canvas.tool is None
+
+
+def test_save_as_from_the_menu_writes_the_edited_snip(shadow, tmp_path, monkeypatch):
+    shadow._handle_snip(_white())
+    _redact(shadow)  # still waiting to be saved
+    target = tmp_path / "kept.png"
+    import preview
+
+    monkeypatch.setattr(
+        preview.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(target), "")),
+    )
+    shadow.preview.canvas.save_as_requested.emit()
+    assert _blacked_out(target)

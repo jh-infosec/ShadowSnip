@@ -352,6 +352,20 @@ def test_stored_prefs_are_checked(stored, expected):
 
 
 # -- the tool drawn on the snip ----------------------------------------------------------
+def _point_at(canvas, point):
+    """Put the pointer over `point` for a drawing check, without a mouse event.
+
+    The drawing tests check what is painted, not how the pointer got there
+    (the cursor-shape test covers that). On a real desktop the actual mouse is
+    somewhere else, over the terminal running the tests, and Windows tells
+    the window the mouse has left before it can be grabbed, which removes the
+    tool cursor exactly as it should in real use.
+    """
+    canvas._pointer = QPointF(point)
+    canvas._sync_cursor()
+    canvas.update()
+
+
 def _hover(widget, point):
     """A mouse move with no button held, delivered straight to the widget.
 
@@ -403,9 +417,109 @@ def test_the_tool_is_drawn_where_the_pointer_is(canvas):
     canvas.prefs["pen_width"] = 16
     canvas.set_tool("pen")
     centre = canvas._target().center().toPoint()
-    _hover(canvas, centre)
+    _point_at(canvas, centre)
     shot = canvas.grab().toImage()
     assert shot.pixelColor(centre).name() == "#16c60c"
     # Nothing is drawn while no tool is in hand.
     canvas.set_tool(None)
     assert canvas.grab().toImage().pixelColor(centre).name() == "#ffffff"
+
+
+# -- 0.7.2: badges, restyling redactions, the right-click menu ------------------------------
+@pytest.mark.parametrize("tool,badged", [
+    ("pen", False), ("highlighter", False), ("eraser", False), ("crop", True), ("redact", True),
+])
+def test_only_crop_and_redact_carry_a_badge(tool, badged):
+    assert (tool in an.BADGED_TOOLS) is badged
+
+
+def test_the_pen_cursor_has_no_badge_beside_it(canvas):
+    canvas.prefs["pen_width"] = 6
+    canvas.set_tool("pen")
+    centre = canvas._target().center().toPoint()
+    _point_at(canvas, centre)
+    shot = canvas.grab().toImage()
+    assert shot.pixelColor(centre).name() == "#e81123"  # the dot is drawn...
+    # ...and where the badge used to sit (down and to the right) is untouched snip.
+    assert shot.pixelColor(centre + QPoint(22, 22)).name() == "#ffffff"
+
+
+def test_crop_still_carries_its_badge(canvas):
+    canvas.set_tool("crop")
+    centre = canvas._target().center().toPoint()
+    _point_at(canvas, centre)
+    shot = canvas.grab().toImage()
+    assert shot.pixelColor(centre + QPoint(22, 22)).name() != "#ffffff"
+
+
+def test_a_redaction_can_be_switched_and_switched_back_with_undo():
+    doc = an.AnnotationDoc(_striped())
+    box = an.Redact(doc.new_id(), QRect(20, 40, 100, 20), "black")
+    doc.add(box)
+    assert _px(doc.render(), 60, 50) == "#000000"
+    doc.add(an.Restyle(doc.new_id(), box.id, "blur"))
+    assert doc.redact_mode(box) == "blur"
+    assert _px(doc.render(), 60, 50) != "#000000"
+    doc.undo()
+    assert doc.redact_mode(box) == "black" and _px(doc.render(), 60, 50) == "#000000"
+
+
+def test_the_topmost_redaction_is_the_one_found():
+    doc = an.AnnotationDoc(_image())
+    under = an.Redact(doc.new_id(), QRect(10, 10, 100, 60), "black")
+    over = an.Redact(doc.new_id(), QRect(40, 20, 40, 30), "blur")
+    doc.add(under)
+    doc.add(over)
+    assert doc.redaction_at(QPointF(50, 30)) is over
+    assert doc.redaction_at(QPointF(15, 15)) is under
+    assert doc.redaction_at(QPointF(150, 90)) is None
+    doc.add(an.Erase(doc.new_id(), frozenset({over.id})))
+    assert doc.redaction_at(QPointF(50, 30)) is under
+
+
+def _labels(rows):
+    return [row[0] if row else "--" for row in rows]
+
+
+def test_right_click_on_a_redaction_offers_both_modes(canvas):
+    box = an.Redact(canvas.doc.new_id(), QRect(50, 50, 100, 60), "black")
+    canvas.doc.add(box)
+    canvas._refresh()
+    canvas.set_tool("pen")  # works with a tool in hand too
+    rows = canvas.context_actions(canvas.to_widget(QPointF(100, 80)))
+    assert _labels(rows) == ["Black out this redaction", "Blur this redaction"]
+    assert rows[0][2] is True and rows[1][2] is False
+    edits = []
+    canvas.edited.connect(lambda: edits.append(1))
+    rows[1][1]()
+    assert canvas.doc.redact_mode(box) == "blur" and edits == [1]
+    rows[1][1]()  # already blur: no extra step
+    assert len(canvas.doc.ops) == 2
+
+
+def test_right_click_with_no_tool_offers_save_as_and_copy(canvas):
+    asked = []
+    canvas.save_as_requested.connect(lambda: asked.append("save"))
+    canvas.copy_requested.connect(lambda: asked.append("copy"))
+    rows = canvas.context_actions(canvas._target().center())
+    assert _labels(rows) == ["Save as...", "Copy"]
+    rows[0][1]()
+    rows[1][1]()
+    assert asked == ["save", "copy"]
+
+
+def test_on_a_redaction_with_no_tool_both_menus_show(canvas):
+    canvas.doc.add(an.Redact(canvas.doc.new_id(), QRect(50, 50, 100, 60), "black"))
+    canvas._refresh()
+    rows = canvas.context_actions(canvas.to_widget(QPointF(100, 80)))
+    assert _labels(rows) == ["Black out this redaction", "Blur this redaction", "--", "Save as...", "Copy"]
+
+
+def test_with_a_tool_in_hand_a_right_click_elsewhere_offers_nothing(canvas):
+    canvas.set_tool("highlighter")
+    assert canvas.context_actions(canvas._target().center()) == []
+
+
+def test_right_click_off_the_snip_offers_nothing(canvas):
+    target = canvas._target()
+    assert canvas.context_actions(QPointF(target.left() - 0.5, target.top() - 5)) == []
