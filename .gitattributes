@@ -1,0 +1,4 @@
+# Shell scripts must keep Unix line endings, or bash on Linux cannot run them
+# after a checkout on Windows converts them.
+*.sh text eol=lf
+*.yml text eol=lf

@@ -5,7 +5,8 @@
 Flat modules at the repo root; every module imports by bare name.
 
 ```
-main.py              entry point, DPI awareness, single-instance guard
+main.py              entry point, DPI awareness, single-instance guard,
+                     --snip / --note / --tray, Wayland warning
 app.py               tray icon, snip pipeline, settings plumbing
 config.py            defaults, load/save, sanitising
 capture.py           screen freezing and multi-monitor crop compositing
@@ -15,13 +16,41 @@ clipboard.py         Win32 clipboard writer (PNG + CF_DIB), Qt fallback
 storage.py           latest-file replacement, history, atomic writes
 lab.py               lab sessions: numbering, sections, notes, the lab.md tree,
                      outline and moves
-autocopy.py          copy on select: mouse hook, guards, clipboard read-back
+platforms.py         picks the Windows or Linux module for hotkeys and copy on
+                     select; nothing else tests the platform for these
+hotkey.py            Windows: RegisterHotKey and a native event filter
+hotkey_linux.py      Linux: desktop-owned shortcuts (written into Xfce)
+autocopy.py          Windows copy on select: mouse hook, guards, read-back
+autocopy_linux.py    Linux copy on select: the X11 primary selection
 toast.py             the one-second clip confirmation near the cursor
 preview.py           post-snip window
 labsnips.py          lab panel: snip list, report outline, rendered preview,
                      in-place editing, full-size viewer
 settings_dialog.py   settings form and hotkey recorder
+install.sh           Linux installer: launcher, menu entry, autostart
+.github/workflows/   tests on Windows and Linux; builds both on a version tag
 ```
+
+## Two platforms, one codebase
+
+Only two things genuinely differ between Windows and Linux, and each has a
+module per platform with the same surface:
+
+| | Windows | Linux |
+| --- | --- | --- |
+| Global hotkeys | `hotkey.py`: `RegisterHotKey` | `hotkey_linux.py`: the desktop owns the shortcut and runs `--snip` / `--note`; the running copy takes it over the local socket |
+| Copy on select | `autocopy.py`: mouse hook, synthetic Ctrl+C, read-back | `autocopy_linux.py`: copy the X11 primary selection once it settles |
+
+`platforms.py` imports the right one, and `app.py` and `settings_dialog.py`
+take `HotkeyManager`, `AutoCopy`, `foreground_process` and `last_other_process`
+from it. The Windows modules were left as they were when Linux support was
+added, so the Windows behaviour is the code that already shipped. The smaller
+differences (clipboard, opening folders, DPI, the drag's button check) were
+already guarded by `sys.platform` with a portable fallback.
+
+Both copy-on-select implementations fail closed: when the program a selection
+came from cannot be identified, nothing is copied, because the password
+manager block list cannot be applied.
 
 ## The snip pipeline
 

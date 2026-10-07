@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 import app as app_mod
 import clipboard
 import config
-import hotkey
+import platforms
 import lab
 
 
@@ -20,7 +20,7 @@ def shadow(tmp_path, monkeypatch):
     qapp = QApplication.instance() or QApplication([])
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "cfg" / "config.json")
     monkeypatch.setattr(clipboard, "copy", lambda *a, **k: None)
-    monkeypatch.setattr(hotkey.HotkeyManager, "register", lambda *a, **k: None)
+    monkeypatch.setattr(platforms.HotkeyManager, "register", lambda *a, **k: None)
     s = app_mod.ShadowSnipApp(qapp)
     s.cfg["save_dir"] = str(tmp_path / "snips")
     yield s, qapp

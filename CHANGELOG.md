@@ -1,6 +1,19 @@
 # Changelog
 
-## Latest: 0.5.1
+## Latest: 0.6.0
+
+**Added**: ShadowSnip runs on **Linux** (X11; Kali's default Xfce desktop is
+X11) as well as Windows. Same app, same labs, outline and preview, from one
+codebase. On Xfce the Ctrl+Shift+S snip shortcut is set up for you; copy on
+select uses X11's own selection, so no keystrokes are sent at all.
+`./install.sh` installs it with a menu entry and, optionally, autostart.
+
+**Added**: every version tag now builds both a Windows .exe and a Linux
+download on GitHub automatically, after the tests pass on both systems.
+
+The Windows code paths were moved behind a small switch but not changed.
+
+### 0.5.1 in brief
 
 Fixes for three issues found in an external code review of 0.5.0.
 
@@ -99,6 +112,74 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.6.0] - 2026-10-05
+
+### Added
+- **Linux support (X11).** One codebase; `platforms.py` picks the Windows or
+  Linux implementation of the two things that genuinely differ, and nothing
+  else tests the platform for them:
+  - `hotkey_linux.py`: global hotkeys owned by the desktop. The shortcut runs
+    ShadowSnip with `--snip` or `--note`, and the running copy takes the
+    request over its local socket. On Xfce the shortcuts are written through
+    `xfconf-query` and take effect immediately; a combination Xfce already
+    uses for something else is reported as taken and never overwritten. A
+    ShadowSnip shortcut is recognised narrowly (this install's exact command,
+    or one naming ShadowSnip and ending in its flag), so another tool's
+    shortcut is never replaced or removed. Shortcuts stay after quitting, so
+    the key also starts ShadowSnip. On other desktops the exact command to bind
+    is shown once, in a single message.
+  - `autocopy_linux.py`: copy on select from the X11 primary selection, copied
+    to the clipboard once it has been still for 300 ms. No hook and no
+    synthetic keystroke, so no SIGINT risk in a terminal. The password-manager
+    list (with Linux names such as KeePassXC, Bitwarden and pinentry), **Never
+    copy from**, dedupe and the pause during a snip carry over. It fails closed
+    like the Windows version: without `xprop` it will not start, and a
+    selection whose program cannot be identified is not copied.
+- `--note` on the command line (for the Linux quick-note shortcut), handed to
+  a running copy like `--snip`.
+- A startup warning on a Wayland session, where screen capture is not
+  allowed and snips would come out black.
+- `install.sh`: installs a release binary or a clone (into its own `.venv`),
+  with a `shadowsnip` command, a menu entry, `--autostart` for the tray at
+  login, and `--uninstall`. Writes only inside your home folder, needs no sudo,
+  and names any missing system packages (`libxcb-cursor0`, `x11-utils`).
+- `.github/workflows/build.yml`: tests on Windows and Linux on every push and
+  pull request; on a `v*` tag, builds both with PyInstaller and attaches
+  `ShadowSnip-<tag>-windows.exe` and `ShadowSnip-<tag>-linux.tar.gz` to the
+  release.
+- `make_icon.py` also writes `shadowsnip.png` for the Linux menu entry.
+- BUILD.md has Linux build steps and a five-minute check to run on Windows
+  before tagging a release.
+
+### Changed
+- Settings live in `~/.config/shadowsnip/` on Linux (XDG), unchanged on
+  Windows (`%APPDATA%\ShadowSnip`).
+- `ShadowSnip.spec` embeds the .ico on Windows only; Linux binaries carry no
+  icon, and the menu entry points at the .png instead.
+- The Windows hotkey and copy-on-select modules are unchanged; `app.py` and
+  `settings_dialog.py` now take them from `platforms.py`.
+
+### Verified on Linux
+- Under a real X server (Xvfb, Openbox, a system tray): a plain launch opens
+  the window, a second launch hands off, `--snip` snips and the PNG reaches
+  the clipboard, and copy on select copies a terminal selection and respects
+  **Never copy from**. `install.sh` installs and uninstalls cleanly in a
+  scratch home folder, and the PyInstaller build on Linux runs and snips.
+
+### Tests
+- `test_linux_support.py`: platform choice, Xfce accelerator spelling, quoted
+  launch commands, registering, taken combinations left alone, older
+  ShadowSnip shortcuts replaced, changing a hotkey removing only our old one,
+  quitting leaving the shortcut, other desktops told the command, which
+  shortcut commands count as ours, copying the primary selection, dedupe,
+  password managers and **Never copy from**, our own windows, blank
+  selections and pausing, the settle timer, refusing without a primary
+  selection or without `xprop`, not copying from an unidentified program,
+  reading the front window through `xprop`, config folders on both systems,
+  and the Wayland warning.
 
 ---
 

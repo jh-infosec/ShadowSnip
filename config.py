@@ -1,6 +1,7 @@
 """Settings storage for ShadowSnip.
 
-Config lives in %APPDATA%\\ShadowSnip\\config.json. Missing keys fall back to
+Config lives in %APPDATA%\\ShadowSnip\\config.json on Windows and in
+~/.config/shadowsnip/config.json on Linux. Missing keys fall back to
 DEFAULTS, so a config written by an older version keeps working.
 """
 
@@ -12,14 +13,17 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.5.1"
+APP_VERSION = "0.6.0"
 
 
 def config_dir() -> Path:
     base = os.environ.get("APPDATA")
     if base:
         return Path(base) / APP_NAME
-    return Path.home() / f".{APP_NAME.lower()}"
+    # Linux: the XDG config folder, where every other desktop app keeps its
+    # settings, rather than a dot-folder in home.
+    xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    return (Path(xdg) if xdg else Path.home() / ".config") / APP_NAME.lower()
 
 
 def default_save_dir() -> Path:

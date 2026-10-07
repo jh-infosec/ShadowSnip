@@ -5,6 +5,8 @@
                              request to the copy that is already running
     python main.py --tray    start quietly in the tray, without the window;
                              for the run-at-login shortcut
+    python main.py --note    jot a note into the running lab (what the Linux
+                             quick-note shortcut runs)
 
 Started normally (double-clicking the .exe, the Start menu, a taskbar pin) it
 opens the window, so there is something to see that it has started.
@@ -19,6 +21,7 @@ reported instead of the launch silently doing nothing.
 from __future__ import annotations
 
 import ctypes
+import os
 import sys
 
 from PySide6.QtCore import QTimer
@@ -65,7 +68,26 @@ def _set_dpi_awareness() -> None:
             pass
 
 
-def _hand_off_to_running_instance(want_snip: bool) -> str:
+def wayland_warning(env=None) -> str:
+    """The startup warning for a Wayland session, or "" when there is none.
+
+    Wayland does not let an application read the screen, so a snip there is
+    black or shows only some windows. Saying so once at startup beats a
+    silently black snip. X11, which Kali's Xfce uses by default, is fine.
+    """
+    env = os.environ if env is None else env
+    if not sys.platform.startswith("linux"):
+        return ""
+    if str(env.get("XDG_SESSION_TYPE", "")).lower() != "wayland":
+        return ""
+    return (
+        "This is a Wayland session. Wayland does not let ShadowSnip capture "
+        "the screen, so snips may come out black. Log in with an X11 (Xorg) "
+        "session to use it; Kali's default Xfce session is X11."
+    )
+
+
+def _hand_off_to_running_instance(request: bytes) -> str:
     """Ask a copy that is already running to act. Returns what happened.
 
     "none"      nothing is listening, so this launch should become the app
@@ -77,7 +99,7 @@ def _hand_off_to_running_instance(want_snip: bool) -> str:
     if not socket.waitForConnected(300):
         return "none"
     _allow_foreground_handoff()
-    socket.write(b"snip" if want_snip else b"show")
+    socket.write(request)
     socket.waitForBytesWritten(300)
     answered = socket.waitForReadyRead(2000) and bytes(
         socket.readAll().data()
@@ -88,7 +110,9 @@ def _hand_off_to_running_instance(want_snip: bool) -> str:
 
 def main() -> int:
     want_snip = "--snip" in sys.argv[1:]
+    want_note = "--note" in sys.argv[1:] and not want_snip
     quiet = "--tray" in sys.argv[1:]
+    request = b"snip" if want_snip else b"note" if want_note else b"show"
     _set_dpi_awareness()
 
     app = QApplication(sys.argv)
@@ -98,7 +122,7 @@ def main() -> int:
     app.setWindowIcon(build_icon())
     app.setQuitOnLastWindowClosed(False)
 
-    handed_off = _hand_off_to_running_instance(want_snip)
+    handed_off = _hand_off_to_running_instance(request)
     if handed_off == "done":
         return 0
     if handed_off == "stuck":
@@ -107,7 +131,11 @@ def main() -> int:
             config.APP_NAME,
             "ShadowSnip is already running but did not respond. End "
             "ShadowSnip.exe (or pythonw.exe) in Task Manager, then start it "
-            "again.",
+            "again."
+            if sys.platform == "win32"
+            else "ShadowSnip is already running but did not respond. End it "
+            "with  pkill -x ShadowSnip  (or end the python process running "
+            "main.py, when running from source), then start it again.",
         )
         return 1
 
@@ -120,6 +148,11 @@ def main() -> int:
         )
 
     shadow = ShadowSnipApp(app)
+    warning = wayland_warning()
+    if warning:
+        shadow.tray.showMessage(
+            config.APP_NAME, warning, QSystemTrayIcon.MessageIcon.Warning, 10000
+        )
 
     QLocalServer.removeServer(IPC_NAME)
     server = QLocalServer()
@@ -138,6 +171,8 @@ def main() -> int:
             # tray did nothing at all.
             if payload.startswith(b"snip"):
                 shadow.request_snip()
+            elif payload.startswith(b"note"):
+                shadow.quick_note()
             else:
                 shadow.show_window()
             conn.write(ACK)
@@ -150,6 +185,8 @@ def main() -> int:
 
     if want_snip:
         QTimer.singleShot(200, shadow.request_snip)
+    elif want_note:
+        QTimer.singleShot(200, shadow.quick_note)
     elif not quiet:
         # Launched by hand: show the window. Before 0.4.8 a fresh start went
         # straight to the tray, which looked like nothing had happened.

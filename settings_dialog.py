@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import autocopy as autocopy_mod
+import platforms
 import config as config_mod
 import hotkey as hotkey_mod
 
@@ -199,7 +199,11 @@ class SettingsDialog(QDialog):
             ", ".join(cfg["auto_copy_extra_blocked"])
         )
         self.auto_copy_blocked.setPlaceholderText(
-            "myvault.exe, othertool.exe - password managers are already covered"
+            (
+                "myvault, othertool - password managers are already covered"
+                if platforms.IS_LINUX
+                else "myvault.exe, othertool.exe - password managers are already covered"
+            )
         )
         # Two ways in, because knowing a program's executable name is not
         # something anyone should have to look up. The first button covers the
@@ -319,9 +323,10 @@ class SettingsDialog(QDialog):
     # -- filling in the exclusion list -------------------------------------
     def _block_last_app(self) -> None:
         self._add_blocked(
-            autocopy_mod.last_other_process(),
+            platforms.last_other_process(),
             "No other program's window could be found to name. Use "
-            f"Pick an app ({PICK_SECONDS}s), or type the executable name.",
+            f"Pick an app ({PICK_SECONDS}s), or type the "
+            f"{'process' if platforms.IS_LINUX else 'executable'} name.",
         )
 
     def _pick_app(self) -> None:
@@ -344,7 +349,7 @@ class SettingsDialog(QDialog):
         self._pick_timer.stop()
         self.blocked_pick.setEnabled(True)
         self._add_blocked(
-            autocopy_mod.foreground_process(),
+            platforms.foreground_process(),
             "Nothing but ShadowSnip was in front when the countdown ended, "
             "so nothing was added.",
         )

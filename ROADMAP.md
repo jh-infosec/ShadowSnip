@@ -3,7 +3,22 @@
 ShadowSnip's main purpose is evidence capture for penetration testing and the
 writeup that follows. The next versions lean into that.
 
-## v0.6 - the pentest report (next)
+## Done in v0.6.0 - Linux
+
+ShadowSnip runs on Linux (X11) as well as Windows, from one codebase, with
+both builds attached to every GitHub release by the CI workflow.
+
+## Linux, still open
+
+- **Wayland.** Capture through the desktop's screenshot portal
+  (`org.freedesktop.portal.Screenshot`), and the frozen-frame overlay drawn
+  over the image the portal returns. Copy on select would need the
+  compositor's primary-selection protocol.
+- Hotkeys set automatically on GNOME and KDE as they are on Xfce (both store
+  custom shortcuts where a tool can write them).
+- A packaged install: an AppImage, or a .deb for Kali.
+
+## v0.7 - the pentest report (next)
 
 - **Findings.** Mark a section as a finding with a severity (Critical, High,
   Medium, Low, Info), the affected host, and description, impact and
@@ -20,7 +35,7 @@ writeup that follows. The next versions lean into that.
 - **Annotation.** Arrows, boxes and highlights to point at the line that
   matters.
 
-## v0.7 - integration
+## v0.8 - integration
 
 - Run at login toggle in Settings, writing the shortcut itself and reading
   back the real state rather than a stored flag.
@@ -32,7 +47,7 @@ writeup that follows. The next versions lean into that.
   route to different projects.
 - Signed release binaries so SmartScreen stops warning on first run.
 
-## v0.8 - capture modes
+## v0.9 - capture modes
 
 - Window mode: highlight and grab the window under the cursor.
 - Freeform (lasso) selection, matching Snipping Tool's freeform mode.
@@ -40,7 +55,7 @@ writeup that follows. The next versions lean into that.
 - Snap the selection to detected UI element edges while dragging.
 - Magnifier loupe near the cursor for pixel-exact edges.
 
-## v0.9 - after the snip
+## v0.10 - after the snip
 
 - Lightweight annotation: pen, arrow, rectangle, highlighter, and a redaction
   block for screenshots that carry credentials or client data.
@@ -107,7 +122,7 @@ writeup that follows. The next versions lean into that.
   partial in Chromium, absent in terminals. Worth measuring before adopting.
 - Copy on select silently replaces a snip on the clipboard. Whether the two
   should share a small history, rather than one overwriting the other, is the
-  question the clipboard history strip in v0.7 would answer.
+  question the clipboard history strip in v0.10 would answer.
 
 ## Open questions
 

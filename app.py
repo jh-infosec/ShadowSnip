@@ -32,6 +32,7 @@ import config
 import hotkey as hotkey_mod
 import imageops
 import lab
+import platforms
 import storage
 from overlay import SelectionController
 from preview import PreviewWindow
@@ -92,12 +93,12 @@ class ShadowSnipApp(QObject):
         self._build_menu()
         self.tray.show()
 
-        self.hotkeys = hotkey_mod.HotkeyManager(self)
+        self.hotkeys = platforms.HotkeyManager(self)
         self.hotkeys.triggered.connect(self._on_hotkey)
         self._register_hotkeys(startup=True)
 
         self.toast = ClipToast()
-        self.autocopy = autocopy_mod.AutoCopy(self.cfg, self)
+        self.autocopy = platforms.AutoCopy(self.cfg, self)
         self.autocopy.copied.connect(self._on_auto_copied)
         # Copy on select does not survive a restart, and the stored value is
         # cleared rather than merely ignored so that Settings, the tray menu
@@ -717,10 +718,24 @@ class ShadowSnipApp(QObject):
         One combination being taken by another program is no reason to lose
         the other, so a failure is reported and the loop carries on.
         """
+        failures = []
         for name, key, fallback in self.HOTKEYS:
             try:
                 self.hotkeys.register(self.qapp, self.cfg[key], name)
             except hotkey_mod.HotkeyError as exc:
+                failures.append((exc, fallback))
+        if failures and platforms.IS_LINUX and not self.hotkeys.supported:
+            # A desktop whose shortcuts cannot be set from here: one message
+            # with every shortcut to add, not one warning per hotkey.
+            self.tray.showMessage(
+                "ShadowSnip",
+                "Add these in your desktop's keyboard shortcut settings:\n"
+                + "\n".join(str(exc) for exc, _fallback in failures),
+                QSystemTrayIcon.MessageIcon.Information,
+                10000,
+            )
+        else:
+            for exc, fallback in failures:
                 self.tray.showMessage(
                     "ShadowSnip",
                     f"Hotkey not active: {exc}. {fallback}, or pick another "
@@ -1012,7 +1027,12 @@ class ShadowSnipApp(QObject):
     def quit(self) -> None:
         self.toast.hide()
         self.autocopy.release()
-        self.hotkeys.unregister()
+        if hasattr(self.hotkeys, "release_all"):
+            # Linux: the shortcut lives in the desktop's settings and should
+            # stay there, so pressing it can start ShadowSnip again.
+            self.hotkeys.release_all()
+        else:
+            self.hotkeys.unregister()
         self.tray.hide()
         self.qapp.quit()
 

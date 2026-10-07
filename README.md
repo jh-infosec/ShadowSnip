@@ -1,7 +1,7 @@
 # ShadowSnip
 
 **Evidence capture for penetration testing, and the writeup that comes out of
-it.** ShadowSnip is a Windows snipping tool built around one job: getting from
+it.** ShadowSnip is a snipping tool for Windows and Linux built around one job: getting from
 a live engagement, a lab or a CTF box to a finished report without losing
 track of which screenshot proved what.
 
@@ -60,7 +60,18 @@ Word or a browser moves far less data.
 
 ## Install
 
-Needs Python 3.10+ on Windows.
+ShadowSnip runs on **Windows 10/11** and on **Linux with X11** (Kali, Debian,
+Ubuntu and similar; Kali's default Xfce desktop is X11). Each release on
+GitHub has a download for each:
+
+| Platform | Download | Install |
+| --- | --- | --- |
+| Windows | `ShadowSnip-<version>-windows.exe` | Run it. No installer, no Python needed. |
+| Linux | `ShadowSnip-<version>-linux.tar.gz` | Unpack it and run `./install.sh` (add `--autostart` to start in the tray at login) |
+
+### From source, Windows
+
+Needs Python 3.10+.
 
 ```powershell
 python -m venv .venv
@@ -69,9 +80,36 @@ pip install -r requirements.txt
 python main.py
 ```
 
+### From source, Linux
+
+Needs Python 3.10+ and two system packages: `libxcb-cursor0`, which Qt needs to
+open a window on X11, and `x11-utils`, which provides `xprop` for copy on
+select.
+
+```bash
+sudo apt install python3-venv libxcb-cursor0 x11-utils
+git clone https://github.com/jh-infosec/ShadowSnip.git
+cd ShadowSnip
+bash install.sh         # makes a .venv, installs a `shadowsnip` command and a menu entry
+shadowsnip
+```
+
 ShadowSnip opens its window and puts an icon in the notification area. Press
 **Ctrl+Shift+S** to snip; click the tray icon to bring the window back.
 `--tray` starts it in the tray without the window, for the login shortcut.
+
+### What differs on Linux
+
+| | Windows | Linux |
+| --- | --- | --- |
+| Snip hotkey | Registered by ShadowSnip itself | Set in the desktop's own keyboard shortcuts. On Xfce ShadowSnip adds them for you the first time it runs (Settings > Keyboard > Application Shortcuts shows them); on other desktops it tells you the command to bind. The shortcut stays after ShadowSnip quits, so pressing it also starts ShadowSnip. |
+| Quick-note hotkey | Registered by ShadowSnip | Same as the snip hotkey: a desktop shortcut that runs `shadowsnip --note` |
+| Copy on select | A mouse hook and a synthetic Ctrl+C | X11 already puts highlighted text in the *primary selection* (what middle-click pastes); ShadowSnip copies it to the clipboard. No hook and no keystroke, so a terminal can never receive a stray Ctrl+C. Each selection is copied once it stops changing. |
+| Settings file | `%APPDATA%\ShadowSnip\config.json` | `~/.config/shadowsnip/config.json` |
+| Start at login | A shortcut in `shell:startup` with `--tray` | `bash install.sh --autostart` |
+
+Everything else (snipping, labs, sections, notes, the outline and preview,
+removal, the viewer) is the same code on both.
 
 ## Using it
 
@@ -80,7 +118,7 @@ ShadowSnip opens its window and puts an icon in the notification area. Press
 | Start a snip | `Ctrl+Shift+S`, the tray menu, or `python main.py --snip` |
 | Jot a note into the lab | `Ctrl+Shift+N`, or **Add note...** in the tray menu |
 | Open the window | starting ShadowSnip opens it; afterwards click the tray icon, or start it again (the taskbar pin) |
-| Start hidden in the tray | `ShadowSnip.exe --tray` (for the login shortcut) |
+| Start hidden in the tray | `ShadowSnip.exe --tray` on Windows, `shadowsnip --tray` on Linux (for the login shortcut) |
 | Start or stop a lab | **Start lab** in the preview window, or the tray menu |
 | Drag a region | left mouse button |
 | Grab the whole screen under the cursor | `F` or `Space` |
@@ -108,6 +146,12 @@ This is what Linux gives you for free with the PRIMARY selection.
 A small confirmation appears next to the cursor for about a second, so a clip
 that worked and a clip that quietly did nothing do not look the same.
 Re-selecting the same text twice in a row is only announced once.
+
+On Linux none of the following is needed: X11 tracks highlighted text itself,
+and ShadowSnip copies it from there (see [What differs on Linux](#what-differs-on-linux)).
+The password-manager list and **Never copy from** apply the same way, by
+process name, and if the program in front cannot be identified the selection
+is not copied.
 
 Windows has no API for "the user just highlighted something", so what happens
 underneath is a mouse hook watching for a finished left-button drag, a
@@ -404,10 +448,11 @@ the dialog back to the front. Close it and snip as usual.
 
 ## Running it
 
-Three options, least to most portable: from source with `python main.py`, a
-no-console `run_shadowsnip.pyw` launcher, or a standalone `ShadowSnip.exe`.
-The exe is the one to hand to anyone else. See `BUILD.md` for all three and
-for starting ShadowSnip at login.
+On Windows, three options, least to most portable: from source with
+`python main.py`, a no-console `run_shadowsnip.pyw` launcher, or a standalone
+`ShadowSnip.exe`. The exe is the one to hand to anyone else. On Linux,
+`install.sh` sets up either a clone of the repository or the release binary.
+See `BUILD.md` for building both and for starting ShadowSnip at login.
 
 ## Known limits
 
@@ -424,8 +469,18 @@ for starting ShadowSnip at login.
 - `Print Screen` can be claimed by the Windows Snipping Tool itself. If the
   hotkey does not register, ShadowSnip says so in a tray notification and
   keeps working from the tray menu.
-- Windows only. The capture, overlay and image code are cross-platform, but
-  the hotkey and clipboard layers are Win32.
+- **Linux needs X11, not Wayland.** Wayland does not let an application read
+  the screen, so snips on a Wayland session come out black, and copy on select
+  cannot follow the selection there. ShadowSnip warns at startup on Wayland.
+  Kali's default Xfce session is X11; on Ubuntu or Fedora, choose the Xorg
+  session at the login screen.
+- **On Linux, hotkeys outside Xfce are set by hand.** ShadowSnip writes the
+  shortcuts into Xfce itself; on GNOME, KDE and others it shows the command to
+  bind (`shadowsnip --snip`, `shadowsnip --note`) instead.
+- **On Linux, copy on select copies once the selection stops changing**, about
+  a third of a second after you let go, and reports every copy as a
+  "selection": X11 does not say whether text was dragged over or
+  double-clicked. It needs `xprop` (`x11-utils`) and will not start without it.
 - **Copy on select may go quiet while a VM or RDP session is syncing the
   clipboard.** Selecting *inside* one of those windows is skipped outright, as
   above, so this is about host applications while the sync runs in the

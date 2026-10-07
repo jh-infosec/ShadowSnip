@@ -1,8 +1,9 @@
-"""Render the ShadowSnip icon to shadowsnip.ico for the built executable.
+"""Render the ShadowSnip icon to shadowsnip.ico and shadowsnip.png.
 
 The app draws its own icon at runtime, but a PyInstaller build needs a real
-.ico file on disk to embed in the .exe. This draws the same icon with Pillow
-and writes a multi-size .ico. Run it once before building:
+.ico file on disk to embed in the .exe, and the Linux launcher entry needs a
+.png. This draws the same icon with Pillow and writes both. Run it once
+before building:
 
     python make_icon.py
 
@@ -77,6 +78,9 @@ def main() -> int:
         append_images=[draw(edge) for edge in sizes if edge != 256],
     )
     print(f"wrote {out} with sizes {', '.join(str(s) for s in sizes)}")
+    png = out.with_suffix(".png")
+    base.save(png, format="PNG")
+    print(f"wrote {png} (256 x 256, for the Linux launcher entry)")
     return 0
 
 

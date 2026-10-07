@@ -4,7 +4,12 @@
 #   python make_icon.py        # writes shadowsnip.ico
 #   pyinstaller ShadowSnip.spec
 #
-# Produces dist\ShadowSnip.exe: one file, no console, no Python needed.
+# Produces dist\ShadowSnip.exe on Windows and dist/ShadowSnip on Linux: one
+# file, no console, no Python needed. PyInstaller builds for the system it
+# runs on, so each platform's build is made on that platform (the GitHub
+# workflow in .github/workflows/build.yml does both).
+
+import sys
 
 block_cipher = None
 
@@ -42,5 +47,7 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,           # no PowerShell window
-    icon="shadowsnip.ico",   # written by make_icon.py
+    # Windows embeds the icon in the .exe. Linux executables carry no icon;
+    # install.sh points the launcher entry at shadowsnip.png instead.
+    icon="shadowsnip.ico" if sys.platform == "win32" else None,
 )
