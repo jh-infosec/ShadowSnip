@@ -39,9 +39,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
+    QCursor,
     QIcon,
     QImage,
     QPainter,
@@ -52,6 +53,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
+    QGraphicsOpacityEffect,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -59,22 +61,27 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
 # -- palettes ---------------------------------------------------------------------
-# The pen gets a full palette, arranged by hue in rows so a colour is found by
-# where it sits rather than read swatch by swatch.
+# The pen's colours come in six families, one per row, each running from light
+# on the left to dark on the right: greys, reds, oranges and yellows, greens,
+# blues, purples. A colour is found by its family, then by how strong it is.
+PEN_COLUMNS = 5
 PEN_COLORS = [
-    "#000000", "#ffffff", "#d0d0d6", "#9a9aa6", "#5c5c66", "#2e2e34",
-    "#e81123", "#ff4b2b", "#ff8c00", "#ffb900", "#ffe23f", "#fff100",
-    "#9ade3a", "#16c60c", "#00805a", "#00b7c3", "#0063b1", "#3a2fd0",
-    "#8e44ad", "#5c126e", "#f6d6c6", "#c49a6c", "#8b5a2b", "#5d3a1a",
-    "#ff7ae6", "#ffc58f", "#fff59d", "#86f7a8", "#86d5ff", "#c3b7ff",
+    "#ffffff", "#c8c8d0", "#8e8e9a", "#4a4a54", "#000000",  # greys
+    "#ffb3c1", "#ff5c7a", "#e81123", "#a4001d", "#5c0011",  # reds
+    "#fff59d", "#fff100", "#ffb900", "#ff8c00", "#b85c00",  # oranges, yellows
+    "#b9f6ca", "#5ee07a", "#16c60c", "#0e8a3a", "#0a4d24",  # greens
+    "#b3e5fc", "#4fc3f7", "#0091ff", "#0063b1", "#0a2f6b",  # blues
+    "#e1bee7", "#c77dff", "#9b5cff", "#6a1b9a", "#3c0d5a",  # purples
 ]
-# Highlighters come in the bright few colours that read through text.
-HIGHLIGHTER_COLORS = ["#fff100", "#16e01c", "#2fd2ff", "#ff2fb4", "#ff7a1a", "#9b5cff"]
+# Highlighters: the bright few that read through text, in spectrum order.
+HIGHLIGHTER_COLUMNS = 6
+HIGHLIGHTER_COLORS = ["#fff100", "#ff7a1a", "#ff2fb4", "#9b5cff", "#2fd2ff", "#16e01c"]
 
 PEN_WIDTHS = (1, 24)
 HIGHLIGHTER_WIDTHS = (6, 48)
@@ -347,12 +354,26 @@ class AnnotCanvas(QWidget):
     def set_tool(self, tool: str | None) -> None:
         self._cancel_gesture()
         self.tool = tool
-        self.setCursor(
-            Qt.CursorShape.CrossCursor if tool in ("pen", "highlighter", "crop", "redact")
-            else Qt.CursorShape.BlankCursor if tool == "eraser"
-            else Qt.CursorShape.ArrowCursor
-        )
+        self._sync_cursor()
         self.update()
+
+    def _pointer_on_image(self) -> bool:
+        return (
+            self.tool is not None
+            and self._pointer is not None
+            and self._rendered is not None
+            and self._target().contains(self._pointer)
+        )
+
+    def _sync_cursor(self) -> None:
+        """Over the screenshot, the tool is drawn in place of the pointer.
+
+        Everywhere else (the margins, the rest of the window) the ordinary
+        arrow stays, so it is always clear where marks can go.
+        """
+        shape = Qt.CursorShape.BlankCursor if self._pointer_on_image() else Qt.CursorShape.ArrowCursor
+        if self.cursor().shape() != shape:
+            self.setCursor(shape)
 
     def undo(self) -> None:
         if self.doc is None or not self.doc.undo():
@@ -433,6 +454,7 @@ class AnnotCanvas(QWidget):
     def mouseMoveEvent(self, event):
         pos = event.position()
         self._pointer = pos
+        self._sync_cursor()
         if self._live is not None:
             self._live.points.append(self.to_image(pos))
         elif self.tool == "eraser" and event.buttons() & Qt.MouseButton.LeftButton:
@@ -545,11 +567,82 @@ class AnnotCanvas(QWidget):
                 painter.setPen(QPen(ACCENT, 1))
             painter.drawRect(rect)
 
-        if self.tool == "eraser" and self._pointer is not None:
-            painter.setClipping(False)
-            painter.setPen(QPen(QColor("#ffffff"), 1.2))
-            painter.setBrush(QColor(255, 255, 255, 40))
-            painter.drawEllipse(self._pointer, ERASER_RADIUS, ERASER_RADIUS)
+        if self._pointer_on_image():
+            self._paint_tool_cursor(painter, target)
+
+    def footprint(self) -> float:
+        """How big the tool's mark is on screen, in pixels: what the cursor shows."""
+        if self.tool in ("pen", "highlighter"):
+            return float(self.prefs[f"{self.tool}_width"])
+        if self.tool == "eraser":
+            return ERASER_RADIUS * 2.0
+        return 0.0
+
+    def _paint_tool_cursor(self, painter: QPainter, target: QRectF) -> None:
+        """The selected tool, at its real size, where the pointer is.
+
+        The footprint is the exact size of the mark it will make (a pen dot as
+        wide as the line, the highlighter's square tip, the eraser's reach),
+        outlined dark and light so it shows on any screenshot. A small badge
+        with the tool's icon sits beside it, so the tool in hand is never in
+        doubt. Clipped to the screenshot: it is never drawn in the margins.
+        """
+        pos = self._pointer
+        painter.save()
+        painter.setClipRect(target)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        size = self.footprint()
+        dark, light = QPen(QColor(0, 0, 0, 170), 2.4), QPen(QColor("#ffffff"), 1.0)
+
+        if self.tool == "pen":
+            r = max(1.5, size / 2)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(self.prefs["pen_color"]))
+            painter.drawEllipse(pos, r, r)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for pen in (dark, light):
+                painter.setPen(pen)
+                painter.drawEllipse(pos, r + 1.5, r + 1.5)
+        elif self.tool == "highlighter":
+            tip = QRectF(pos.x() - size / 2, pos.y() - size / 2, size, size)
+            fill = QColor(self.prefs["highlighter_color"])
+            fill.setAlpha(HIGHLIGHTER_ALPHA)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.fillRect(tip, fill)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for pen in (dark, light):
+                painter.setPen(pen)
+                painter.drawRect(tip.adjusted(-1, -1, 1, 1))
+        elif self.tool == "eraser":
+            painter.setBrush(QColor(255, 255, 255, 50))
+            for pen in (dark, light):
+                painter.setPen(pen)
+                painter.drawEllipse(pos, ERASER_RADIUS, ERASER_RADIUS)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+        elif self.tool in ("crop", "redact") and self._drag_from is None:
+            # Guides across the whole screenshot, for lining up the first corner.
+            for pen in (QPen(QColor(0, 0, 0, 120), 1), QPen(QColor(255, 255, 255, 170), 1, Qt.PenStyle.DashLine)):
+                painter.setPen(pen)
+                painter.drawLine(QPointF(target.left(), pos.y()), QPointF(target.right(), pos.y()))
+                painter.drawLine(QPointF(pos.x(), target.top()), QPointF(pos.x(), target.bottom()))
+
+        # The badge: the tool's icon on a dark chip, down and to the right.
+        reach = max(size / 2, 4) + 8
+        chip = QRectF(pos.x() + reach, pos.y() + reach, 26, 26)
+        painter.setPen(QPen(ACCENT, 1))
+        painter.setBrush(QColor(26, 26, 31, 230))
+        painter.drawRoundedRect(chip, 6, 6)
+        color = self.prefs.get(f"{self.tool}_color") if self.tool in ("pen", "highlighter") else None
+        icon_kind = self.tool
+        icon = tool_icon(icon_kind, color, size=18).pixmap(18, 18)
+        painter.drawPixmap(QPointF(chip.x() + 4, chip.y() + 4), icon)
+        if self.tool == "redact":
+            # Which redaction is armed: a black square or a blurred one.
+            mark = QRectF(chip.right() - 9, chip.bottom() - 9, 7, 7)
+            painter.setPen(QPen(QColor("#ffffff"), 0.8))
+            painter.setBrush(QColor("#000000") if self.prefs["redact_mode"] == "black" else QColor(160, 170, 190))
+            painter.drawRect(mark)
+        painter.restore()
 
 
 # -- icons ------------------------------------------------------------------------------
@@ -732,7 +825,7 @@ class OptionsPopup(QFrame):
 
     changed = Signal(str, int)  # colour, width
 
-    def __init__(self, kind: str, colors, widths, parent=None):
+    def __init__(self, kind: str, colors, widths, parent=None, columns: int = 6):
         super().__init__(parent, Qt.WindowType.Popup)
         self.setObjectName("Popup")
         self.setStyleSheet(POPUP_STYLE)
@@ -757,7 +850,6 @@ class OptionsPopup(QFrame):
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
         self.swatches: list[Swatch] = []
-        columns = 6
         for index, color in enumerate(colors):
             swatch = Swatch(color)
             swatch.clicked.connect(self._on_change)
@@ -775,7 +867,7 @@ class OptionsPopup(QFrame):
         colours.setObjectName("PopupHint")
         layout.addWidget(colours)
         layout.addLayout(grid)
-        self.setFixedWidth(6 * 30 + 28)
+        self.setFixedWidth(max(5, columns) * 30 + 28 + (24 if columns < 6 else 0))
 
     def set_values(self, color: str, width: int) -> None:
         blocked = self.slider.blockSignals(True)
@@ -860,29 +952,48 @@ QLabel#StripHint { color: #7c7c88; font-size: 11px; }
 QFrame#StripRule { background: #2c2c33; }
 """
 
-TOOL_TIPS = {
-    "pen": "Pen. Click again for width and colour.",
-    "highlighter": "Highlighter. Click again for width and colour.",
-    "eraser": "Eraser: drag over a mark to remove it.",
-    "crop": "Crop: drag the area to keep.",
-    "redact": "Redact: drag over what to hide. Click again for blur or black out.",
+# Name, what it does, and whether it has options, for the hover box and the
+# hint beside the strip.
+TOOL_INFO = {
+    "pen": ("Pen", "Draw freehand lines on the snip.", "colour and width"),
+    "highlighter": ("Highlighter", "A see-through marker for picking out text; what is under it stays readable.", "colour and width"),
+    "eraser": ("Eraser", "Drag across a pen line, highlight or redaction to remove the whole mark.", ""),
+    "crop": ("Crop", "Drag the area of the snip to keep; the rest is cut away.", ""),
+    "redact": ("Redact", "Drag over passwords, hashes or client details to hide them.", "blur or black out"),
 }
 HINTS = {
-    None: "Pick a tool to mark up this snip. Changes are saved as you go.",
-    "pen": "Draw on the snip.",
-    "highlighter": "Drag over what matters.",
-    "eraser": "Drag across a mark to remove it.",
-    "crop": "Drag the area to keep.",
-    "redact": "Drag over what to hide.",
+    None: "Left-click a tool to pick it up, right-click for its options. Changes save as you go.",
+    "pen": "Pen: draw on the snip. Esc or click the pen again to put it down.",
+    "highlighter": "Highlighter: drag over what matters. Esc or click it again to put it down.",
+    "eraser": "Eraser: drag across a mark to remove it. Esc to put it down.",
+    "crop": "Crop: drag the area to keep. Esc to put it down.",
+    "redact": "Redact: drag over what to hide. Esc or click it again to put it down.",
 }
+NO_SNIP_HINT = "Take a snip to mark it up."
+
+
+def tool_tooltip(kind: str) -> str:
+    name, what, options = TOOL_INFO[kind]
+    how = "Left-click: pick up or put down"
+    if options:
+        how += f". Right-click: {options}"
+    return (f"<b>{name}</b><br>{html_escape(what)}"
+            f"<br><span style='color:#9a9aa6'>{how}.</span>")
+
+
+def html_escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 class AnnotToolbar(QWidget):
     """Pen, highlighter, eraser | crop, redact | undo.
 
-    Clicking a tool selects it; clicking the selected tool again opens its
-    options (width and colour, or blur and black out); clicking it a third
-    time with the options closed puts it down.
+    Left-click picks a tool up, and left-clicking the same tool again puts it
+    down; Esc does the same from the window. Right-click opens a tool's
+    options (width and colour, or blur and black out) and picks it up too, so
+    the options always belong to the tool in hand. One tool at a time, shown
+    in blue. Hovering a tool explains it, in its tooltip and in the hint
+    beside the strip.
     """
 
     tool_changed = Signal(object)  # str or None
@@ -913,8 +1024,13 @@ class AnnotToolbar(QWidget):
                 button = QToolButton()
                 button.setCheckable(True)
                 button.setIconSize(QSize(22, 22))
-                button.setToolTip(TOOL_TIPS[kind])
+                button.setToolTip(tool_tooltip(kind))
                 button.clicked.connect(lambda _c=False, k=kind: self._on_tool_clicked(k))
+                button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                button.customContextMenuRequested.connect(
+                    lambda _pos, k=kind: self._on_tool_right_clicked(k)
+                )
+                button.installEventFilter(self)
                 self.buttons[kind] = button
                 layout.addWidget(button)
 
@@ -925,7 +1041,6 @@ class AnnotToolbar(QWidget):
         self.btn_undo.setIconSize(QSize(18, 18))
         self.btn_undo.setFixedSize(30, 30)
         self.btn_undo.setToolTip("Undo the last change (Ctrl+Z)")
-        self.btn_undo.setEnabled(False)
         self.btn_undo.clicked.connect(self.undo_requested.emit)
         layout.addWidget(self.btn_undo)
 
@@ -935,13 +1050,16 @@ class AnnotToolbar(QWidget):
         self.hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout.addWidget(self.hint, 1)
 
-        self.pen_popup = OptionsPopup("pen", PEN_COLORS, PEN_WIDTHS)
+        self.pen_popup = OptionsPopup("pen", PEN_COLORS, PEN_WIDTHS, columns=PEN_COLUMNS)
         self.pen_popup.changed.connect(lambda c, w: self._set_prefs(pen_color=c, pen_width=w))
-        self.hl_popup = OptionsPopup("highlighter", HIGHLIGHTER_COLORS, HIGHLIGHTER_WIDTHS)
+        self.hl_popup = OptionsPopup(
+            "highlighter", HIGHLIGHTER_COLORS, HIGHLIGHTER_WIDTHS, columns=HIGHLIGHTER_COLUMNS
+        )
         self.hl_popup.changed.connect(lambda c, w: self._set_prefs(highlighter_color=c, highlighter_width=w))
         self.redact_popup = RedactPopup()
         self.redact_popup.changed.connect(lambda m: self._set_prefs(redact_mode=m))
         self._refresh_icons()
+        self.set_undo_enabled(False)
 
     # -- state ------------------------------------------------------------------------
     def set_prefs(self, prefs: dict) -> None:
@@ -949,28 +1067,72 @@ class AnnotToolbar(QWidget):
         self._refresh_icons()
 
     def set_undo_enabled(self, on: bool) -> None:
-        self.btn_undo.setEnabled(bool(on))
+        on = bool(on) and getattr(self, "_available", True)
+        self.btn_undo.setEnabled(on)
+        _fade(self.btn_undo, not on)
 
     def select(self, tool: str | None) -> None:
         self.tool = tool
         for kind, button in self.buttons.items():
             button.setChecked(kind == tool)
-        mode = ""
-        if tool == "redact":
-            mode = " (black out)" if self.prefs["redact_mode"] == "black" else " (blur)"
-        self.hint.setText(HINTS.get(tool, "") + mode)
+        self.hint.setText(self._hint_for(tool))
         self.tool_changed.emit(tool)
 
+    def set_available(self, available: bool) -> None:
+        """Usable only with a snip on screen; shown greyed out before that."""
+        self._available = bool(available)
+        for button in self.buttons.values():
+            button.setEnabled(self._available)
+            # The icons are drawn, so Qt's own disabled look barely shows;
+            # fade them, so a strip that cannot be used looks it.
+            _fade(button, not self._available)
+        if not self._available:
+            self.set_undo_enabled(False)
+            if self.tool is not None:
+                self.select(None)
+        self.hint.setText(self._hint_for(self.tool))
+
+    def _hint_for(self, tool: str | None) -> str:
+        if not getattr(self, "_available", True):
+            return NO_SNIP_HINT
+        text = HINTS.get(tool, "")
+        if tool == "redact":
+            text += " Now: " + ("black out." if self.prefs["redact_mode"] == "black" else "blur.")
+        return text
+
     def _on_tool_clicked(self, kind: str) -> None:
-        if self.tool == kind:
-            popup = self._popup_for(kind)
-            if popup is not None:
-                self.buttons[kind].setChecked(True)
-                self._open(popup, kind)
-                return
-            self.select(None)
+        """Left-click: pick the tool up, or put it down if it is in hand."""
+        for popup in (self.pen_popup, self.hl_popup, self.redact_popup):
+            popup.hide()
+        self.select(None if self.tool == kind else kind)
+
+    def _on_tool_right_clicked(self, kind: str) -> None:
+        """Right-click: the tool's options, with the tool picked up."""
+        if not self.buttons[kind].isEnabled():
             return
-        self.select(kind)
+        if self.tool != kind:
+            self.select(kind)
+        popup = self._popup_for(kind)
+        if popup is not None:
+            self._open(popup, kind)
+        else:
+            # No options to show: say so, rather than doing nothing.
+            name, what, _options = TOOL_INFO[kind]
+            QToolTip.showText(QCursor.pos(), f"{name} has no options. {what}", self.buttons[kind])
+
+    def eventFilter(self, watched, event):
+        """Hovering a tool explains it in the hint beside the strip."""
+        if getattr(self, "_available", True):
+            for kind, button in self.buttons.items():
+                if watched is button:
+                    if event.type() == QEvent.Type.Enter:
+                        name, what, options = TOOL_INFO[kind]
+                        extra = f" Right-click for {options}." if options else ""
+                        self.hint.setText(f"{name}: {what}{extra}")
+                    elif event.type() == QEvent.Type.Leave:
+                        self.hint.setText(self._hint_for(self.tool))
+                    break
+        return super().eventFilter(watched, event)
 
     def open_options(self, kind: str) -> None:
         popup = self._popup_for(kind)
@@ -1007,6 +1169,13 @@ class AnnotToolbar(QWidget):
         self.buttons["eraser"].setIcon(tool_icon("eraser"))
         self.buttons["crop"].setIcon(tool_icon("crop"))
         self.buttons["redact"].setIcon(tool_icon("redact"))
+
+
+def _fade(button, faded: bool) -> None:
+    """Dim a button whose drawn icon would otherwise look usable when it is not."""
+    effect = QGraphicsOpacityEffect(button)
+    effect.setOpacity(0.35 if faded else 1.0)
+    button.setGraphicsEffect(effect)
 
 
 def sanitise_prefs(prefs) -> dict:

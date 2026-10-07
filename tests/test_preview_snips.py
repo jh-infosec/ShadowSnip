@@ -130,3 +130,24 @@ def test_the_version_is_shown_bottom_right(window):
     import config
 
     assert window.version.text() == f"ShadowSnip v{config.APP_VERSION}"
+
+
+
+def test_the_tool_strip_is_there_from_the_start(window):
+    import preview
+
+    fresh = preview.PreviewWindow()
+    fresh.show()
+    assert fresh.tools.isVisible()
+    assert not fresh.tools.buttons["pen"].isEnabled()
+    fresh.close()
+
+
+def test_esc_puts_a_tool_down_before_it_closes_the_window(window):
+    window.show()
+    window.tools.set_available(True)
+    window.tools.select("redact")
+    window._on_escape()
+    assert window.tools.tool is None and window.isVisible()
+    window._on_escape()
+    assert not window.isVisible()

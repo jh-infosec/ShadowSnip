@@ -225,19 +225,62 @@ def strip():
     widget.close()
 
 
-def test_click_selects_click_again_opens_options(strip):
+def test_left_click_picks_up_and_puts_down(strip):
     tools = []
     strip.tool_changed.connect(tools.append)
-    strip.buttons["pen"].click()
-    assert tools == ["pen"] and strip.buttons["pen"].isChecked()
-    strip.buttons["pen"].click()
-    assert strip.pen_popup.isVisible()
+    strip.buttons["redact"].click()
+    assert tools == ["redact"] and strip.buttons["redact"].isChecked()
+    strip.buttons["redact"].click()
+    assert tools == ["redact", None] and not strip.buttons["redact"].isChecked()
+    assert not strip.redact_popup.isVisible()
 
 
-def test_the_eraser_and_crop_put_down_on_a_second_click(strip):
-    strip.buttons["eraser"].click()
-    strip.buttons["eraser"].click()
-    assert strip.tool is None and not strip.buttons["eraser"].isChecked()
+def test_one_tool_at_a_time(strip):
+    strip.buttons["pen"].click()
+    strip.buttons["crop"].click()
+    assert [k for k, b in strip.buttons.items() if b.isChecked()] == ["crop"]
+
+
+def test_right_click_opens_the_options_and_picks_the_tool_up(strip):
+    strip._on_tool_right_clicked("pen")
+    assert strip.tool == "pen" and strip.pen_popup.isVisible()
+    strip.pen_popup.hide()
+    strip._on_tool_right_clicked("redact")
+    assert strip.tool == "redact" and strip.redact_popup.isVisible()
+
+
+def test_right_click_on_a_tool_without_options_opens_nothing(strip):
+    strip._on_tool_right_clicked("eraser")
+    assert strip.tool == "eraser"
+    assert not any(p.isVisible() for p in (strip.pen_popup, strip.hl_popup, strip.redact_popup))
+
+
+def test_left_click_closes_an_open_options_popup(strip):
+    strip._on_tool_right_clicked("pen")
+    strip.buttons["pen"].click()
+    assert strip.tool is None and not strip.pen_popup.isVisible()
+
+
+def test_hover_explains_the_tool(strip):
+    from PySide6.QtCore import QEvent
+
+    tip = strip.buttons["redact"].toolTip()
+    assert "Redact" in tip and "Right-click: blur or black out" in tip
+    assert "Right-click" not in strip.buttons["eraser"].toolTip()
+    QApplication.sendEvent(strip.buttons["highlighter"], QEvent(QEvent.Type.Enter))
+    assert strip.hint.text().startswith("Highlighter:")
+    QApplication.sendEvent(strip.buttons["highlighter"], QEvent(QEvent.Type.Leave))
+    assert not strip.hint.text().startswith("Highlighter:")
+
+
+def test_without_a_snip_the_tools_are_shown_but_unusable(strip):
+    strip.buttons["pen"].click()
+    strip.set_available(False)
+    assert strip.isVisible()
+    assert not any(b.isEnabled() for b in strip.buttons.values())
+    assert strip.tool is None and strip.hint.text() == an.NO_SNIP_HINT
+    strip.set_available(True)
+    assert all(b.isEnabled() for b in strip.buttons.values())
 
 
 def test_picking_a_colour_and_width_updates_the_prefs(strip):
@@ -255,6 +298,28 @@ def test_picking_a_colour_and_width_updates_the_prefs(strip):
 def test_the_pen_has_a_full_palette_and_the_highlighter_a_short_one(strip):
     assert len(strip.pen_popup.swatches) == 30
     assert len(strip.hl_popup.swatches) == 6
+
+
+def test_pen_colours_run_light_to_dark_in_each_family_row():
+    rows = [an.PEN_COLORS[i:i + an.PEN_COLUMNS] for i in range(0, len(an.PEN_COLORS), an.PEN_COLUMNS)]
+    assert len(rows) == 6
+    for row in rows:
+        lightness = [QColor(c).lightness() for c in row]
+        assert lightness == sorted(lightness, reverse=True), row
+
+
+def test_each_pen_row_is_one_colour_family():
+    rows = [an.PEN_COLORS[i:i + an.PEN_COLUMNS] for i in range(0, len(an.PEN_COLORS), an.PEN_COLUMNS)]
+    for row in rows[1:]:  # the greys have no hue
+        hues = [QColor(c).hslHue() for c in row]
+        spread = max(hues) - min(hues)
+        assert min(spread, 360 - spread) <= 45, row
+
+
+def test_highlighters_are_in_spectrum_order():
+    hues = [QColor(c).hslHue() for c in an.HIGHLIGHTER_COLORS]
+    # yellow, orange, pink, purple, blue, green: round the colour wheel one way
+    assert hues[0] > hues[1] and hues[2] > hues[3] > hues[4] > hues[5]
 
 
 def test_redact_mode_is_chosen_in_its_popup(strip):
@@ -283,3 +348,64 @@ def test_undo_button_follows_the_canvas(strip):
 )
 def test_stored_prefs_are_checked(stored, expected):
     assert an.sanitise_prefs(stored) == expected
+
+
+
+# -- the tool drawn on the snip ----------------------------------------------------------
+def _hover(widget, point):
+    """A mouse move with no button held, delivered straight to the widget.
+
+    Not QTest.mouseMove: on a real desktop that moves the actual pointer, and
+    the move only reaches the widget if its window is on top under the pointer,
+    which a test window opened behind a terminal is not.
+    """
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+
+    local = QPointF(point)
+    event = QMouseEvent(
+        QEvent.Type.MouseMove, local, QPointF(widget.mapToGlobal(point)),
+        Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+    )
+    QApplication.sendEvent(widget, event)
+
+
+def test_the_tool_replaces_the_pointer_only_over_the_screenshot(canvas):
+    from PySide6.QtCore import QPointF as P
+
+    canvas.set_tool("pen")
+    target = canvas._target()
+    _hover(canvas, target.center().toPoint())
+    assert canvas.cursor().shape() == Qt.CursorShape.BlankCursor
+    canvas._pointer = P(target.left() - 0.5, target.top() - 5)
+    canvas._sync_cursor()
+    assert canvas.cursor().shape() == Qt.CursorShape.ArrowCursor
+    canvas.set_tool(None)
+    _hover(canvas, target.center().toPoint())
+    assert canvas.cursor().shape() == Qt.CursorShape.ArrowCursor
+
+
+@pytest.mark.parametrize("tool,key,value,expected", [
+    ("pen", "pen_width", 9, 9.0),
+    ("highlighter", "highlighter_width", 30, 30.0),
+    ("eraser", None, None, an.ERASER_RADIUS * 2.0),
+    ("crop", None, None, 0.0),
+])
+def test_the_cursor_shows_the_real_size(canvas, tool, key, value, expected):
+    if key:
+        canvas.prefs[key] = value
+    canvas.set_tool(tool)
+    assert canvas.footprint() == expected
+
+
+def test_the_tool_is_drawn_where_the_pointer_is(canvas):
+    canvas.prefs["pen_color"] = "#16c60c"
+    canvas.prefs["pen_width"] = 16
+    canvas.set_tool("pen")
+    centre = canvas._target().center().toPoint()
+    _hover(canvas, centre)
+    shot = canvas.grab().toImage()
+    assert shot.pixelColor(centre).name() == "#16c60c"
+    # Nothing is drawn while no tool is in hand.
+    canvas.set_tool(None)
+    assert canvas.grab().toImage().pixelColor(centre).name() == "#ffffff"

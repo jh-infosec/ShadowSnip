@@ -169,7 +169,9 @@ class PreviewWindow(QWidget):
         # The snip, and the tools to mark it up. See annotate.py.
         self.canvas = AnnotCanvas()
         self.tools = AnnotToolbar()
-        self.tools.setVisible(False)
+        # Always shown, so the tools are there to find from the first launch;
+        # greyed out until a snip is on screen to use them on.
+        self.tools.set_available(False)
         self.tools.tool_changed.connect(self.canvas.set_tool)
         self.tools.undo_requested.connect(self.canvas.undo)
         self.tools.prefs_changed.connect(self._on_annotation_prefs)
@@ -295,7 +297,8 @@ class PreviewWindow(QWidget):
 
         QShortcut(QKeySequence.StandardKey.Save, self, self.save_as)
         QShortcut(QKeySequence.StandardKey.Copy, self, self.copy_again)
-        QShortcut(QKeySequence("Esc"), self, self.close)
+        # Esc puts a tool down first; with nothing in hand it closes the window.
+        QShortcut(QKeySequence("Esc"), self, self._on_escape)
         # Ctrl+Enter saves the caption and notes being edited in the lab panel.
         QShortcut(QKeySequence("Ctrl+Return"), self, self.snips_panel.save)
         QShortcut(QKeySequence("Ctrl+Enter"), self, self.snips_panel.save)
@@ -365,7 +368,7 @@ class PreviewWindow(QWidget):
         # A new snip starts with no tool in hand, so a stray click cannot
         # draw on it.
         self.tools.select(None)
-        self.tools.setVisible(True)
+        self.tools.set_available(True)
 
         self.status.setText(status)
         if self.isMinimized():
@@ -398,6 +401,12 @@ class PreviewWindow(QWidget):
             return False
         self.snip_edited.emit(image)
         return True
+
+    def _on_escape(self) -> None:
+        if self.tools.tool is not None:
+            self.tools.select(None)
+            return
+        self.close()
 
     def set_annotation_prefs(self, prefs: dict) -> None:
         self.tools.set_prefs(prefs)

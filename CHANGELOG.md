@@ -1,6 +1,22 @@
 # Changelog
 
-## Latest: 0.7.0
+## Latest: 0.7.1
+
+Fixes from the first Windows test of the mark-up tools.
+
+**Changed**: the pen's colours are in six rows by family, each light to dark;
+the highlighter's are in spectrum order.
+
+**Changed**: left-click picks a tool up or puts it down, right-click opens its
+options. Esc also puts the tool down, which is how redaction is stopped.
+
+**Added**: over the screenshot, the pointer becomes the selected tool at its
+real size, with a badge showing which tool it is. Hovering a tool explains it.
+
+**Fixed**: the tool strip only appeared after the first snip. It is there from
+launch, greyed out until there is a snip.
+
+### 0.7.0 in brief
 
 **Added**: mark up a snip right in the preview window. A tool strip above the
 image has a **pen** (30 colours, adjustable width), a see-through
@@ -128,6 +144,52 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.7.1] - 2026-10-07
+
+### Changed
+- Pen palette rebuilt as six rows of five, one colour family per row (greys,
+  reds, oranges and yellows, greens, blues, purples), each row running light
+  to dark. The popup grid is five wide to match. Highlighter colours are in
+  spectrum order: yellow, orange, pink, purple, blue, green. A stored colour
+  no longer in the palette falls back to the default.
+- Tool strip clicks: left-click picks a tool up, left-clicking it again puts
+  it down; right-click opens the options (pen and highlighter: width and
+  colour; redact: blur or black out) and picks the tool up. A tool without
+  options says so on right-click. One tool at a time, shown in blue.
+  Previously a second left-click opened the options, which meant redaction
+  could not be put down without a third click.
+- Esc puts the tool in hand down; with no tool in hand it closes the window
+  as before.
+
+### Added
+- The tool drawn on the snip: over the screenshot the pointer is replaced by
+  the tool's footprint at its real size (a pen dot as wide as the line, the
+  highlighter's square tip in its colour, the eraser's reach, or crosshair
+  guides for crop and redact), outlined dark and light to show on any
+  background, with a badge carrying the tool's icon; the redact badge shows
+  whether black out or blur is armed. Clipped to the screenshot; outside it
+  the normal arrow returns.
+- Hover help: each tool's tooltip names it, says what it does and which
+  click does what, and hovering a tool also shows that in the hint beside the
+  strip.
+
+### Fixed
+- The tool strip was hidden until the first snip. It is shown from launch,
+  with the tools and undo faded and disabled and the hint "Take a snip to mark
+  it up." until there is a snip. Undo is faded whenever there is nothing to
+  undo.
+
+### Tests
+- Left-click picks up and puts down; one tool at a time; right-click opens
+  options and picks the tool up; no popup for tools without options; a
+  left-click closes an open popup; hover help in tooltip and hint; the strip
+  shown but unusable without a snip; palette rows light to dark and one
+  family each; highlighters in spectrum order; the tool cursor only over the
+  screenshot, at the real size, drawn at the pointer and not without a tool;
+  the strip present from the start; Esc putting a tool down before closing.
 
 ---
 

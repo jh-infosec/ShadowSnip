@@ -135,17 +135,23 @@ above it has:
 
 | Tool | What it does |
 | --- | --- |
-| **Pen** | Draws in any of 30 colours, 1 to 24 px wide |
-| **Highlighter** | A see-through marker in six bright colours, 6 to 48 px wide, so the text under it stays readable |
+| **Pen** | Draws in 30 colours, 1 to 24 px wide. The colours are in six rows by family (greys, reds, oranges and yellows, greens, blues, purples), each running light to dark |
+| **Highlighter** | A see-through marker in six bright colours in spectrum order, 6 to 48 px wide, so the text under it stays readable |
 | **Eraser** | Drag across a pen line, highlight or redaction to remove the whole mark |
 | **Crop** | Drag the area to keep |
 | **Redact** | Drag over something to hide it, with **Black out** (solid black, nothing of the original survives) or **Blur** (smeared; hides text, but the layout can still show) |
 | **Undo** | The round arrow, or `Ctrl+Z`: takes back the last mark, erase or crop, one at a time |
 
-Click a tool to pick it up. Click it again to open its options: width and
-colour for the pen and highlighter, blur or black out for redaction. Click once
-more to put it down. Widths and colours are remembered between runs. Each new
-snip starts with no tool selected, so a stray click cannot draw on it.
+**Left-click** a tool to pick it up, and left-click it again (or press Esc) to
+put it down. **Right-click** a tool for its options: width and colour for the
+pen and highlighter, blur or black out for redaction. One tool is in hand at a
+time, shown in blue, and hovering any tool says what it does. Over the
+screenshot, the pointer becomes the tool at its real size (the pen's dot, the
+highlighter's tip, the eraser's circle, or guide lines for crop and redact)
+with a small badge showing which tool it is. Widths and colours are remembered
+between runs. The tools are shown from the first launch, greyed out until there
+is a snip, and each new snip starts with no tool selected, so a stray click
+cannot draw on it. With no tool in hand, Esc closes the window as before.
 
 **Edits are saved as you go.** Half a second after the last change, the edited
 snip replaces every copy ShadowSnip made of it: the clipboard, `latest.png`,
