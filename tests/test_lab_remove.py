@@ -210,3 +210,60 @@ def test_a_hand_copied_image_shows_up(cfg):
 
 def test_no_rows_without_a_lab(cfg):
     assert lab.snip_rows(cfg) == []
+
+
+# -- 0.7.6: a failed record save puts the image back ------------------------------------
+def _fail_writes_to(monkeypatch, name):
+    import storage
+
+    real = storage.write_atomic
+
+    def write(path, data):
+        if Path(path).name == name:
+            raise OSError("disk full")
+        return real(path, data)
+
+    monkeypatch.setattr(storage, "write_atomic", write)
+
+
+def test_a_failed_record_save_puts_the_image_back(cfg, monkeypatch):
+    folder = _start(cfg)
+    snip = lab.save(b"evidence", "png", cfg)
+    _fail_writes_to(monkeypatch, lab.STATE_NAME)
+
+    with pytest.raises(lab.LabError, match="Nothing was removed"):
+        lab.remove_snip(cfg, snip.name)
+
+    assert snip.read_bytes() == b"evidence"
+    assert not (folder / lab.REMOVED_DIR / snip.name).exists()
+    assert [e["file"] for e in _state(folder)["entries"]] == [snip.name]
+
+
+def test_a_failed_index_render_keeps_the_removal(cfg, monkeypatch):
+    """The record is the truth; lab.md is re-rendered on the next change."""
+    folder = _start(cfg)
+    snip = lab.save(b"evidence", "png", cfg)
+    _fail_writes_to(monkeypatch, lab.INDEX_NAME)
+
+    with pytest.raises(lab.LabError):
+        lab.remove_snip(cfg, snip.name)
+
+    assert not snip.exists()
+    assert (folder / lab.REMOVED_DIR / snip.name).exists()
+    assert _state(folder)["entries"] == []
+
+
+def test_if_the_image_cannot_go_back_the_error_says_where_it_is(cfg, monkeypatch):
+    folder = _start(cfg)
+    snip = lab.save(b"evidence", "png", cfg)
+    _fail_writes_to(monkeypatch, lab.STATE_NAME)
+    real_replace = Path.replace
+
+    def replace(self, target):
+        if Path(self).parent.name == lab.REMOVED_DIR:
+            raise OSError("locked")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", replace)
+    with pytest.raises(lab.LabError, match=f"{lab.REMOVED_DIR}/{snip.name}"):
+        lab.remove_snip(cfg, snip.name)

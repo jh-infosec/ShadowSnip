@@ -523,8 +523,35 @@ def remove_snip(cfg: dict, filename: str) -> dict | None:
             entry["removed"] = stamp
         state["entries"] = kept
         state.setdefault("removed", []).extend(moved)
-        _save_state(target, state, cfg)
+        try:
+            _save_state(target, state, cfg)
+        except LabError as exc:
+            # The image has already moved. If the record was not saved it
+            # still lists the snip in the lab, so the image goes back where
+            # the record says it is. If only lab.md failed, the record is
+            # right and the move stands; the next change re-renders lab.md.
+            if _record_lists(target, filename):
+                try:
+                    destination.replace(source)
+                except OSError as back:
+                    raise LabError(
+                        f"{exc}. The image could not be put back either ({back}); "
+                        f"it is in {REMOVED_DIR}/{destination.name}"
+                    ) from exc
+                raise LabError(f"{exc}. Nothing was removed.") from exc
+            raise
     return removed
+
+
+def _record_lists(target: Path, filename: str) -> bool:
+    """True when lab.json on disk still has a snip entry for this file."""
+    state = _load_state(target)
+    return any(
+        isinstance(entry, dict)
+        and entry_kind(entry) == "snip"
+        and entry.get("file") == filename
+        for entry in (state or {}).get("entries", [])
+    )
 
 
 def snip_rows(cfg: dict) -> list[dict]:

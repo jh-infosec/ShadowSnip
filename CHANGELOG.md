@@ -1,6 +1,14 @@
 # Changelog
 
-## Latest: 0.7.5
+## Latest: 0.7.6
+
+**Fixed**: removing a snip could leave the lab half-changed if saving the lab
+record failed (a full disk, a permissions error). The image had already moved
+to `removed/` while `lab.json` still listed it in the lab. The image is now put
+back, and the message says nothing was removed. Found in an external review of
+0.7.5.
+
+### 0.7.5 in brief
 
 **Added**: shift-click or Ctrl-click in the snip list to select several snips
 and remove them together, after one question. The button says how many.
@@ -184,6 +192,23 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.7.6] - 2026-10-09
+
+### Fixed
+- `lab.remove_snip` moves the image before saving the record. When
+  `_save_state` fails and the record on disk still lists the snip
+  (`_record_lists`), the image is moved back and the error ends "Nothing was
+  removed." If moving it back fails too, the error says where the image is.
+  When only the `lab.md` render fails, the record is already right, so the
+  move stands and the next change re-renders `lab.md`.
+
+### Tests
+- A failed `lab.json` write leaves the image and the record as they were; a
+  failed `lab.md` render keeps the removal; when the image cannot be put back,
+  the error names its place in `removed/`.
 
 ---
 
