@@ -124,3 +124,95 @@ def test_the_thumb_cache_reloads_a_changed_file(rows, tmp_path):
     assert cache.get(path, QSize(56, 34)) is first
     cache.keep_only([])
     assert cache._cache == {}
+
+
+# -- 0.7.5: several at once, and copy or remove from the viewer ------------------------
+def _select_range(panel, first: int, last: int) -> None:
+    """A click on one row, then a shift-click on another."""
+    from PySide6.QtCore import QItemSelectionModel
+
+    panel.list.setCurrentItem(panel.list.topLevelItem(first))
+    model = panel.list.selectionModel()
+    for index in range(first, last + 1):
+        item = panel.list.topLevelItem(index)
+        model.select(panel.list.indexFromItem(item),
+                     QItemSelectionModel.SelectionFlag.Select
+                     | QItemSelectionModel.SelectionFlag.Rows)
+
+
+def test_the_list_allows_shift_and_ctrl_click(panel):
+    from PySide6.QtWidgets import QAbstractItemView
+
+    assert panel.list.selectionMode() == QAbstractItemView.SelectionMode.ExtendedSelection
+
+
+def test_shift_click_on_a_row_selects_the_range(panel):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    rect_first = panel.list.visualItemRect(panel.list.topLevelItem(0))
+    rect_last = panel.list.visualItemRect(panel.list.topLevelItem(2))
+    viewport = panel.list.viewport()
+    QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                     rect_first.center())
+    QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier,
+                     rect_last.center())
+    assert panel.selected_files() == ["003_snip.png", "002_snip.png", "001_snip.png"]
+
+
+def test_removing_several_sends_them_all_in_one_request(panel):
+    got = []
+    panel.remove_requested.connect(got.append)
+    _select_range(panel, 0, 1)
+    panel._emit_remove()
+    assert got == [["003_snip.png", "002_snip.png"]]
+    assert panel.btn_remove.text() == "Remove 2 from lab"
+
+
+def test_one_selected_keeps_the_plain_button(panel):
+    panel.select("002_snip.png")
+    assert panel.selected_files() == ["002_snip.png"]
+    assert panel.btn_remove.text() == "Remove from lab"
+
+
+def test_a_refresh_keeps_a_multi_selection(panel, rows):
+    _select_range(panel, 0, 2)
+    panel.set_rows(rows, current_file="003_snip.png")
+    assert len(panel.selected_files()) == 3
+
+
+def test_the_viewer_copies_and_removes_the_snip_it_shows(panel):
+    copied, removed = [], []
+    panel.copy_requested.connect(copied.append)
+    panel.remove_requested.connect(removed.append)
+    panel.select("002_snip.png")
+    panel.expand()
+    viewer = panel.viewer
+    viewer.btn_copy.click()
+    viewer.btn_remove.click()
+    assert copied == ["002_snip.png"]
+    assert removed == [["002_snip.png"]]
+    viewer.step(1)
+    viewer.copy_current()
+    assert copied[-1] == "003_snip.png"
+
+
+def test_the_viewer_right_click_menu(panel):
+    panel.expand()
+    texts = [text for text, _slot in panel.viewer.context_actions()]
+    assert texts == ["Copy", "Remove from lab..."]
+
+
+def test_the_viewer_says_what_happened_then_shows_the_hints_again(panel, qapp):
+    import time
+
+    panel.expand()
+    viewer = panel.viewer
+    hints = viewer.hint.text()
+    viewer.flash("Snip 003 copied", ms=50)
+    assert viewer.hint.text() == "Snip 003 copied"
+    end = time.monotonic() + 2
+    while viewer.hint.text() != hints and time.monotonic() < end:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert viewer.hint.text() == hints

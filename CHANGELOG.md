@@ -1,6 +1,15 @@
 # Changelog
 
-## Latest: 0.7.4
+## Latest: 0.7.5
+
+**Added**: shift-click or Ctrl-click in the snip list to select several snips
+and remove them together, after one question. The button says how many.
+
+**Added**: in the full-size view, **Copy** and **Remove from lab** buttons,
+the same two on the right-click menu, and Ctrl+C and Delete. A copy is
+confirmed in the view itself, where you are looking.
+
+### 0.7.4 in brief
 
 **Fixed**: after a snip the window could fail to appear on a setup with two
 differently scaled screens (a laptop beside a TV at 300%). The snip worked and
@@ -175,6 +184,35 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.7.5] - 2026-10-09
+
+### Added
+- The snip list uses extended selection (shift-click a range, Ctrl-click to
+  add or drop one). `LabSnipsPanel.selected_files()` returns every selected
+  snip, newest first; `remove_requested` now carries a list. A refresh keeps
+  the whole selection, not just the current row. The button reads
+  **Remove N from lab** when N > 1.
+- `ShadowSnipApp.remove_lab_snips()` asks once for all of them, listing up to
+  12 by number and caption, then removes each through `lab.remove_snip()`, so
+  each stays recoverable in `removed/`. A failure on one is reported and the
+  rest still go. `remove_lab_snip()` remains for one file.
+- `SnipViewer`: **Copy** and **Remove from lab** buttons, a right-click menu
+  with both (`context_actions()`), Ctrl+C and Delete. Removing moves the view
+  to the next snip. The confirmation opens over the viewer, not behind it.
+- `ShadowSnipApp.copy_lab_snip()` copies a lab snip from its file.
+  `imageops.clipboard_png_from_file()` re-encodes the saved file as PNG
+  without processing it again, since it was scaled and reduced when taken.
+  `SnipViewer.flash()` shows the result in place of the key hints.
+
+### Tests
+- Extended selection; a real shift-click selects the range; several removed
+  in one request; the button text; a refresh keeps the selection; the viewer's
+  buttons and menu; the message and the hints coming back; several removed
+  after one question and all landing in `removed/`; No removes nothing; a lab
+  snip copied from its file as a PNG of the right image.
 
 ---
 

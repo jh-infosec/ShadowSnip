@@ -120,6 +120,20 @@ def _clamp_percent(value) -> float:
         return 25.0
 
 
+def clipboard_png_from_file(path, cfg: dict) -> tuple[bytes, Image.Image]:
+    """A saved snip, ready for the clipboard: (PNG bytes, the image).
+
+    Used to copy a lab snip from the viewer. The file was already scaled and
+    reduced when it was taken, so it is only re-encoded as PNG, not processed
+    again. Raises OSError if the file cannot be read as an image.
+    """
+    with Image.open(path) as opened:
+        opened.load()
+        image = opened.convert("RGBA" if "A" in opened.getbands() else "RGB")
+    level = int(cfg.get("png_compress_level", 9))
+    return _to_png(image, level), image
+
+
 def _to_png(image: Image.Image, level: int) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format="PNG", optimize=True, compress_level=level)

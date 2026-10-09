@@ -67,7 +67,8 @@ class ShadowSnipApp(QObject):
         self._snip_paths: dict[str, Path] = {}
         self.preview.snip_move_requested.connect(self.move_current_snip)
         self.preview.settings_requested.connect(self.open_settings)
-        self.preview.snip_remove_requested.connect(self.remove_lab_snip)
+        self.preview.snip_remove_requested.connect(self.remove_lab_snips)
+        self.preview.snip_copy_requested.connect(self.copy_lab_snip)
         self.preview.snip_open_requested.connect(self.open_lab_snip)
         self.preview.snip_list_toggled.connect(self.set_snip_list_shown)
         self.preview.note_added.connect(self._on_note_from_preview)
@@ -496,38 +497,70 @@ class ShadowSnipApp(QObject):
         self._refresh_menu_text()
 
     def remove_lab_snip(self, filename: str) -> None:
-        """Take a snip out of the running lab, after asking.
+        """Take one snip out of the running lab, after asking."""
+        self.remove_lab_snips([filename] if filename else [])
 
-        For the wrong snip filed into the lab. The image goes to the lab's
-        `removed` folder rather than the recycle bin, so a slip of the mouse on
-        this button costs nothing either.
+    def remove_lab_snips(self, filenames) -> None:
+        """Take snips out of the running lab, after asking once for all of them.
+
+        For the wrong snips filed into the lab. The images go to the lab's
+        `removed` folder rather than the recycle bin, so a slip of the mouse
+        costs nothing either. Several come from a shift-click selection in
+        the list; one comes from the list or the full-size viewer.
         """
-        if not filename or not lab.is_active(self.cfg):
+        if isinstance(filenames, str):
+            filenames = [filenames]
+        filenames = [name for name in (filenames or []) if name]
+        if not filenames or not lab.is_active(self.cfg):
             return
-        row = next(
-            (r for r in lab.snip_rows(self.cfg) if r["file"] == filename), None
-        )
-        if row is None:
-            self.preview.set_status(f"{filename} is no longer in this lab.")
+        rows = {r["file"]: r for r in lab.snip_rows(self.cfg)}
+        present = [name for name in filenames if name in rows]
+        if not present:
+            missing = filenames[0] if len(filenames) == 1 else "Those snips"
+            self.preview.set_status(f"{missing} no longer in this lab.")
             self._refresh_menu_text()
             return
 
-        label = f"{row['number']:03d}"
-        detail = [f"Snip {label} ({filename})"]
-        if row["caption"]:
-            detail.append(f"Caption: {row['caption']}")
-        if row["notes"]:
-            detail.append(
-                f"{len(row['notes'])} attached note(s) go with it unless they "
-                "are also attached to another snip."
-            )
+        if len(present) == 1:
+            row = rows[present[0]]
+            title = "Remove snip from lab"
+            detail = [f"Snip {row['number']:03d} ({row['file']})"]
+            if row["caption"]:
+                detail.append(f"Caption: {row['caption']}")
+            if row["notes"]:
+                detail.append(
+                    f"{len(row['notes'])} attached note(s) go with it unless "
+                    "they are also attached to another snip."
+                )
+        else:
+            title = f"Remove {len(present)} snips from lab"
+            detail = [f"{len(present)} snips:"]
+            shown = present[:12]
+            for name in shown:
+                row = rows[name]
+                caption = f"  {row['caption']}" if row["caption"] else ""
+                detail.append(f"  {row['number']:03d}{caption}")
+            if len(present) > len(shown):
+                detail.append(f"  and {len(present) - len(shown)} more")
+            if any(rows[name]["notes"] for name in present):
+                detail.append(
+                    "Notes attached only to these snips go with them."
+                )
         detail.append(
+            "\nThe images are moved to the lab's 'removed' folder and dropped "
+            "from lab.md. Nothing is deleted."
+            if len(present) > 1 else
             "\nThe image is moved to the lab's 'removed' folder and dropped "
             "from lab.md. It is not deleted."
         )
+        # The full-size viewer may be the window in front; a dialog parented
+        # to the preview window would open behind it.
+        parent = QApplication.activeWindow()
+        if parent is None and self.preview.isVisible():
+            parent = self.preview
         answer = QMessageBox.question(
-            self.preview if self.preview.isVisible() else None,
-            "Remove snip from lab",
+            parent,
+            title,
             "\n".join(detail),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -535,28 +568,57 @@ class ShadowSnipApp(QObject):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        try:
-            removed = lab.remove_snip(self.cfg, filename)
-        except lab.LabError as exc:
-            self.preview.set_status(f"Could not remove the snip: {exc}")
-            return
-        if removed is None:
-            self.preview.set_status(f"{filename} is not in this lab.")
-            self._refresh_menu_text()
-            return
+        done, notes, errors = [], [], []
+        for name in present:
+            try:
+                removed = lab.remove_snip(self.cfg, name)
+            except lab.LabError as exc:
+                errors.append(f"{rows[name]['number']:03d}: {exc}")
+                continue
+            if removed is None:
+                continue
+            done.append(f"{rows[name]['number']:03d}")
+            notes.extend(removed["notes"])
+            if name == self._last_lab_file:
+                self._last_lab_file = ""
+                # The file is in removed/ now; an edit must not recreate it.
+                self._snip_paths.pop("lab", None)
+                self.preview.forget_snip_on_screen()
 
-        if filename == self._last_lab_file:
-            self._last_lab_file = ""
-            # The file is in removed/ now; an edit must not recreate it.
-            self._snip_paths.pop("lab", None)
-            self.preview.forget_snip_on_screen()
-        notes = removed["notes"]
-        extra = f" with note {', '.join(notes)}" if notes else ""
-        self.preview.set_status(
-            f"Snip {label} removed from lab {lab.active_name(self.cfg)}{extra}. "
-            f"It is in {lab.REMOVED_DIR}\\ inside the lab folder."
-        )
+        if done:
+            what = f"Snip {done[0]}" if len(done) == 1 else f"Snips {', '.join(done)}"
+            extra = f" with note {', '.join(notes)}" if notes else ""
+            where = "It is" if len(done) == 1 else "They are"
+            status = (
+                f"{what} removed from lab {lab.active_name(self.cfg)}{extra}. "
+                f"{where} in {lab.REMOVED_DIR}\\ inside the lab folder."
+            )
+            if errors:
+                status += f" Not removed: {'; '.join(errors)}"
+            self.preview.set_status(status)
+        elif errors:
+            self.preview.set_status(f"Could not remove: {'; '.join(errors)}")
         self._refresh_menu_text()
+
+    def copy_lab_snip(self, filename: str) -> None:
+        """Put a lab snip on the clipboard, from the full-size viewer."""
+        folder = lab.active_folder(self.cfg)
+        if folder is None or not filename:
+            return
+        path = folder / filename
+        label = filename.split("_", 1)[0]
+        try:
+            png, image = imageops.clipboard_png_from_file(path, self.cfg)
+            clipboard.copy(png, image, include_dib=self.cfg["clipboard_dib_fallback"])
+        except Exception as exc:  # noqa: BLE001 - reported to the user
+            message = f"Could not copy snip {label}: {exc}"
+            self.preview.set_status(message)
+            self.preview.viewer_message(message)
+            return
+        message = f"Snip {label} copied to the clipboard"
+        self.preview.set_status(message)
+        # The viewer is usually in front of the status line, so it says so too.
+        self.preview.viewer_message(message)
 
     def _on_note_from_preview(self, text: str, attach: bool) -> None:
         """A note typed under the image: filed, attached to the snip on screen if asked."""

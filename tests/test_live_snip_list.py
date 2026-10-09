@@ -149,3 +149,52 @@ def test_a_move_in_the_outline_lands_in_lab_md(shadow):
         ),
     )
     assert "smb" in s.preview.snips_panel._md_text
+
+
+def _three_snips(s):
+    _start_lab(s)
+    for colour in ((200, 0, 0), (0, 200, 0), (0, 0, 200)):
+        image = QImage(60, 40, QImage.Format.Format_RGB32)
+        image.fill(QColor(*colour))
+        s._handle_snip(image)
+    return [row["file"] for row in lab.snip_rows(s.cfg)]
+
+
+def test_several_snips_are_removed_after_one_question(shadow, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    s, qapp = shadow
+    files = _three_snips(s)
+    asked = []
+    monkeypatch.setattr(
+        app_mod.QMessageBox, "question",
+        lambda *a, **k: asked.append(a[1]) or QMessageBox.StandardButton.Yes,
+    )
+    s.remove_lab_snips(files[:2])
+    assert asked == ["Remove 2 snips from lab"]
+    assert [row["file"] for row in lab.snip_rows(s.cfg)] == files[2:]
+    removed = lab.active_folder(s.cfg) / lab.REMOVED_DIR
+    assert sorted(p.name for p in removed.iterdir()) == sorted(files[:2])
+
+
+def test_saying_no_removes_nothing(shadow, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    s, qapp = shadow
+    files = _three_snips(s)
+    monkeypatch.setattr(app_mod.QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.No)
+    s.remove_lab_snips(files)
+    assert len(lab.snip_rows(s.cfg)) == 3
+
+
+def test_a_lab_snip_is_copied_from_its_file(shadow, monkeypatch):
+    s, qapp = shadow
+    files = _three_snips(s)
+    copied = []
+    monkeypatch.setattr(clipboard, "copy", lambda png, image, **k: copied.append((png, image)))
+    s.copy_lab_snip(files[0])
+    (png, image), = copied
+    assert png.startswith(b"\x89PNG")
+    assert image.getpixel((5, 5))[:3] == (200, 0, 0)
+    assert "copied" in s.preview.status.text()

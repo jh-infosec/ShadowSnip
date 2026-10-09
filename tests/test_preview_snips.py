@@ -54,7 +54,7 @@ def test_remove_emits_the_selected_file(window):
     window.snip_remove_requested.connect(got.append)
     window._emit_remove()
     window.snip_remove_requested.disconnect()
-    assert got == ["002_b.png"]
+    assert got == [["002_b.png"]]
 
 
 def test_an_empty_lab_disables_the_buttons(window):

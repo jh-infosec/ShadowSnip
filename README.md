@@ -395,9 +395,13 @@ lab** below it. Its caption and notes show in the list's columns; they are
 written from the boxes under the snip on screen. Click the thumbnail, press
 **Expand**, double-click a row or
 press Space to see the snip full size; Left and Right step through the lab.
+In that full-size view, **Copy** (or Ctrl+C) puts the snip on the clipboard
+and **Remove from lab** (or Delete) takes it out; both are also on the
+right-click menu. After a removal the view moves on to the next snip.
 
 **Remove from lab** (or Delete on the list) takes the selected snip out of the
-lab after asking. Nothing is deleted: the image goes to a `removed` folder
+lab after asking. Shift-click or Ctrl-click to select several and the button
+becomes **Remove 3 from lab**: one question covers them all. Nothing is deleted: the image goes to a `removed` folder
 inside the lab, its record goes to a `removed` list in `lab.json`, and `lab.md`
 is re-rendered without it. Notes attached only to that snip go with it; a note
 also attached to another snip stays. The next snip reuses the freed number. To

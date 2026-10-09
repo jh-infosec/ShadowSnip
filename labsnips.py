@@ -36,7 +36,7 @@ from __future__ import annotations
 import html
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QUrl, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor,
     QCursor,
@@ -58,6 +58,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QSplitter,
     QStyleFactory,
@@ -97,6 +98,9 @@ QPushButton {
     border-radius: 4px; padding: 6px 14px;
 }
 QPushButton:hover { background: #34343d; }
+QPushButton#Danger { background: #4a2328; border-color: #6e2f37; }
+QPushButton#Danger:hover { background: #5a2a31; }
+QPushButton:disabled { color: #6c6c78; }
 """
 
 
@@ -248,6 +252,9 @@ class SnipViewer(QWidget):
 
     # The file now shown, so the list can follow.
     current_changed = Signal(str)
+    # The file shown, to put on the clipboard or take out of the lab.
+    copy_requested = Signal(str)
+    remove_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.Window)
@@ -267,16 +274,30 @@ class SnipViewer(QWidget):
         self.caption.setObjectName("ViewerCaption")
         self.caption.setWordWrap(True)
         self.caption.setTextFormat(Qt.TextFormat.PlainText)
-        self.hint = QLabel("Left / Right for the previous and next snip   |   Esc to close")
+        self.hint = QLabel(
+            "Left / Right for the previous and next snip   |   Ctrl+C to copy   |   "
+            "Delete to remove from the lab   |   Esc to close"
+        )
         self.hint.setObjectName("ViewerHint")
 
         self.btn_prev = QPushButton("< Previous")
         self.btn_next = QPushButton("Next >")
+        self.btn_copy = QPushButton("Copy")
+        self.btn_copy.setToolTip("Put this snip on the clipboard (Ctrl+C)")
+        self.btn_remove = QPushButton("Remove from lab")
+        self.btn_remove.setObjectName("Danger")
+        self.btn_remove.setToolTip(
+            "Take this snip out of the lab and lab.md (Delete). The image is "
+            "moved to the lab's removed folder, not deleted."
+        )
         self.btn_close = QPushButton("Close")
         self.btn_prev.clicked.connect(lambda: self.step(-1))
         self.btn_next.clicked.connect(lambda: self.step(1))
+        self.btn_copy.clicked.connect(self.copy_current)
+        self.btn_remove.clicked.connect(self.remove_current)
         self.btn_close.clicked.connect(self.close)
-        for button in (self.btn_prev, self.btn_next, self.btn_close):
+        for button in (self.btn_prev, self.btn_next, self.btn_copy,
+                       self.btn_remove, self.btn_close):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         bar = QHBoxLayout()
@@ -285,6 +306,9 @@ class SnipViewer(QWidget):
         bar.addWidget(self.btn_prev)
         bar.addWidget(self.btn_next)
         bar.addStretch(1)
+        bar.addWidget(self.btn_copy)
+        bar.addWidget(self.btn_remove)
+        bar.addSpacing(16)
         bar.addWidget(self.btn_close)
 
         layout = QVBoxLayout(self)
@@ -296,6 +320,8 @@ class SnipViewer(QWidget):
         layout.addLayout(bar)
 
         QShortcut(QKeySequence("Esc"), self, self.close)
+        QShortcut(QKeySequence.StandardKey.Copy, self, self.copy_current)
+        QShortcut(QKeySequence.StandardKey.Delete, self, self.remove_current)
         for key, step in (("Left", -1), ("Up", -1), ("Right", 1), ("Down", 1)):
             QShortcut(QKeySequence(key), self, lambda s=step: self.step(s))
 
@@ -333,6 +359,41 @@ class SnipViewer(QWidget):
             return self._items[self._index]["file"]
         return ""
 
+    def flash(self, text: str, ms: int = 2500) -> None:
+        """Show a message where the key hints are, then put the hints back."""
+        if not hasattr(self, "_hint_text"):
+            self._hint_text = self.hint.text()
+            self._hint_timer = QTimer(self)
+            self._hint_timer.setSingleShot(True)
+            self._hint_timer.timeout.connect(lambda: self.hint.setText(self._hint_text))
+        self.hint.setText(text)
+        self._hint_timer.start(ms)
+
+    def copy_current(self) -> None:
+        filename = self.current_file()
+        if filename:
+            self.copy_requested.emit(filename)
+
+    def remove_current(self) -> None:
+        filename = self.current_file()
+        if filename:
+            self.remove_requested.emit(filename)
+
+    def context_actions(self) -> list[tuple[str, object]]:
+        """The right-click menu's rows, as (text, slot). Empty with nothing shown."""
+        if not self.current_file():
+            return []
+        return [("Copy", self.copy_current), ("Remove from lab...", self.remove_current)]
+
+    def contextMenuEvent(self, event):
+        rows = self.context_actions()
+        if not rows:
+            return
+        menu = QMenu(self)
+        for text, slot in rows:
+            menu.addAction(text).triggered.connect(slot)
+        menu.exec(event.globalPos())
+
     def step(self, delta: int) -> None:
         if not self._items:
             return
@@ -354,6 +415,7 @@ class SnipViewer(QWidget):
         self.setWindowTitle(f"ShadowSnip - {item['label']} ({position})")
         self.btn_prev.setEnabled(self._index > 0)
         self.btn_next.setEnabled(self._index < len(self._items) - 1)
+        self.btn_copy.setEnabled(not self._pixmap.isNull())
         if announce:
             self.current_changed.emit(item["file"])
 
@@ -785,8 +847,10 @@ class ClickToEditLine(_Lockable, QLineEdit):
 
 # -- the panel ----------------------------------------------------------------
 class LabSnipsPanel(QWidget):
-    remove_requested = Signal(str)
+    # Every file to take out of the lab, in list order, newest first.
+    remove_requested = Signal(list)
     open_requested = Signal(str)
+    copy_requested = Signal(str)
     # From the outline: (entry key, section, key to go before or "")
     move_requested = Signal(str, str, str)
     # The Preview tab's button: open lab.md itself.
@@ -810,7 +874,8 @@ class LabSnipsPanel(QWidget):
         self.list.setRootIsDecorated(False)
         self.list.setAlternatingRowColors(True)
         self.list.setUniformRowHeights(True)
-        self.list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # Shift-click and Ctrl-click select several, to remove them together.
+        self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list.setTextElideMode(Qt.TextElideMode.ElideRight)
@@ -932,9 +997,9 @@ class LabSnipsPanel(QWidget):
         self.btn_remove = QPushButton("Remove from lab")
         self.btn_remove.setObjectName("Danger")
         self.btn_remove.setToolTip(
-            "Take the selected snip out of the lab and lab.md. The image is "
-            "moved to the lab's removed folder, not deleted. Notes attached "
-            "only to it go with it."
+            "Take the selected snips out of the lab and lab.md. Shift-click or "
+            "Ctrl-click to select several. The images are moved to the lab's "
+            "removed folder, not deleted. Notes attached only to them go too."
         )
         self.btn_remove.clicked.connect(self._emit_remove)
 
@@ -962,6 +1027,9 @@ class LabSnipsPanel(QWidget):
         """
         same_snip = (current_file or "") == self._current_lab_file
         previous = self.selected() if same_snip else ""
+        # Every selected row survives a refresh, not just the current one, so
+        # a shift-click selection is not lost when a note is filed meanwhile.
+        previous_all = set(self.selected_files()) if same_snip else set()
         self._current_lab_file = current_file or ""
         rows = list(rows)
         self._rows = {row["file"]: row for row in rows}
@@ -984,6 +1052,8 @@ class LabSnipsPanel(QWidget):
             if choose is not None:
                 self.list.setCurrentItem(choose)
                 self.list.scrollToItem(choose)
+            for filename in previous_all & set(items):
+                items[filename].setSelected(True)
         finally:
             self.list.blockSignals(blocked)
 
@@ -1112,6 +1182,15 @@ class LabSnipsPanel(QWidget):
             return ""
         return str(item.data(0, Qt.ItemDataRole.UserRole) or "")
 
+    def selected_files(self) -> list[str]:
+        """Every selected snip, in list order (newest first)."""
+        files = []
+        for index in range(self.list.topLevelItemCount()):
+            item = self.list.topLevelItem(index)
+            if item.isSelected():
+                files.append(str(item.data(0, Qt.ItemDataRole.UserRole) or ""))
+        return [name for name in files if name]
+
     def select(self, filename: str) -> None:
         for index in range(self.list.topLevelItemCount()):
             item = self.list.topLevelItem(index)
@@ -1168,7 +1247,11 @@ class LabSnipsPanel(QWidget):
 
     def _sync_buttons(self) -> None:
         chosen = bool(self.selected())
-        self.btn_remove.setEnabled(chosen)
+        count = len(self.selected_files())
+        self.btn_remove.setEnabled(count > 0)
+        self.btn_remove.setText(
+            f"Remove {count} from lab" if count > 1 else "Remove from lab"
+        )
         self.btn_open.setEnabled(chosen)
         self.btn_expand.setEnabled(chosen)
 
@@ -1194,6 +1277,8 @@ class LabSnipsPanel(QWidget):
         if self.viewer is None:
             self.viewer = SnipViewer()
             self.viewer.current_changed.connect(self.select)
+            self.viewer.copy_requested.connect(self.copy_requested.emit)
+            self.viewer.remove_requested.connect(lambda name: self.remove_requested.emit([name]))
         self.viewer.set_items(self._viewer_items())
         self.viewer.show_file(filename)
 
@@ -1202,9 +1287,9 @@ class LabSnipsPanel(QWidget):
             self.viewer.close()
 
     def _emit_remove(self) -> None:
-        filename = self.selected()
-        if filename:
-            self.remove_requested.emit(filename)
+        files = self.selected_files()
+        if files:
+            self.remove_requested.emit(files)
 
     def _emit_open(self) -> None:
         filename = self.selected()

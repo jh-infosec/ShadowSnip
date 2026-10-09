@@ -134,7 +134,10 @@ class PreviewWindow(QWidget):
     snip_move_requested = Signal()
     settings_requested = Signal()
     # A lab filename: take it out of the lab.
-    snip_remove_requested = Signal(str)
+    # Every file to take out of the lab (a list, from a multi-selection).
+    snip_remove_requested = Signal(list)
+    # A lab snip to put on the clipboard, from the full-size viewer.
+    snip_copy_requested = Signal(str)
     # A lab filename: open the image.
     snip_open_requested = Signal(str)
     # The Snip list button: show (True) or hide (False) the lab snip list.
@@ -207,6 +210,7 @@ class PreviewWindow(QWidget):
         self.snips_panel = LabSnipsPanel()
         self.snips_panel.setVisible(False)
         self.snips_panel.remove_requested.connect(self.snip_remove_requested.emit)
+        self.snips_panel.copy_requested.connect(self.snip_copy_requested.emit)
         self.snips_panel.open_requested.connect(self.snip_open_requested.emit)
         self.snips_panel.move_requested.connect(self.lab_entry_move_requested.emit)
         self.snips_panel.open_md_requested.connect(self.lab_md_open_requested.emit)
@@ -589,6 +593,12 @@ class PreviewWindow(QWidget):
 
     def hide_viewer(self) -> None:
         self.snips_panel.hide_viewer()
+
+    def viewer_message(self, text: str) -> None:
+        """A short message in the full-size viewer, when it is open."""
+        viewer = self.snips_panel.viewer
+        if viewer is not None and viewer.isVisible():
+            viewer.flash(text)
 
     def closeEvent(self, event):
         self.snips_panel.hide_viewer()
