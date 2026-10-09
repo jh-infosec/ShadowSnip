@@ -219,3 +219,52 @@ def test_esc_puts_a_tool_down_before_it_closes_the_window(window):
     assert window.tools.tool is None and window.isVisible()
     window._on_escape()
     assert not window.isVisible()
+
+
+# -- 0.7.4: the window always lands on a screen ---------------------------------------
+def _screen_area():
+    from PySide6.QtGui import QGuiApplication
+
+    return QGuiApplication.primaryScreen().availableGeometry()
+
+
+def test_a_window_left_off_every_screen_comes_back(window):
+    window.open_window()
+    window.move(-20000, -20000)
+    window.open_window()
+    assert window._on_a_screen()
+    assert _screen_area().intersects(window.frameGeometry())
+    window.hide()
+
+
+def test_a_snip_brings_the_window_back_from_off_screen(window):
+    from PySide6.QtGui import QColor, QImage
+
+    window.open_window()
+    window.move(50000, 50000)
+    image = QImage(200, 120, QImage.Format.Format_RGB32)
+    image.fill(QColor("white"))
+    window.show_snip(image=image, disk_bytes=b"x", ext="png", latest_path=None,
+                     status="ok", copy_again=lambda: None)
+    assert window._on_a_screen()
+    window.hide()
+
+
+def test_a_minimised_window_is_restored(window):
+    from PySide6.QtCore import Qt
+
+    window.open_window()
+    window.setWindowState(Qt.WindowState.WindowMinimized)
+    window.open_window()
+    assert not (window.windowState() & Qt.WindowState.WindowMinimized)
+    window.hide()
+
+
+def test_the_window_is_shrunk_to_fit_a_small_screen(window):
+    area = _screen_area()
+    window.hide()
+    window.resize(area.width() + 400, area.height() + 400)
+    window.open_window()
+    assert window.height() <= max(area.height(), window.minimumHeight())
+    assert window.frameGeometry().top() >= area.top()
+    window.hide()

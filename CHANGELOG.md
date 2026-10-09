@@ -1,6 +1,14 @@
 # Changelog
 
-## Latest: 0.7.3
+## Latest: 0.7.4
+
+**Fixed**: after a snip the window could fail to appear on a setup with two
+differently scaled screens (a laptop beside a TV at 300%). The snip worked and
+reached the clipboard, but the window opened off every screen or as a small
+minimised strip above the taskbar. It now always opens restored, on the screen
+under the pointer, and shrunk to fit if that screen is smaller than the window.
+
+### 0.7.3 in brief
 
 **Restored**: the caption box, the note box, **Add note** and **Attach to this
 snip** under the snip in the preview window, for the snip on screen, as before
@@ -167,6 +175,25 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.7.4] - 2026-10-08
+
+### Fixed
+- The window could open off every screen or minimised after a snip. The snip
+  path (`show_snip`) never placed the window, only a tray click or relaunch
+  did, and only the first time. Both now go through `PreviewWindow._bring_up`:
+  restore if minimised, show, and centre on the pointer's screen when it is
+  the first showing or the title bar is on no screen (`_on_a_screen`).
+- `center_on_cursor_screen` shrinks the window to fit the screen (never below
+  its minimum size) and never places the title bar above or left of it. The
+  default 1100 x 760 was taller than a laptop screen at 150%.
+
+### Tests
+- A window moved off every screen comes back on a relaunch and after a snip; a
+  minimised window is restored; an oversized window is shrunk to fit with its
+  title bar on the screen. Run at 100% and 300% scaling.
 
 ---
 

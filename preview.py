@@ -412,14 +412,7 @@ class PreviewWindow(QWidget):
         self.tools.set_available(True)
 
         self.status.setText(status)
-        if self.isMinimized():
-            self.setWindowState(
-                (self.windowState() & ~Qt.WindowState.WindowMinimized)
-                | Qt.WindowState.WindowActive
-            )
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        self._bring_up()
 
     # -- marking up the snip -------------------------------------------------
     def _on_canvas_edited(self) -> None:
@@ -468,21 +461,43 @@ class PreviewWindow(QWidget):
             self.canvas.set_message("No snip yet - press the hotkey or New snip")
             if not self.status.text():
                 self.status.setText("Ready")
+        self._bring_up()
+
+    def _bring_up(self) -> None:
+        """Show the window restored, on a screen, in front.
+
+        Used after a snip and for a tray click or relaunch alike. Before
+        0.7.4 the snip path skipped the placement, so on a machine with a
+        second, differently scaled screen (a TV at 300% beside a laptop) the
+        window could open off every screen or as a minimised strip above the
+        taskbar: the hotkey snipped, the clipboard filled, and no window.
+        """
         first_open = not self.isVisible()
-        if self.isMinimized():
+        if self.isMinimized() or self.windowState() & Qt.WindowState.WindowMinimized:
             # show() and raise_() leave a minimised window minimised, so a
             # tray click or a second launch appeared to do nothing at all.
             self.setWindowState(
                 (self.windowState() & ~Qt.WindowState.WindowMinimized)
                 | Qt.WindowState.WindowActive
             )
+            self.showNormal()
         self.show()
-        if first_open:
-            # Centre after show(), since frameGeometry is only meaningful once
-            # the window has been laid out.
+        if first_open or not self._on_a_screen():
+            # After show(), since frameGeometry is only meaningful once the
+            # window has been laid out.
             self.center_on_cursor_screen()
         self.raise_()
         self.activateWindow()
+
+    def _on_a_screen(self) -> bool:
+        """True when the title bar is on some screen, so the window can be grabbed."""
+        frame = self.frameGeometry()
+        title = frame.adjusted(0, 0, 0, -(frame.height() - 40))
+        for screen in QGuiApplication.screens():
+            overlap = screen.availableGeometry().intersected(title)
+            if overlap.width() >= min(200, frame.width()) and overlap.height() >= 20:
+                return True
+        return False
 
     def set_auto_copy(self, on: bool) -> None:
         """Reflect the copy-on-select state without re-emitting the signal."""
@@ -697,9 +712,26 @@ class PreviewWindow(QWidget):
         self.caption.set_locked(True)
 
     def center_on_cursor_screen(self) -> None:
+        """Centre on the screen under the pointer, shrunk to fit it if needed.
+
+        The default 1100 x 760 is taller than a laptop screen at 150% or more,
+        which put the title bar above the top of the screen.
+        """
         screen = QGuiApplication.screenAt(QCursor.pos())
         screen = screen or QGuiApplication.primaryScreen()
         area = screen.availableGeometry()
         frame = self.frameGeometry()
+        extra_w = frame.width() - self.width()
+        extra_h = frame.height() - self.height()
+        width = min(self.width(), area.width() - extra_w)
+        height = min(self.height(), area.height() - extra_h)
+        width = max(width, self.minimumWidth())
+        height = max(height, self.minimumHeight())
+        if (width, height) != (self.width(), self.height()):
+            self.resize(width, height)
+        frame = self.frameGeometry()
         frame.moveCenter(area.center())
+        # Never above or left of the screen, so the title bar stays reachable.
+        frame.moveTop(max(frame.top(), area.top()))
+        frame.moveLeft(max(frame.left(), area.left()))
         self.move(frame.topLeft())
