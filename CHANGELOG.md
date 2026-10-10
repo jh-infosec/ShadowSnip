@@ -1,6 +1,14 @@
 # Changelog
 
-## Latest: 0.7.6
+## Latest: 0.7.7
+
+**Added**: the full-size view has the mark-up tools: pen, highlighter,
+eraser, crop, redact and undo, the same as the preview window. Any snip in
+the lab can now be marked up or redacted, not only the one just taken. Edits
+save to the lab file as you go; undo works until you move to another snip or
+close the view.
+
+### 0.7.6 in brief
 
 **Fixed**: removing a snip could leave the lab half-changed if saving the lab
 record failed (a full disk, a permissions error). The image had already moved
@@ -192,6 +200,43 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.7.7] - 2026-10-10
+
+### Added
+- `SnipViewer` is built on `AnnotCanvas` and `AnnotToolbar`, with Ctrl+Z,
+  and Esc putting the tool down before it closes the view. Each snip is
+  loaded as the start of its own edit; mark-up is saved 500 ms after the
+  last change (`edit_saved`), and before moving to another snip, copying,
+  removing or closing.
+- `ShadowSnipApp.save_lab_snip_edit()`: an older lab snip is re-encoded and
+  written over its lab file only. The snip on screen goes through
+  `apply_snip_edit` as a preview edit does, replacing the clipboard,
+  `latest`, lab and history copies, and `PreviewWindow.rebase_snip()` makes
+  the edited image the preview's new starting point, so drawing there later
+  cannot re-render the original over a redaction made in the viewer. A file
+  whose format no longer matches Settings is left alone and the view says so.
+- Before the viewer loads the snip on screen, mark-up waiting in the preview
+  window is saved into it (`lab_snip_loading`). An edit in the preview window
+  reloads that snip in the viewer when the viewer has nothing waiting.
+- A list refresh no longer reloads the snip in the viewer, which would have
+  thrown away undo after every save.
+- The right-click menu on the snip in the viewer is the canvas's own (switch
+  a redaction, Copy) plus **Remove from lab...**
+  (`AnnotCanvas.extra_menu_rows`, `offer_save_as`).
+- Pen and highlighter colours and widths are shared between the preview
+  window and the viewer.
+
+### Tests
+- The viewer has the tool strip; an edit is saved for the right file;
+  moving on, closing and copying save it first; a list refresh keeps undo;
+  Esc order; shared colours and widths; a palette-reduced (indexed) lab file
+  can be marked up; an older snip's edit reaches only its lab file; the snip
+  on screen's edit reaches every copy and the preview; waiting preview
+  mark-up is saved before the viewer loads that snip; a format change since
+  the snip was taken leaves the file alone.
 
 ---
 

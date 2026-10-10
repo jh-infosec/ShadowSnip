@@ -198,8 +198,13 @@ def test_the_viewer_copies_and_removes_the_snip_it_shows(panel):
 
 
 def test_the_viewer_right_click_menu(panel):
+    from PySide6.QtCore import QPointF
+
     panel.expand()
-    texts = [text for text, _slot in panel.viewer.context_actions()]
+    canvas = panel.viewer.canvas
+    canvas.resize(600, 400)
+    centre = QPointF(canvas._target().center())
+    texts = [row[0] for row in canvas.context_actions(centre) if row]
     assert texts == ["Copy", "Remove from lab..."]
 
 
@@ -216,3 +221,109 @@ def test_the_viewer_says_what_happened_then_shows_the_hints_again(panel, qapp):
         qapp.processEvents()
         time.sleep(0.01)
     assert viewer.hint.text() == hints
+
+
+# -- 0.7.7: the viewer has the mark-up tools -------------------------------------------
+def _black_box(viewer):
+    """A redaction over the middle of the snip shown, as a drag would make."""
+    import annotate as an
+    from PySide6.QtCore import QRect
+
+    doc = viewer.canvas.doc
+    doc.add(an.Redact(doc.new_id(), QRect(100, 60, 200, 100), "black"))
+    viewer.canvas._refresh()
+    viewer.canvas.undo_changed.emit(doc.can_undo)
+    viewer.canvas.edited.emit()
+
+
+def test_the_viewer_has_the_tool_strip(panel):
+    panel.expand()
+    viewer = panel.viewer
+    assert viewer.tools.isVisibleTo(viewer)
+    assert viewer.canvas.doc is not None
+    assert viewer.tools._available
+
+
+def test_an_edit_in_the_viewer_is_saved_for_that_file(panel):
+    saved = []
+    panel.edit_saved.connect(lambda name, image: saved.append((name, image)))
+    panel.select("002_snip.png")
+    panel.expand()
+    _black_box(panel.viewer)
+    assert panel.viewer.flush_edits()
+    (name, image), = saved
+    assert name == "002_snip.png"
+    assert image.pixelColor(200, 110).name() == "#000000"
+    assert not panel.viewer.flush_edits()  # nothing left waiting
+
+
+def test_moving_on_saves_the_edit_first(panel):
+    saved = []
+    panel.edit_saved.connect(lambda name, image: saved.append(name))
+    panel.select("001_snip.png")
+    panel.expand()
+    _black_box(panel.viewer)
+    panel.viewer.step(1)
+    assert saved == ["001_snip.png"]
+    assert panel.viewer.current_file() == "002_snip.png"
+
+
+def test_closing_saves_the_edit(panel):
+    saved = []
+    panel.edit_saved.connect(lambda name, image: saved.append(name))
+    panel.expand()
+    _black_box(panel.viewer)
+    panel.viewer.close()
+    assert saved == ["003_snip.png"]
+
+
+def test_copy_saves_the_edit_before_asking_for_the_copy(panel):
+    order = []
+    panel.edit_saved.connect(lambda name, image: order.append("saved"))
+    panel.copy_requested.connect(lambda name: order.append("copy"))
+    panel.expand()
+    _black_box(panel.viewer)
+    panel.viewer.copy_current()
+    assert order == ["saved", "copy"]
+
+
+def test_a_list_refresh_keeps_undo_in_the_viewer(panel, rows):
+    panel.expand()
+    _black_box(panel.viewer)
+    panel.viewer.flush_edits()
+    panel.set_rows(rows, current_file="003_snip.png")
+    assert panel.viewer.canvas.doc.can_undo
+
+
+def test_esc_puts_the_tool_down_before_closing(panel):
+    panel.expand()
+    viewer = panel.viewer
+    viewer.tools.select("pen")
+    viewer._on_escape()
+    assert viewer.tools.tool is None and viewer.isVisible()
+    viewer._on_escape()
+    assert not viewer.isVisible()
+
+
+def test_colours_and_widths_are_shared_with_the_preview(panel):
+    got = []
+    panel.annotation_prefs_changed.connect(got.append)
+    panel.set_annotation_prefs({"pen_width": 11})
+    panel.expand()
+    assert panel.viewer.tools.prefs["pen_width"] == 11
+    panel.viewer.tools._set_prefs(pen_width=7)
+    assert got and got[-1]["pen_width"] == 7
+
+
+def test_a_palette_reduced_snip_can_be_marked_up(panel, rows):
+    """Lab files saved with a reduced palette load as indexed images."""
+    path = rows[0]["path"]
+    QImage(path).convertToFormat(QImage.Format.Format_Indexed8).save(path)
+    assert QImage(path).format() == QImage.Format.Format_Indexed8
+    saved = []
+    panel.edit_saved.connect(lambda name, image: saved.append(image))
+    panel.select("001_snip.png")
+    panel.expand()
+    _black_box(panel.viewer)
+    panel.viewer.flush_edits()
+    assert saved[0].pixelColor(200, 110).name() == "#000000"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pytest
 from PySide6.QtGui import QColor, QImage
@@ -198,3 +199,72 @@ def test_a_lab_snip_is_copied_from_its_file(shadow, monkeypatch):
     assert png.startswith(b"\x89PNG")
     assert image.getpixel((5, 5))[:3] == (200, 0, 0)
     assert "copied" in s.preview.status.text()
+
+
+# -- 0.7.7: editing lab snips in the full-size viewer -----------------------------------
+def _black_middle(image):
+    from PySide6.QtGui import QPainter
+
+    # As the viewer's canvas does: a palette-reduced file loads as an indexed
+    # image, which cannot be painted on directly.
+    edited = image.convertToFormat(QImage.Format.Format_RGB32)
+    painter = QPainter(edited)
+    painter.fillRect(10, 10, 20, 15, QColor("black"))
+    painter.end()
+    return edited
+
+
+def test_an_older_lab_snip_edited_in_the_viewer_is_saved_to_its_file(shadow):
+    s, qapp = shadow
+    files = _three_snips(s)
+    folder = lab.active_folder(s.cfg)
+    older = files[0]
+    latest_before = (Path(s.cfg["save_dir"]) / "latest.png").read_bytes()
+
+    s.save_lab_snip_edit(older, _black_middle(QImage(str(folder / older))))
+
+    assert QImage(str(folder / older)).pixelColor(15, 15).name() == "#000000"
+    # Only the lab file: latest.png belongs to the newest snip.
+    assert (Path(s.cfg["save_dir"]) / "latest.png").read_bytes() == latest_before
+    assert "Edit saved to snip" in s.preview.status.text()
+
+
+def test_the_snip_on_screen_edited_in_the_viewer_updates_every_copy(shadow, monkeypatch):
+    s, qapp = shadow
+    files = _three_snips(s)
+    folder = lab.active_folder(s.cfg)
+    on_screen = s._last_lab_file
+    assert on_screen == files[-1]
+    copied = []
+    monkeypatch.setattr(clipboard, "copy", lambda png, image, **k: copied.append(png))
+
+    s.save_lab_snip_edit(on_screen, _black_middle(QImage(str(folder / on_screen))))
+
+    assert QImage(str(folder / on_screen)).pixelColor(15, 15).name() == "#000000"
+    latest = Path(s.cfg["save_dir"]) / "latest.png"
+    assert QImage(str(latest)).pixelColor(15, 15).name() == "#000000"
+    assert copied, "the clipboard copy is replaced too"
+    # The preview window now starts from the edited snip, so drawing there
+    # later cannot bring the original back.
+    assert s.preview.canvas.image().pixelColor(15, 15).name() == "#000000"
+
+
+def test_opening_the_snip_on_screen_in_the_viewer_saves_waiting_markup_first(shadow):
+    s, qapp = shadow
+    _three_snips(s)
+    flushed = []
+    s.preview.flush_edits = lambda: flushed.append(True) or False
+    s._before_viewer_loads(s._last_lab_file)
+    s._before_viewer_loads("001_other.png")
+    assert flushed == [True]
+
+
+def test_an_edit_is_refused_when_the_format_changed_since(shadow):
+    s, qapp = shadow
+    files = _three_snips(s)
+    folder = lab.active_folder(s.cfg)
+    before = (folder / files[0]).read_bytes()
+    s.cfg["disk_format"] = "jpeg"
+    s.save_lab_snip_edit(files[0], _black_middle(QImage(str(folder / files[0]))))
+    assert (folder / files[0]).read_bytes() == before
+    assert "kept as it was" in s.preview.status.text()

@@ -21,13 +21,13 @@ both builds attached to every GitHub release by the CI workflow.
 ## Done in v0.7.0 - marking up
 
 Pen, highlighter, eraser, crop, redaction (blur or black out) and undo, on the
-snip in the preview window, saved to every copy as you go.
+snip in the preview window, saved to every copy as you go. Since v0.7.7 the
+same tools work on any lab snip, in the full-size view.
 
 ## Marking up, still open
 
 - Arrows, boxes and text labels, the rest of what annotation usually means.
 - Redo, beside undo.
-- Marking up any lab snip, not only the one on screen.
 - Moving or resizing a mark after it is drawn.
 
 ## v0.8 - the pentest report (next)

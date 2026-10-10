@@ -399,6 +399,16 @@ In that full-size view, **Copy** (or Ctrl+C) puts the snip on the clipboard
 and **Remove from lab** (or Delete) takes it out; both are also on the
 right-click menu. After a removal the view moves on to the next snip.
 
+The full-size view has the same mark-up tools as the preview window, so any
+snip in the lab can be drawn on, highlighted, cropped or redacted, not only
+the one just taken. Edits are saved to the lab file half a second after the
+last change. Undo (Ctrl+Z or the round button) goes back as far as the snip
+was when you opened it; moving to another snip or closing the view makes the
+edits permanent. Editing the snip that is also on screen in the preview
+window replaces every copy of it, the clipboard and `latest.png` included,
+exactly as an edit in the preview window does. Colours and widths are shared
+between the two.
+
 **Remove from lab** (or Delete on the list) takes the selected snip out of the
 lab after asking. Shift-click or Ctrl-click to select several and the button
 becomes **Remove 3 from lab**: one question covers them all. Nothing is deleted: the image goes to a `removed` folder

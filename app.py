@@ -69,6 +69,8 @@ class ShadowSnipApp(QObject):
         self.preview.settings_requested.connect(self.open_settings)
         self.preview.snip_remove_requested.connect(self.remove_lab_snips)
         self.preview.snip_copy_requested.connect(self.copy_lab_snip)
+        self.preview.lab_snip_loading.connect(self._before_viewer_loads)
+        self.preview.lab_snip_edited.connect(self.save_lab_snip_edit)
         self.preview.snip_open_requested.connect(self.open_lab_snip)
         self.preview.snip_list_toggled.connect(self.set_snip_list_shown)
         self.preview.note_added.connect(self._on_note_from_preview)
@@ -350,7 +352,7 @@ class ShadowSnipApp(QObject):
         self._refresh_menu_text()
 
     # -- marking up the snip on screen -------------------------------------
-    def apply_snip_edit(self, image) -> None:
+    def apply_snip_edit(self, image, from_viewer: bool = False) -> None:
         """Save the marked-up snip everywhere the original went.
 
         The clipboard, the standing latest file, the lab copy and the history
@@ -400,6 +402,49 @@ class ShadowSnipApp(QObject):
             # The thumbnail and the viewer read the file; the folder watcher
             # sees the change too, this just makes it immediate.
             self._refresh_snip_list()
+            if not from_viewer:
+                self.preview.snips_panel.reload_in_viewer(self._snip_paths["lab"].name)
+
+    def _before_viewer_loads(self, filename: str) -> None:
+        """Mark-up waiting on the snip on screen goes into its file before the viewer reads it."""
+        if filename and filename == self._last_lab_file:
+            self.preview.flush_edits()
+
+    def save_lab_snip_edit(self, filename: str, image) -> None:
+        """Mark-up made in the full-size viewer: save it over the lab file.
+
+        For the snip on screen this is the same edit as one made in the
+        preview window, so every copy is replaced (clipboard, latest, lab,
+        history) and the preview window shows the result. For an older lab
+        snip only its lab file exists to replace. Either way the image is
+        re-encoded with the same settings as a fresh snip.
+        """
+        if image is None or image.isNull() or not filename:
+            return
+        lab_path = self._snip_paths.get("lab")
+        if filename == self._last_lab_file and lab_path is not None and lab_path.name == filename:
+            self.apply_snip_edit(image, from_viewer=True)
+            self.preview.rebase_snip(image)
+            self.preview.viewer_message(f"Edit saved to snip {filename.split('_', 1)[0]} and its copies")
+            return
+        folder = lab.active_folder(self.cfg)
+        if folder is None:
+            return
+        path = folder / filename
+        label = filename.split("_", 1)[0]
+        result = imageops.process(image, self.cfg)
+        if path.suffix.lower().lstrip(".") != result.disk.ext.lower():
+            message = f"Snip {label} kept as it was: the file format was changed in Settings since it was taken"
+        else:
+            try:
+                storage.write_atomic(path, result.disk.data)
+                width, height = result.image.size
+                message = f"Edit saved to snip {label} ({width} x {height})"
+            except OSError as exc:
+                message = f"Could not save the edit to snip {label}: {exc}"
+        self.preview.set_status(message)
+        self.preview.viewer_message(message)
+        self._refresh_snip_list()
 
     def _save_annotation_prefs(self, prefs: dict) -> None:
         self.cfg["annotation"] = dict(prefs)

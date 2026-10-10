@@ -138,6 +138,9 @@ class PreviewWindow(QWidget):
     snip_remove_requested = Signal(list)
     # A lab snip to put on the clipboard, from the full-size viewer.
     snip_copy_requested = Signal(str)
+    # From the full-size viewer: a lab snip about to be shown, and one edited.
+    lab_snip_loading = Signal(str)
+    lab_snip_edited = Signal(str, QImage)
     # A lab filename: open the image.
     snip_open_requested = Signal(str)
     # The Snip list button: show (True) or hide (False) the lab snip list.
@@ -211,6 +214,9 @@ class PreviewWindow(QWidget):
         self.snips_panel.setVisible(False)
         self.snips_panel.remove_requested.connect(self.snip_remove_requested.emit)
         self.snips_panel.copy_requested.connect(self.snip_copy_requested.emit)
+        self.snips_panel.viewer_loading.connect(self.lab_snip_loading.emit)
+        self.snips_panel.edit_saved.connect(self.lab_snip_edited.emit)
+        self.snips_panel.annotation_prefs_changed.connect(self._on_viewer_prefs)
         self.snips_panel.open_requested.connect(self.snip_open_requested.emit)
         self.snips_panel.move_requested.connect(self.lab_entry_move_requested.emit)
         self.snips_panel.open_md_requested.connect(self.lab_md_open_requested.emit)
@@ -449,10 +455,34 @@ class PreviewWindow(QWidget):
     def set_annotation_prefs(self, prefs: dict) -> None:
         self.tools.set_prefs(prefs)
         self.canvas.prefs = dict(self.tools.prefs)
+        self.snips_panel.set_annotation_prefs(self.tools.prefs)
 
     def _on_annotation_prefs(self, prefs: dict) -> None:
         self.canvas.prefs = dict(prefs)
+        self.snips_panel.set_annotation_prefs(prefs)
         self.annotation_prefs_changed.emit(dict(prefs))
+
+    def _on_viewer_prefs(self, prefs: dict) -> None:
+        """A colour or width changed in the viewer: the same tools here follow."""
+        self.tools.set_prefs(prefs)
+        self.canvas.prefs = dict(self.tools.prefs)
+        self.annotation_prefs_changed.emit(dict(prefs))
+
+    def rebase_snip(self, image: QImage) -> None:
+        """The snip on screen was edited in the viewer: show that, as the new start.
+
+        Undo here then starts from the edited snip. Re-rendering from the
+        original capture instead would quietly undo a redaction made in the
+        viewer the next time anything was drawn here.
+        """
+        if self._image is None or image is None or image.isNull():
+            return
+        self._edit_timer.stop()
+        self._edit_pending = False
+        self._image = image
+        tool = self.tools.tool
+        self.canvas.load(image)
+        self.canvas.set_tool(tool)
 
     def set_disk_bytes(self, data: bytes, ext: str) -> None:
         """What Save as writes, after an edit replaced the snip."""

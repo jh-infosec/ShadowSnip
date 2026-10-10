@@ -58,7 +58,6 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
-    QMenu,
     QPushButton,
     QSplitter,
     QStyleFactory,
@@ -70,6 +69,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from annotate import AnnotCanvas, AnnotToolbar
+
 # The glow around the selected row, the same blue as the thumbnail's hover.
 SELECT_EDGE = "#2f8cff"
 SELECT_FILL = (47, 140, 255, 34)
@@ -79,6 +80,9 @@ DETAIL_THUMB_HEIGHT = 150
 HOVER_BOX = QSize(380, 260)
 # How much of the screen the viewer takes.
 VIEWER_SCREEN_SHARE = 0.85
+# Mark-up in the viewer is saved this long after the last change, as in the
+# preview window.
+VIEWER_EDIT_SAVE_MS = 500
 
 STYLE = """
 QLabel#SnipThumb {
@@ -246,6 +250,13 @@ class ClickableLabel(QLabel):
 class SnipViewer(QWidget):
     """A lab snip as large as the screen allows, with arrow keys to cycle.
 
+    It carries the same mark-up tools as the preview window (see annotate.py),
+    so any snip in the lab can be drawn on, cropped or redacted, not only the
+    one just taken. Edits are saved to the lab file half a second after the
+    last change, the same rhythm as the preview window. Undo reaches back to
+    the snip as it was when the viewer showed it; moving to another snip, or
+    closing, makes the edits permanent.
+
     A plain window rather than a modal dialog: a modal dialog would block the
     snip hotkey for as long as it was open.
     """
@@ -255,6 +266,13 @@ class SnipViewer(QWidget):
     # The file shown, to put on the clipboard or take out of the lab.
     copy_requested = Signal(str)
     remove_requested = Signal(str)
+    # A file about to be loaded for viewing and editing, so mark-up still
+    # waiting in the preview window can be saved into it first.
+    about_to_load = Signal(str)
+    # (file, edited image): save it over the lab file.
+    edit_saved = Signal(str, QImage)
+    # Pen and highlighter colours and widths, the redact mode.
+    prefs_changed = Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.Window)
@@ -263,27 +281,45 @@ class SnipViewer(QWidget):
         self.setWindowTitle("ShadowSnip - lab snip")
         self._items: list[dict] = []
         self._index = -1
-        self._pixmap = QPixmap()
+        self._loaded_file = ""
+        self._edit_pending = False
 
-        self.image = QLabel()
-        self.image.setObjectName("ViewerImage")
-        self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image.setMinimumSize(200, 120)
+        self.canvas = AnnotCanvas()
+        self.canvas.offer_save_as = False
+        self.canvas.extra_menu_rows = [("Remove from lab...", self.remove_current)]
+        self.tools = AnnotToolbar()
+        self.tools.set_available(False)
+        self.tools.tool_changed.connect(self.canvas.set_tool)
+        self.tools.undo_requested.connect(self.canvas.undo)
+        self.tools.prefs_changed.connect(self._on_prefs)
+        self.canvas.undo_changed.connect(self.tools.set_undo_enabled)
+        self.canvas.edited.connect(self._on_edited)
+        self.canvas.copy_requested.connect(self.copy_current)
+        self._edit_timer = QTimer(self)
+        self._edit_timer.setSingleShot(True)
+        self._edit_timer.setInterval(VIEWER_EDIT_SAVE_MS)
+        self._edit_timer.timeout.connect(self.flush_edits)
+        # Kept for the tests and anything that asked for "the image area".
+        self.image = self.canvas
 
         self.caption = QLabel()
         self.caption.setObjectName("ViewerCaption")
         self.caption.setWordWrap(True)
         self.caption.setTextFormat(Qt.TextFormat.PlainText)
         self.hint = QLabel(
-            "Left / Right for the previous and next snip   |   Ctrl+C to copy   |   "
-            "Delete to remove from the lab   |   Esc to close"
+            "Left / Right for the previous and next snip   |   Ctrl+Z to undo   |   "
+            "Ctrl+C to copy   |   Delete to remove from the lab   |   Esc to close"
         )
         self.hint.setObjectName("ViewerHint")
+        self._hint_text = self.hint.text()
+        self._hint_timer = QTimer(self)
+        self._hint_timer.setSingleShot(True)
+        self._hint_timer.timeout.connect(lambda: self.hint.setText(self._hint_text))
 
         self.btn_prev = QPushButton("< Previous")
         self.btn_next = QPushButton("Next >")
         self.btn_copy = QPushButton("Copy")
-        self.btn_copy.setToolTip("Put this snip on the clipboard (Ctrl+C)")
+        self.btn_copy.setToolTip("Put this snip on the clipboard, with any mark-up (Ctrl+C)")
         self.btn_remove = QPushButton("Remove from lab")
         self.btn_remove.setObjectName("Danger")
         self.btn_remove.setToolTip(
@@ -311,29 +347,77 @@ class SnipViewer(QWidget):
         bar.addSpacing(16)
         bar.addWidget(self.btn_close)
 
+        top = QHBoxLayout()
+        top.setContentsMargins(12, 10, 12, 6)
+        top.addWidget(self.tools)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self.image, 1)
+        layout.addLayout(top)
+        layout.addWidget(self.canvas, 1)
         layout.addWidget(self.caption)
         layout.addWidget(self.hint)
         layout.addLayout(bar)
 
-        QShortcut(QKeySequence("Esc"), self, self.close)
+        QShortcut(QKeySequence("Esc"), self, self._on_escape)
         QShortcut(QKeySequence.StandardKey.Copy, self, self.copy_current)
         QShortcut(QKeySequence.StandardKey.Delete, self, self.remove_current)
+        QShortcut(QKeySequence.StandardKey.Undo, self, self.canvas.undo)
         for key, step in (("Left", -1), ("Up", -1), ("Right", 1), ("Down", 1)):
             QShortcut(QKeySequence(key), self, lambda s=step: self.step(s))
 
+    # -- the tools ----------------------------------------------------------------
+    def set_prefs(self, prefs: dict) -> None:
+        """Colours and widths, shared with the preview window."""
+        self.tools.set_prefs(prefs)
+        self.canvas.prefs = dict(self.tools.prefs)
+
+    def _on_prefs(self, prefs: dict) -> None:
+        self.canvas.prefs = dict(prefs)
+        self.prefs_changed.emit(dict(prefs))
+
+    def _on_edited(self) -> None:
+        self._edit_pending = True
+        self._edit_timer.start()
+
+    def flush_edits(self) -> bool:
+        """Save mark-up waiting on the snip shown now. True if there was some."""
+        if not self._edit_timer.isActive() and not self._edit_pending:
+            return False
+        self._edit_timer.stop()
+        self._edit_pending = False
+        image = self.canvas.image()
+        if image is None or not self._loaded_file:
+            return False
+        self.edit_saved.emit(self._loaded_file, image)
+        return True
+
+    def _on_escape(self) -> None:
+        if self.tools.tool is not None:
+            self.tools.select(None)
+            return
+        self.close()
+
+    def closeEvent(self, event):
+        self.flush_edits()
+        self.tools.select(None)
+        super().closeEvent(event)
+
+    # -- what is shown --------------------------------------------------------------
     # items are in capture order, oldest first, so Right means "later"
     def set_items(self, items: list[dict]) -> None:
-        """Replace what can be cycled through, staying on the same snip if it is still there."""
+        """Replace what can be cycled through, staying on the same snip if it is still there.
+
+        The snip on screen is not reloaded when it is still there: a refresh
+        happens after every save, and reloading would throw away undo.
+        """
         current = self.current_file()
         self._items = list(items)
         files = [item["file"] for item in self._items]
         if current in files:
             self._index = files.index(current)
-            self._show_current(announce=False)
+            self._show_current(announce=False, reload=False)
         elif self._items:
             self._index = min(max(self._index, 0), len(self._items) - 1)
             self._show_current(announce=False)
@@ -345,9 +429,10 @@ class SnipViewer(QWidget):
         files = [item["file"] for item in self._items]
         if filename not in files:
             return
+        self.flush_edits()
         self._index = files.index(filename)
         first = not self.isVisible()
-        self._show_current(announce=False)
+        self._show_current(announce=False, reload=filename != self._loaded_file)
         if first:
             self._fit_to_screen()
         self.show()
@@ -359,40 +444,29 @@ class SnipViewer(QWidget):
             return self._items[self._index]["file"]
         return ""
 
+    def reload_if_showing(self, filename: str) -> None:
+        """Reload the snip shown, if it is this file and has no edits waiting."""
+        if filename and filename == self._loaded_file and not self._edit_pending:
+            self._show_current(announce=False, reload=True)
+
     def flash(self, text: str, ms: int = 2500) -> None:
         """Show a message where the key hints are, then put the hints back."""
-        if not hasattr(self, "_hint_text"):
-            self._hint_text = self.hint.text()
-            self._hint_timer = QTimer(self)
-            self._hint_timer.setSingleShot(True)
-            self._hint_timer.timeout.connect(lambda: self.hint.setText(self._hint_text))
         self.hint.setText(text)
         self._hint_timer.start(ms)
 
     def copy_current(self) -> None:
         filename = self.current_file()
         if filename:
+            # The copy is read from the file, so mark-up still waiting has to
+            # be in it first.
+            self.flush_edits()
             self.copy_requested.emit(filename)
 
     def remove_current(self) -> None:
         filename = self.current_file()
         if filename:
+            self.flush_edits()
             self.remove_requested.emit(filename)
-
-    def context_actions(self) -> list[tuple[str, object]]:
-        """The right-click menu's rows, as (text, slot). Empty with nothing shown."""
-        if not self.current_file():
-            return []
-        return [("Copy", self.copy_current), ("Remove from lab...", self.remove_current)]
-
-    def contextMenuEvent(self, event):
-        rows = self.context_actions()
-        if not rows:
-            return
-        menu = QMenu(self)
-        for text, slot in rows:
-            menu.addAction(text).triggered.connect(slot)
-        menu.exec(event.globalPos())
 
     def step(self, delta: int) -> None:
         if not self._items:
@@ -400,42 +474,35 @@ class SnipViewer(QWidget):
         index = min(max(self._index + delta, 0), len(self._items) - 1)
         if index == self._index:
             return
+        self.flush_edits()
         self._index = index
         self._show_current(announce=True)
 
-    def _show_current(self, announce: bool) -> None:
+    def _show_current(self, announce: bool, reload: bool = True) -> None:
         if not (0 <= self._index < len(self._items)):
             return
         item = self._items[self._index]
-        self._pixmap = QPixmap(item["path"])
-        self._render()
+        if reload or item["file"] != self._loaded_file:
+            self.about_to_load.emit(item["file"])
+            image = QImage(item["path"]) if item.get("path") else QImage()
+            if image.isNull():
+                self.canvas.load(None)
+                self.canvas.set_message("This image could not be loaded.")
+            else:
+                self.canvas.load(image)
+            self._loaded_file = item["file"]
+            self._edit_pending = False
+            self._edit_timer.stop()
+            self.tools.set_available(not image.isNull())
         position = f"{self._index + 1} of {len(self._items)}"
         title = f"{item['label']}  -  {item.get('caption') or 'no caption'}"
         self.caption.setText(f"{title}   ({position})\nFiled under {item.get('section') or 'root'}")
         self.setWindowTitle(f"ShadowSnip - {item['label']} ({position})")
         self.btn_prev.setEnabled(self._index > 0)
         self.btn_next.setEnabled(self._index < len(self._items) - 1)
-        self.btn_copy.setEnabled(not self._pixmap.isNull())
+        self.btn_copy.setEnabled(self.canvas.doc is not None)
         if announce:
             self.current_changed.emit(item["file"])
-
-    def _render(self) -> None:
-        if self._pixmap.isNull():
-            self.image.setText("This image could not be loaded.")
-            return
-        area = self.image.size()
-        pixmap = self._pixmap
-        if pixmap.width() > area.width() or pixmap.height() > area.height():
-            pixmap = pixmap.scaled(
-                area,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        self.image.setPixmap(pixmap)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._render()
 
     def _fit_to_screen(self) -> None:
         screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
@@ -851,6 +918,10 @@ class LabSnipsPanel(QWidget):
     remove_requested = Signal(list)
     open_requested = Signal(str)
     copy_requested = Signal(str)
+    # From the viewer: a lab snip about to be shown, and an edited one.
+    viewer_loading = Signal(str)
+    edit_saved = Signal(str, QImage)
+    annotation_prefs_changed = Signal(dict)
     # From the outline: (entry key, section, key to go before or "")
     move_requested = Signal(str, str, str)
     # The Preview tab's button: open lab.md itself.
@@ -864,6 +935,7 @@ class LabSnipsPanel(QWidget):
         self._shown_file = ""
         self._thumbs = ThumbCache()
         self.viewer: SnipViewer | None = None
+        self._annotation_prefs: dict = {}
 
         self.title = QLabel("Lab snips")
         self.title.setObjectName("FieldLabel")
@@ -1278,9 +1350,32 @@ class LabSnipsPanel(QWidget):
             self.viewer = SnipViewer()
             self.viewer.current_changed.connect(self.select)
             self.viewer.copy_requested.connect(self.copy_requested.emit)
+            self.viewer.about_to_load.connect(self.viewer_loading.emit)
+            self.viewer.edit_saved.connect(self.edit_saved.emit)
+            self.viewer.prefs_changed.connect(self._on_viewer_prefs)
+            if self._annotation_prefs:
+                self.viewer.set_prefs(self._annotation_prefs)
             self.viewer.remove_requested.connect(lambda name: self.remove_requested.emit([name]))
         self.viewer.set_items(self._viewer_items())
         self.viewer.show_file(filename)
+
+    def set_annotation_prefs(self, prefs: dict) -> None:
+        """Pen and highlighter settings, kept the same as the preview window's."""
+        self._annotation_prefs = dict(prefs or {})
+        if self.viewer is not None:
+            self.viewer.set_prefs(self._annotation_prefs)
+
+    def _on_viewer_prefs(self, prefs: dict) -> None:
+        self._annotation_prefs = dict(prefs)
+        self.annotation_prefs_changed.emit(dict(prefs))
+
+    def reload_in_viewer(self, filename: str) -> None:
+        """The file changed underneath the viewer (an edit in the preview window)."""
+        if self.viewer is not None and self.viewer.isVisible():
+            self.viewer.reload_if_showing(filename)
+
+    def flush_viewer_edits(self) -> bool:
+        return self.viewer.flush_edits() if self.viewer is not None else False
 
     def hide_viewer(self) -> None:
         if self.viewer is not None and self.viewer.isVisible():

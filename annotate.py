@@ -358,6 +358,10 @@ class AnnotCanvas(QWidget):
         self.doc: AnnotationDoc | None = None
         self.tool: str | None = None
         self.prefs = dict(DEFAULT_PREFS)
+        # Rows added to the no-tool right-click menu by whoever hosts the
+        # canvas, as (label, callback); the lab viewer adds Remove from lab.
+        self.extra_menu_rows: list[tuple[str, object]] = []
+        self.offer_save_as = True
         self._message = ""
         self._rendered: QImage | None = None
         self._pixmap: QPixmap | None = None
@@ -547,8 +551,11 @@ class AnnotCanvas(QWidget):
         if self.tool is None:
             if rows:
                 rows.append(None)  # a separator
-            rows.append(("Save as...", self.save_as_requested.emit, None))
+            if self.offer_save_as:
+                rows.append(("Save as...", self.save_as_requested.emit, None))
             rows.append(("Copy", self.copy_requested.emit, None))
+            for label, callback in self.extra_menu_rows:
+                rows.append((label, callback, None))
         return rows
 
     def restyle(self, redaction: "Redact", mode: str) -> None:
