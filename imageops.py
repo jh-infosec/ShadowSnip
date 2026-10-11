@@ -71,7 +71,7 @@ def process(qimage: QImage, cfg: dict) -> Result:
         )
         image = image.resize(new_size, Image.Resampling.LANCZOS)
 
-    level = int(cfg.get("png_compress_level", 9))
+    level = int(cfg.get("png_compress_level", 6))
     png = _to_png(image, level)
 
     if cfg.get("quantize") and _worth_quantising(image, cfg):
@@ -130,13 +130,18 @@ def clipboard_png_from_file(path, cfg: dict) -> tuple[bytes, Image.Image]:
     with Image.open(path) as opened:
         opened.load()
         image = opened.convert("RGBA" if "A" in opened.getbands() else "RGB")
-    level = int(cfg.get("png_compress_level", 9))
+    level = int(cfg.get("png_compress_level", 6))
     return _to_png(image, level), image
 
 
 def _to_png(image: Image.Image, level: int) -> bytes:
+    """PNG at the zlib level set as PNG effort.
+
+    No `optimize`: in Pillow it forces level 9 and an extra search on top, so
+    every snip paid for the slowest setting whatever PNG effort said.
+    """
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG", optimize=True, compress_level=level)
+    image.save(buffer, format="PNG", compress_level=level)
     return buffer.getvalue()
 
 

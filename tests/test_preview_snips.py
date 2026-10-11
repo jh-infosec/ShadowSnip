@@ -268,3 +268,18 @@ def test_the_window_is_shrunk_to_fit_a_small_screen(window):
     assert window.height() <= max(area.height(), window.minimumHeight())
     assert window.frameGeometry().top() >= area.top()
     window.hide()
+
+
+def test_the_preview_snip_zooms(window):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QColor, QImage
+
+    image = QImage(800, 500, QImage.Format.Format_RGB32)
+    image.fill(QColor("white"))
+    window.show_snip(image=image, disk_bytes=b"x", ext="png", latest_path=None,
+                     status="ok", copy_again=lambda: None)
+    window.canvas.set_zoom(2.5, QPointF(50, 50))
+    assert window.canvas.zoom() == 2.5
+    window.canvas.reset_zoom()
+    assert window.canvas.zoom() == 1.0
+    window.hide()

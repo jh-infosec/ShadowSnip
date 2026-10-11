@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, QRect, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -531,3 +531,143 @@ def test_with_a_tool_in_hand_a_right_click_elsewhere_offers_nothing(canvas):
 def test_right_click_off_the_snip_offers_nothing(canvas):
     target = canvas._target()
     assert canvas.context_actions(QPointF(target.left() - 0.5, target.top() - 5)) == []
+
+
+# -- 0.7.9: zoom and pan ------------------------------------------------------------------
+def _send(widget, kind, point, button=Qt.MouseButton.NoButton, buttons=None):
+    """A mouse event straight to the widget, wherever the real pointer is."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+
+    types = {"press": QEvent.Type.MouseButtonPress, "move": QEvent.Type.MouseMove,
+             "release": QEvent.Type.MouseButtonRelease, "double": QEvent.Type.MouseButtonDblClick}
+    local = QPointF(point)
+    held = button if buttons is None else buttons
+    if kind == "release":
+        held = Qt.MouseButton.NoButton
+    QApplication.sendEvent(widget, QMouseEvent(
+        types[kind], local, QPointF(widget.mapToGlobal(local.toPoint())),
+        button, held, Qt.KeyboardModifier.NoModifier))
+
+
+def _wheel(widget, point, notches):
+    from PySide6.QtCore import QPoint as P
+    from PySide6.QtGui import QWheelEvent
+
+    local = QPointF(point)
+    QApplication.sendEvent(widget, QWheelEvent(
+        local, QPointF(widget.mapToGlobal(local.toPoint())), P(0, 0), P(0, 120 * notches),
+        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False))
+
+
+def _pan_drag(widget, a, b, button):
+    _send(widget, "press", a, button)
+    _send(widget, "move", b, Qt.MouseButton.NoButton, buttons=button)
+    _send(widget, "release", b, button)
+
+
+def test_the_wheel_zooms_in_and_out(canvas):
+    centre = canvas._target().center()
+    _wheel(canvas, centre, 2)
+    assert canvas.zoom() == pytest.approx(1.2 ** 2)
+    _wheel(canvas, centre, -1)
+    assert canvas.zoom() == pytest.approx(1.2)
+
+
+def test_zoom_keeps_the_point_under_the_pointer_still(canvas):
+    anchor = QPointF(100, 60)
+    before = canvas.to_image(anchor)
+    _wheel(canvas, anchor, 3)
+    after = canvas.to_image(anchor)
+    assert after.x() == pytest.approx(before.x(), abs=0.5)
+    assert after.y() == pytest.approx(before.y(), abs=0.5)
+
+
+def test_zoom_stops_at_fitted_and_at_eight_times(canvas):
+    _wheel(canvas, canvas._target().center(), -5)
+    assert canvas.zoom() == 1.0
+    _wheel(canvas, canvas._target().center(), 40)
+    assert canvas.scale() == pytest.approx(an.MAX_ZOOM_SCALE)
+
+
+def test_zoomed_in_the_pixels_on_screen_are_the_image(canvas):
+    image = _image(400, 200, "#ffffff")
+    for x in range(200, 400):
+        for y in range(200):
+            image.setPixelColor(x, y, QColor("#16c60c"))
+    canvas.load(image)
+    canvas.set_zoom(4.0, QPointF(210, 110))
+    shot = canvas.grab().toImage()
+    ratio = shot.devicePixelRatio()
+
+    def on_screen(point):
+        return shot.pixelColor(int(point.x() * ratio), int(point.y() * ratio)).name()
+
+    left = canvas.to_widget(QPointF(195, 100))
+    right = canvas.to_widget(QPointF(205, 100))
+    assert on_screen(left) == "#ffffff"
+    assert on_screen(right) == "#16c60c"
+
+
+def test_a_middle_drag_pans_without_drawing(canvas):
+    canvas.set_tool("pen")
+    canvas.set_zoom(3.0)
+    before = canvas._target().topLeft()
+    _pan_drag(canvas, QPoint(200, 100), QPoint(160, 80), Qt.MouseButton.MiddleButton)
+    after = canvas._target().topLeft()
+    assert after.x() == pytest.approx(before.x() - 40)
+    assert after.y() == pytest.approx(before.y() - 20)
+    assert not canvas.doc.edited
+
+
+def test_with_no_tool_a_left_drag_pans(canvas):
+    canvas.set_zoom(3.0)
+    before = canvas._target().topLeft()
+    _pan_drag(canvas, QPoint(200, 100), QPoint(230, 100), Qt.MouseButton.LeftButton)
+    assert canvas._target().x() == pytest.approx(before.x() + 30)
+
+
+def test_panning_never_opens_a_gap(canvas):
+    canvas.set_zoom(3.0)
+    _pan_drag(canvas, QPoint(10, 10), QPoint(400, 200), Qt.MouseButton.MiddleButton)
+    target, area = canvas._target(), canvas._area()
+    assert target.left() <= area.left() + 0.01
+    assert target.top() <= area.top() + 0.01
+    _pan_drag(canvas, QPoint(400, 200), QPoint(-2000, -2000), Qt.MouseButton.MiddleButton)
+    target = canvas._target()
+    assert target.right() >= area.right() - 0.01
+    assert target.bottom() >= area.bottom() - 0.01
+
+
+def test_a_redaction_drawn_zoomed_in_lands_where_it_was_drawn(canvas):
+    canvas.set_tool("redact")
+    canvas.prefs["redact_mode"] = "black"
+    canvas.set_zoom(4.0, QPointF(210, 110))
+    a, b = QPointF(150, 80), QPointF(250, 140)
+    expected = QRectF(canvas.to_image(a), canvas.to_image(b)).normalized().toAlignedRect()
+    _send(canvas, "press", a, Qt.MouseButton.LeftButton)
+    _send(canvas, "move", b, Qt.MouseButton.NoButton, buttons=Qt.MouseButton.LeftButton)
+    _send(canvas, "release", b, Qt.MouseButton.LeftButton)
+    (op,) = canvas.doc.ops
+    assert abs(op.rect.x() - expected.x()) <= 1 and abs(op.rect.width() - expected.width()) <= 1
+    # Zoomed 4x, the box is a quarter of the size it was dragged on screen.
+    assert op.rect.width() == pytest.approx(25, abs=1)
+
+
+def test_a_double_click_and_a_new_snip_go_back_to_fitted(canvas):
+    canvas.set_zoom(3.0)
+    _send(canvas, "double", QPoint(200, 100), Qt.MouseButton.LeftButton)
+    assert canvas.zoom() == 1.0
+    canvas.set_zoom(3.0)
+    canvas.load(_image(400, 200))
+    assert canvas.zoom() == 1.0
+
+
+def test_a_crop_keeps_the_view_inside_the_new_image(canvas):
+    canvas.set_zoom(5.0)
+    canvas.doc.add(an.Crop(canvas.doc.new_id(), QRect(0, 0, 40, 20)))
+    canvas._refresh()
+    assert canvas.scale() <= an.MAX_ZOOM_SCALE + 1e-6
+    target, area = canvas._target(), canvas._area()
+    if target.width() > area.width():
+        assert target.left() <= area.left() + 0.01 and target.right() >= area.right() - 0.01

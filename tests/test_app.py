@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 import app
 
 
@@ -174,3 +176,37 @@ def test_a_failed_engage_updates_the_toggles_too():
     assert state.cfg["auto_copy"] is False
     assert state._refreshed == [True]
     assert "no hook for you" in state._messages[0][1]
+
+
+# -- 0.7.8: the grab waits for the compositor, not a fixed pause, where it can ----------
+def _visible_preview_state(began):
+    return SimpleNamespace(
+        busy=False,
+        autocopy=SimpleNamespace(pause=lambda: None),
+        toast=SimpleNamespace(hide=lambda: None),
+        preview=SimpleNamespace(
+            isVisible=lambda: True, isMinimized=lambda: False, hide=lambda: None,
+            hide_viewer=lambda: None, flush_edits=lambda: False,
+        ),
+        _blocked_by_dialog=lambda: None,
+        _begin_snip=lambda: None,
+    )
+
+
+@pytest.mark.parametrize("can_flush,expected", [(True, 0), (False, 140)])
+def test_hiding_the_window_waits_only_where_it_must(monkeypatch, can_flush, expected):
+    monkeypatch.setattr(app, "_modal_dialog_open", lambda: False)
+    monkeypatch.setattr(app.capture, "can_wait_for_compositor", lambda: can_flush)
+    delays = []
+    monkeypatch.setattr(app.QTimer, "singleShot", lambda ms, fn: delays.append(ms))
+    app.ShadowSnipApp.request_snip(_visible_preview_state(delays))
+    assert delays == [expected]
+
+
+def test_the_compositor_wait_is_windows_only():
+    import capture
+    import sys
+
+    assert capture.can_wait_for_compositor() == (sys.platform == "win32")
+    if sys.platform != "win32":
+        assert capture.wait_for_compositor() is False

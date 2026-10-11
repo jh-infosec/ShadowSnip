@@ -327,3 +327,16 @@ def test_a_palette_reduced_snip_can_be_marked_up(panel, rows):
     _black_box(panel.viewer)
     panel.viewer.flush_edits()
     assert saved[0].pixelColor(200, 110).name() == "#000000"
+
+
+def test_the_viewer_zooms_and_a_new_snip_starts_fitted(panel):
+    from PySide6.QtCore import QPointF
+
+    panel.select("002_snip.png")
+    panel.expand()
+    viewer = panel.viewer
+    viewer.resize(500, 400)
+    viewer.canvas.set_zoom(3.0, QPointF(100, 100))
+    assert viewer.canvas.zoom() == 3.0
+    viewer.step(1)
+    assert viewer.canvas.zoom() == 1.0

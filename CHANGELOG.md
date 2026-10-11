@@ -1,6 +1,27 @@
 # Changelog
 
-## Latest: 0.7.7
+## Latest: 0.7.9
+
+**Added**: zoom with the mouse wheel over the snip, in the preview window and
+the full-size view. It zooms on the point under the pointer, up to 800%,
+with sharp pixels from 200%. Drag to move around a zoomed snip (middle-drag
+while a tool is in hand). `Ctrl+0` or a double-click fits it again;
+`Ctrl+=` and `Ctrl+-` zoom from the keyboard. All the mark-up tools work
+while zoomed.
+
+### 0.7.8 in brief
+
+**Faster**: a snip reaches the clipboard and the window in about half the
+time after you let go of the mouse (198 ms to 103 ms for a 1600 x 900 snip
+in testing). Most of that time was the PNG encoder at its slowest setting,
+for files under 1% smaller. PNG effort now defaults to 6, and a config still
+on the old default of 9 is moved to 6 once.
+
+**Faster**: starting a snip with the window open no longer waits a fixed
+140 ms on Windows. It waits for Windows to confirm the window has left the
+screen, about two frames.
+
+### 0.7.7 in brief
 
 **Added**: the full-size view has the mark-up tools: pen, highlighter,
 eraser, crop, redact and undo, the same as the preview window. Any snip in
@@ -200,6 +221,57 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.7.9] - 2026-10-11
+
+### Added
+- `AnnotCanvas` zoom and pan, so both windows have it. Zoom is a multiple of
+  the fitted size (`zoom()`, `set_zoom(zoom, anchor)`, `reset_zoom()`),
+  from 1.0 up to `MAX_ZOOM_SCALE` (8) screen pixels per image pixel, 1.2x
+  per wheel notch (`ZOOM_STEP`), anchored on the pointer. `_target()` now
+  places the image from zoom and pan, centred on any axis it fits and
+  otherwise kept so no gap opens (`_place`, `_settle_pan`); every mapping
+  between screen and image goes through it, so all tools work zoomed.
+- Pan: middle-drag any time, left-drag with no tool in hand; open and closed
+  hand cursors. A double-click with no tool fits again; `load()` and a new
+  snip reset to fitted; a crop keeps the view inside the new size.
+- Painting below 100% uses one cached smooth scale as before; at 100% and
+  above only the visible part is drawn, smooth below 200% and hard-edged
+  from 200%. A zoom label shows bottom right while zoomed.
+- `Ctrl+0`, `Ctrl+=`/`Ctrl++` and `Ctrl+-` in the preview window and the
+  full-size view.
+
+### Tests
+- Wheel in and out; the point under the pointer stays put; limits at fitted
+  and 8x; painted pixels match the image at 4x; middle-drag pans without
+  drawing; left-drag pans with no tool; panning never opens a gap; a
+  redaction drawn at 4x lands where it was drawn, a quarter of the screen
+  size; double-click and a new snip fit again; a crop keeps the view inside;
+  the viewer and the preview window zoom.
+
+---
+
+## [0.7.8] - 2026-10-10
+
+### Changed
+- `imageops._to_png` no longer passes `optimize=True`. In Pillow that forces
+  zlib level 9 plus a search, so PNG effort in Settings had no effect and
+  every snip paid for the slowest setting. Measured on a 1920 x 1080 UI
+  grab: level 9 with optimize 142 ms, level 6 54 ms, sizes within 0.8%.
+- `png_compress_level` defaults to 6. `config.load` moves an older config's 9
+  (the previous default) to 6 once, recorded by `png_effort_reviewed`; any
+  level chosen after that, 9 included, is kept.
+- `request_snip` with the window open: on Windows the grab now follows
+  `capture.wait_for_compositor()`, two `DwmFlush` calls, instead of a fixed
+  140 ms. Elsewhere, or if DWM does not answer, the 140 ms pause remains
+  (`capture.HIDE_SETTLE_MS`).
+
+### Tests
+- Old configs at 9 move to 6, other levels stay, 9 chosen later stays; the
+  fixed pause is used only without a compositor wait; the wait is Windows
+  only; PNG effort changes the output.
 
 ---
 

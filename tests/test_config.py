@@ -250,3 +250,27 @@ def test_the_lab_snip_list_is_shown_by_default_and_remembered(isolated_config):
     cfg["lab_snip_list"] = False
     config.save(cfg)
     assert config.load()["lab_snip_list"] is False
+
+
+# -- 0.7.8: PNG effort default moved from 9 to 6 ------------------------------------------
+def test_an_older_config_with_the_old_default_moves_to_six(isolated_config):
+    _write(isolated_config, {"png_compress_level": 9, "hotkey": "ctrl+shift+s"})
+    loaded = config.load()
+    assert loaded["png_compress_level"] == 6
+    assert loaded["png_effort_reviewed"] is True
+
+
+def test_an_older_config_with_another_level_keeps_it(isolated_config):
+    _write(isolated_config, {"png_compress_level": 3})
+    assert config.load()["png_compress_level"] == 3
+
+
+def test_nine_chosen_after_the_change_is_kept(isolated_config):
+    cfg = config.load()
+    cfg["png_compress_level"] = 9
+    config.save(cfg)
+    assert config.load()["png_compress_level"] == 9
+
+
+def test_a_fresh_config_uses_six():
+    assert config.DEFAULTS["png_compress_level"] == 6

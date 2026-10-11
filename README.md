@@ -126,6 +126,8 @@ removal, the viewer) is the same code on both.
 | Save a permanent copy (preview window) | `Ctrl+S` |
 | Copy again (preview window) | `Ctrl+C` |
 | Undo the last mark on the snip | `Ctrl+Z`, or the round undo button |
+| Zoom the snip (preview window and full-size view) | Mouse wheel over the snip, or `Ctrl+=` / `Ctrl+-`; `Ctrl+0` or a double-click to fit again |
+| Move around a zoomed snip | Drag it with no tool in hand, or middle-drag any time |
 | File the note typed under the snip | `Ctrl+Enter`, or **Add note** |
 
 ## Marking up a snip
@@ -159,6 +161,16 @@ cannot draw on it. With no tool in hand, Esc closes the window as before.
   current one is ticked, and undo switches it back.
 - Anywhere on the snip with no tool in hand: **Save as...** and **Copy**, the
   same as the buttons, including any mark-up not yet saved.
+
+**Zoom** with the mouse wheel over the snip, in the preview window and the
+full-size view alike. It zooms on the point under the pointer, up to eight
+screen pixels per image pixel, with hard pixel edges from 200% so single
+pixels can be checked before a redaction. While zoomed, drag the snip to move
+around it (with no tool in hand), or middle-drag with a tool in hand. The
+zoom shows bottom right; `Ctrl+0` or a double-click goes back to the whole
+snip, and every new snip starts fitted. Marks drawn while zoomed land exactly
+where they were drawn; pen and highlighter widths are screen sizes, so a line
+drawn zoomed in is finer on the image.
 
 **Edits are saved as you go.** Half a second after the last change, the edited
 snip replaces every copy ShadowSnip made of it: the clipboard, `latest.png`,
@@ -465,7 +477,7 @@ the tray icon → **Settings**.
 | Reduce the colour palette | Palette-quantise when it produces a much smaller PNG; the truecolour version wins if it does not |
 | Skip above | Colour count past which palette reduction is skipped. Keeps small text sharp. `Never skip` disables the check |
 | Only if it saves | How much smaller the palette version has to be before it is kept |
-| PNG effort | zlib level 0–9 |
+| PNG effort | zlib level 0 to 9, 6 by default. 9 takes about 2.6 times as long for files under 1% smaller |
 | Also copy a plain bitmap | Adds `CF_DIB` for apps that cannot read PNG from the clipboard |
 | Show the preview window | Off means a tray notification instead |
 | Copy highlighted text | Copy on select, as above. Always starts off after a restart |

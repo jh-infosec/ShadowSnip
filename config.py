@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.7.7"
+APP_VERSION = "0.7.9"
 
 
 def config_dir() -> Path:
@@ -56,7 +56,11 @@ DEFAULTS = {
     "quantize_max_source_colors": 4096,
     # And only keep the palette version when it is at least this much smaller.
     "quantize_min_saving": 25,
-    "png_compress_level": 9,
+    # zlib level. 6 is zlib's own default: level 9 took 2.6 times as long for
+    # files under 1% smaller, time spent after every snip before the window.
+    "png_compress_level": 6,
+    # Set once a config has had the old default of 9 moved to 6 (0.7.8).
+    "png_effort_reviewed": True,
     # Disk format: png, webp or jpeg. Clipboard always gets PNG.
     "disk_format": "png",
     "webp_quality": 90,
@@ -113,6 +117,12 @@ def load() -> dict:
             for key, value in stored.items():
                 if key in DEFAULTS:
                     cfg[key] = value
+            if not stored.get("png_effort_reviewed"):
+                # Before 0.7.8 every config carried the old default of 9.
+                # Moved once to the new default; a level chosen after this is kept.
+                if stored.get("png_compress_level", 9) == 9:
+                    cfg["png_compress_level"] = DEFAULTS["png_compress_level"]
+                cfg["png_effort_reviewed"] = True
     except (OSError, ValueError):
         pass
     return _sanitise(cfg)
@@ -121,6 +131,9 @@ def load() -> dict:
 def save(cfg: dict) -> None:
     """Write the config atomically so a crash mid-write cannot corrupt it."""
     cfg = _sanitise(dict(cfg))
+    # Written by a version that knows about the PNG effort change, so a 9 in
+    # this file from now on was chosen, not inherited.
+    cfg["png_effort_reviewed"] = True
     target = CONFIG_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
@@ -198,7 +211,7 @@ def _sanitise(cfg: dict) -> dict:
         cfg.get("quantize_max_source_colors"), 0, 16_777_216, 4096
     )
     cfg["quantize_min_saving"] = _clamp(cfg.get("quantize_min_saving"), 0, 90, 25)
-    cfg["png_compress_level"] = _clamp(cfg.get("png_compress_level"), 0, 9, 9)
+    cfg["png_compress_level"] = _clamp(cfg.get("png_compress_level"), 0, 9, 6)
     cfg["webp_quality"] = _clamp(cfg.get("webp_quality"), 1, 100, 90)
     cfg["jpeg_quality"] = _clamp(cfg.get("jpeg_quality"), 1, 100, 90)
     cfg["history_limit"] = _clamp(cfg.get("history_limit"), 1, 5000, 50)
@@ -219,6 +232,7 @@ def _sanitise(cfg: dict) -> dict:
         "auto_copy_double_click",
         "auto_copy_dedupe",
         "auto_copy_toast",
+        "png_effort_reviewed",
     ):
         cfg[flag] = bool(cfg.get(flag))
     cfg["auto_copy_extra_blocked"] = normalise_names(cfg.get("auto_copy_extra_blocked"))

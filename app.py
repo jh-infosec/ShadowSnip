@@ -902,7 +902,12 @@ class ShadowSnipApp(QObject):
             self.preview.hide()
         # Give the compositor a moment to actually remove our own window
         # before the screen is frozen.
-        QTimer.singleShot(140 if was_visible else 0, self._begin_snip)
+        # Windows can say when the window has left the screen (DWM), so the
+        # grab follows as soon as it has; elsewhere a fixed pause stands in.
+        if was_visible and not capture.can_wait_for_compositor():
+            QTimer.singleShot(capture.HIDE_SETTLE_MS, self._begin_snip)
+        else:
+            QTimer.singleShot(0, self._begin_snip)
 
     def _blocked_by_dialog(self) -> None:
         """Say why the snip was refused, and show the window that refused it."""
@@ -919,6 +924,15 @@ class ShadowSnipApp(QObject):
             modal.activateWindow()
 
     def _begin_snip(self) -> None:
+        if self._reshow_preview and capture.can_wait_for_compositor():
+            # The hide has been handed to Windows; wait until it is on screen.
+            QApplication.processEvents()
+            if not capture.wait_for_compositor():
+                QTimer.singleShot(capture.HIDE_SETTLE_MS, self._start_overlay_safely)
+                return
+        self._start_overlay_safely()
+
+    def _start_overlay_safely(self) -> None:
         try:
             self._start_overlay()
         except Exception as exc:  # noqa: BLE001 - reported, then recovered

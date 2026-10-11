@@ -220,3 +220,16 @@ def test_to_dib_accepts_a_palette_image(cfg):
     result = imageops.process(to_qimage(flat_pil()), cfg)
     assert result.image.mode == "P"
     assert imageops.to_dib(result.image)
+
+
+def test_png_effort_is_honoured_rather_than_forced_to_nine():
+    """Pillow's optimize flag forces level 9; it is no longer passed."""
+    from PIL import Image
+
+    image = Image.new("RGB", (300, 200))
+    for x in range(300):
+        for y in range(0, 200, 7):
+            image.putpixel((x, y), (x % 256, y, 120))
+    fast = imageops._to_png(image, 0)
+    best = imageops._to_png(image, 9)
+    assert len(fast) > len(best)

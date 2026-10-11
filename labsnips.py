@@ -307,8 +307,8 @@ class SnipViewer(QWidget):
         self.caption.setWordWrap(True)
         self.caption.setTextFormat(Qt.TextFormat.PlainText)
         self.hint = QLabel(
-            "Left / Right for the previous and next snip   |   Ctrl+Z to undo   |   "
-            "Ctrl+C to copy   |   Delete to remove from the lab   |   Esc to close"
+            "Left / Right: previous and next snip   |   Scroll: zoom, drag to move, "
+            "Ctrl+0 to fit   |   Ctrl+Z: undo   |   Ctrl+C: copy   |   Delete: remove   |   Esc: close"
         )
         self.hint.setObjectName("ViewerHint")
         self._hint_text = self.hint.text()
@@ -364,6 +364,10 @@ class SnipViewer(QWidget):
         QShortcut(QKeySequence.StandardKey.Copy, self, self.copy_current)
         QShortcut(QKeySequence.StandardKey.Delete, self, self.remove_current)
         QShortcut(QKeySequence.StandardKey.Undo, self, self.canvas.undo)
+        QShortcut(QKeySequence("Ctrl+0"), self, self.canvas.reset_zoom)
+        for keys in ("Ctrl+=", "Ctrl++"):
+            QShortcut(QKeySequence(keys), self, lambda: self.canvas.set_zoom(self.canvas.zoom() * 1.2))
+        QShortcut(QKeySequence("Ctrl+-"), self, lambda: self.canvas.set_zoom(self.canvas.zoom() / 1.2))
         for key, step in (("Left", -1), ("Up", -1), ("Right", 1), ("Down", 1)):
             QShortcut(QKeySequence(key), self, lambda s=step: self.step(s))
 

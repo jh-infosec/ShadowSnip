@@ -328,6 +328,11 @@ class PreviewWindow(QWidget):
         # Ctrl+Z undoes the last mark on the snip. A text box with focus keeps
         # its own Ctrl+Z, because Qt lets the focused editor claim the key.
         QShortcut(QKeySequence.StandardKey.Undo, self, self.canvas.undo)
+        # Zoom, as the mouse wheel does over the snip.
+        QShortcut(QKeySequence("Ctrl+0"), self, self.canvas.reset_zoom)
+        for keys in ("Ctrl+=", "Ctrl++"):
+            QShortcut(QKeySequence(keys), self, lambda: self.canvas.set_zoom(self.canvas.zoom() * 1.2))
+        QShortcut(QKeySequence("Ctrl+-"), self, lambda: self.canvas.set_zoom(self.canvas.zoom() / 1.2))
 
     def _build_lab_panel(self) -> QWidget:
         """The section breadcrumb and the note box, shown only during a lab."""

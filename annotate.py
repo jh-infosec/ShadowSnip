@@ -103,6 +103,10 @@ BLUR_FACTOR = 14
 ERASER_RADIUS = 9
 # A drag shorter than this, in screen pixels, is a click: no crop, no box.
 MIN_DRAG = 4
+# Zoom: each wheel notch multiplies the size by this; the closest view shows
+# one image pixel as MAX_ZOOM_SCALE screen pixels.
+ZOOM_STEP = 1.2
+MAX_ZOOM_SCALE = 8.0
 
 ACCENT = QColor("#2f8cff")
 # Tools whose cursor carries an icon badge beside the pointer.
@@ -370,10 +374,19 @@ class AnnotCanvas(QWidget):
         self._drag_to: QPointF | None = None
         self._erasing: set[int] = set()
         self._pointer: QPointF | None = None
+        # Zoom is a multiple of the fitted size (1.0 = fitted); pan is how far
+        # the image's centre sits from the canvas centre, in screen pixels.
+        self._zoom = 1.0
+        self._pan = QPointF(0, 0)
+        self._panning_from: QPointF | None = None
+        self._full_pixmap: QPixmap | None = None
 
     # -- content ----------------------------------------------------------------
     def load(self, image: QImage | None) -> None:
         self.doc = AnnotationDoc(image) if image is not None else None
+        self._zoom = 1.0
+        self._pan = QPointF(0, 0)
+        self._panning_from = None
         self._message = ""
         self._cancel_gesture()
         self._refresh()
@@ -400,7 +413,8 @@ class AnnotCanvas(QWidget):
             self.tool is not None
             and self._pointer is not None
             and self._rendered is not None
-            and self._target().contains(self._pointer)
+            and self._visible().contains(self._pointer)
+            and self._panning_from is None
         )
 
     def _sync_cursor(self) -> None:
@@ -409,7 +423,15 @@ class AnnotCanvas(QWidget):
         Everywhere else (the margins, the rest of the window) the ordinary
         arrow stays, so it is always clear where marks can go.
         """
-        shape = Qt.CursorShape.BlankCursor if self._pointer_on_image() else Qt.CursorShape.ArrowCursor
+        if self._panning_from is not None:
+            shape = Qt.CursorShape.ClosedHandCursor
+        elif self._pointer_on_image():
+            shape = Qt.CursorShape.BlankCursor
+        elif (self.tool is None and self._pointer is not None and self.can_pan()
+              and self._visible().contains(self._pointer)):
+            shape = Qt.CursorShape.OpenHandCursor
+        else:
+            shape = Qt.CursorShape.ArrowCursor
         if self.cursor().shape() != shape:
             self.setCursor(shape)
 
@@ -421,16 +443,110 @@ class AnnotCanvas(QWidget):
         self.edited.emit()
 
     # -- geometry -------------------------------------------------------------------
+    def _area(self) -> QRectF:
+        return QRectF(self.rect().adjusted(1, 1, -1, -1))
+
+    def fit_scale(self) -> float:
+        """Screen pixels per image pixel when fitted: whole, centred, never enlarged."""
+        if self._rendered is None:
+            return 1.0
+        area = self._area()
+        w, h = self._rendered.width(), self._rendered.height()
+        return min(1.0, area.width() / max(1, w), area.height() / max(1, h))
+
+    def max_zoom(self) -> float:
+        fit = self.fit_scale() or 1.0
+        return max(1.0, MAX_ZOOM_SCALE / fit)
+
+    def zoom(self) -> float:
+        """How far in from the fitted view: 1.0 is fitted."""
+        return self._zoom
+
     def _target(self) -> QRectF:
-        """Where the image is drawn: fitted, centred, never enlarged."""
+        """Where the image is drawn, at the current zoom and pan.
+
+        At zoom 1.0 that is fitted and centred. Zoomed in, the image can be
+        moved, but never so far that a gap opens on a side it still covers.
+        """
         if self._rendered is None:
             return QRectF()
         w, h = self._rendered.width(), self._rendered.height()
-        area = self.rect().adjusted(1, 1, -1, -1)
-        scale = min(1.0, area.width() / max(1, w), area.height() / max(1, h))
+        area = self._area()
+        scale = self.fit_scale() * self._zoom
         tw, th = w * scale, h * scale
-        return QRectF(area.x() + (area.width() - tw) / 2,
-                      area.y() + (area.height() - th) / 2, tw, th)
+        left = self._place(area.left(), area.width(), tw, self._pan.x())
+        top = self._place(area.top(), area.height(), th, self._pan.y())
+        return QRectF(left, top, tw, th)
+
+    @staticmethod
+    def _place(start: float, room: float, size: float, pan: float) -> float:
+        """One axis of the image's position: centred if it fits, else panned within bounds."""
+        centred = start + (room - size) / 2
+        if size <= room:
+            return centred
+        return min(start, max(start + room - size, centred + pan))
+
+    def _visible(self) -> QRectF:
+        """The part of the canvas the image actually covers."""
+        return self._target().intersected(self._area())
+
+    def can_pan(self) -> bool:
+        target = self._target()
+        area = self._area()
+        return target.width() > area.width() + 0.5 or target.height() > area.height() + 0.5
+
+    def set_zoom(self, zoom: float, anchor: QPointF | None = None) -> None:
+        """Zoom to `zoom` x the fitted size, keeping the image point under `anchor` still."""
+        if self._rendered is None:
+            return
+        zoom = min(max(1.0, zoom), self.max_zoom())
+        if abs(zoom - self._zoom) < 1e-6:
+            return
+        area = self._area()
+        anchor = anchor if anchor is not None else area.center()
+        before = self._target()
+        old_scale = self.scale() or 1.0
+        # The image point under the anchor, in rendered pixels.
+        ix = (anchor.x() - before.x()) / old_scale
+        iy = (anchor.y() - before.y()) / old_scale
+        self._zoom = zoom
+        new_scale = self.fit_scale() * zoom
+        w, h = self._rendered.width() * new_scale, self._rendered.height() * new_scale
+        left = anchor.x() - ix * new_scale
+        top = anchor.y() - iy * new_scale
+        self._pan = QPointF(left - (area.x() + (area.width() - w) / 2),
+                            top - (area.y() + (area.height() - h) / 2))
+        self._settle_pan()
+        self._pixmap = None
+        self._sync_cursor()
+        self.update()
+
+    def reset_zoom(self) -> None:
+        self._zoom = 1.0
+        self._pan = QPointF(0, 0)
+        self._pixmap = None
+        self._sync_cursor()
+        self.update()
+
+    def _settle_pan(self) -> None:
+        """Store the pan as actually drawn, so dragging past an edge does not build up."""
+        if self._rendered is None:
+            return
+        area = self._area()
+        target = self._target()
+        self._pan = QPointF(
+            target.x() - (area.x() + (area.width() - target.width()) / 2),
+            target.y() - (area.y() + (area.height() - target.height()) / 2),
+        )
+
+    def wheelEvent(self, event):
+        if self._rendered is None:
+            return super().wheelEvent(event)
+        steps = event.angleDelta().y() / 120.0
+        if not steps:
+            return super().wheelEvent(event)
+        self.set_zoom(self._zoom * (ZOOM_STEP ** steps), event.position())
+        event.accept()
 
     def scale(self) -> float:
         target = self._target()
@@ -456,18 +572,41 @@ class AnnotCanvas(QWidget):
     def _refresh(self) -> None:
         if self.doc is None:
             self._rendered = None
-            self._pixmap = None
         else:
             self._rendered = self.doc.render(hidden=self._erasing)
-            self._pixmap = None
+        self._pixmap = None
+        self._full_pixmap = None
+        # A crop changes the image's size; keep the view inside the new bounds.
+        self._zoom = min(self._zoom, self.max_zoom()) if self._rendered is not None else 1.0
+        self._settle_pan()
         self.update()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._pixmap = None
+        self._settle_pan()
 
     # -- input --------------------------------------------------------------------------
+    def _starts_pan(self, event) -> bool:
+        """Middle-drag pans any time; left-drag pans with no tool in hand."""
+        if self.doc is None or not self.can_pan():
+            return False
+        if event.button() == Qt.MouseButton.MiddleButton:
+            return True
+        return event.button() == Qt.MouseButton.LeftButton and self.tool is None
+
+    def mouseDoubleClickEvent(self, event):
+        # With no tool in hand, a double-click goes back to the fitted view.
+        if self.tool is None and event.button() == Qt.MouseButton.LeftButton and self._zoom != 1.0:
+            self.reset_zoom()
+            return
+        super().mouseDoubleClickEvent(event)
+
     def mousePressEvent(self, event):
+        if self._starts_pan(event):
+            self._panning_from = event.position()
+            self._sync_cursor()
+            return
         if self.doc is None or self.tool is None or event.button() != Qt.MouseButton.LeftButton:
             return super().mousePressEvent(event)
         pos = event.position()
@@ -492,6 +631,12 @@ class AnnotCanvas(QWidget):
     def mouseMoveEvent(self, event):
         pos = event.position()
         self._pointer = pos
+        if self._panning_from is not None:
+            self._pan += pos - self._panning_from
+            self._panning_from = pos
+            self._settle_pan()
+            self.update()
+            return
         self._sync_cursor()
         if self._live is not None:
             self._live.points.append(self.to_image(pos))
@@ -502,6 +647,12 @@ class AnnotCanvas(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event):
+        if self._panning_from is not None and event.button() in (
+            Qt.MouseButton.MiddleButton, Qt.MouseButton.LeftButton
+        ):
+            self._panning_from = None
+            self._sync_cursor()
+            return
         if event.button() != Qt.MouseButton.LeftButton or self.doc is None:
             return super().mouseReleaseEvent(event)
         changed = False
@@ -621,18 +772,38 @@ class AnnotCanvas(QWidget):
             return
 
         target = self._target()
-        if self._pixmap is None or self._pixmap.size() != target.size().toSize():
-            pixmap = QPixmap.fromImage(self._rendered)
-            if target.width() < self._rendered.width():
-                pixmap = pixmap.scaled(
+        visible = self._visible()
+        scale = self.scale()
+        painter.save()
+        painter.setClipRect(self._area())
+        if scale < 1.0:
+            # Smaller than life: scale once, smoothly, and reuse while only
+            # the position changes.
+            if self._pixmap is None or self._pixmap.size() != target.size().toSize():
+                self._pixmap = QPixmap.fromImage(self._rendered).scaled(
                     target.size().toSize(),
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation,
                 )
-            self._pixmap = pixmap
-        painter.drawPixmap(target.topLeft(), self._pixmap)
+            painter.drawPixmap(target.topLeft(), self._pixmap)
+        else:
+            # Life size or larger: draw only the part on screen, with hard
+            # pixel edges from 2x up so single pixels can be inspected.
+            if self._full_pixmap is None:
+                self._full_pixmap = QPixmap.fromImage(self._rendered)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, scale < 2.0)
+            source = QRectF(
+                (visible.x() - target.x()) / scale,
+                (visible.y() - target.y()) / scale,
+                visible.width() / scale,
+                visible.height() / scale,
+            )
+            painter.drawPixmap(visible, self._full_pixmap, source)
+        painter.restore()
+        if self._zoom > 1.0 + 1e-6:
+            self._paint_zoom_label(painter, scale)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setClipRect(target)
+        painter.setClipRect(visible)
 
         if self._live is not None:
             # The stroke in progress, drawn in screen space at the size it
@@ -660,6 +831,21 @@ class AnnotCanvas(QWidget):
 
         if self._pointer_on_image():
             self._paint_tool_cursor(painter, target)
+
+    def _paint_zoom_label(self, painter: QPainter, scale: float) -> None:
+        """How large the snip is shown, bottom right, while zoomed in."""
+        text = f"{round(scale * 100)}%"
+        metrics = painter.fontMetrics()
+        box = QRectF(0, 0, metrics.horizontalAdvance(text) + 14, metrics.height() + 6)
+        box.moveBottomRight(self._area().bottomRight() - QPointF(8, 8))
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(16, 16, 19, 200))
+        painter.drawRoundedRect(box, 4, 4)
+        painter.setPen(QColor("#e6e6ec"))
+        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
+        painter.restore()
 
     def footprint(self) -> float:
         """How big the tool's mark is on screen, in pixels: what the cursor shows."""

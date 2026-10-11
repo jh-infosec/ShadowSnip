@@ -7,11 +7,44 @@ dragging, and the crop is taken from real pixels rather than a re-grab.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 
 from PySide6.QtCore import QRect, QRectF
 from PySide6.QtGui import QGuiApplication, QImage, QPainter, QPixmap
 from PySide6.QtGui import QScreen
+
+
+# Without a way to ask the compositor, how long to wait for ShadowSnip's own
+# window to leave the screen before it is grabbed.
+HIDE_SETTLE_MS = 140
+
+
+def can_wait_for_compositor() -> bool:
+    """True where the compositor can be asked directly (Windows: DWM)."""
+    return sys.platform == "win32"
+
+
+def wait_for_compositor(frames: int = 2) -> bool:
+    """Block until the desktop has been composed again, `frames` times.
+
+    After hiding the preview window it is gone from the screen once DWM has
+    composed the next frame. DwmFlush waits for exactly that, about 17 ms a
+    frame at 60 Hz, instead of a fixed 140 ms guess that was right only
+    because it was long. Returns False where this is not available.
+    """
+    if not can_wait_for_compositor():
+        return False
+    try:
+        import ctypes
+
+        flush = ctypes.windll.dwmapi.DwmFlush
+        for _ in range(frames):
+            if flush() != 0:
+                return False
+        return True
+    except (AttributeError, OSError):
+        return False
 
 
 @dataclass
