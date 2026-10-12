@@ -466,6 +466,12 @@ Settings live in `%APPDATA%\ShadowSnip\config.json`.
 **Settings** in the preview window, on the right next to Close, or right-click
 the tray icon → **Settings**.
 
+Settings opens on **Appearance** and is split into five tabs: **Appearance**
+(skin, preview window, overlay dimming), **Snipping** (hotkeys, save folder,
+history), **Image** (format, size, palette, PNG effort), **Copy on select**
+and **Labs**. Save and Cancel stay at the bottom whichever tab is open, and the
+window is never taller than the screen it opens on.
+
 | Setting | Effect |
 | --- | --- |
 | Skin | How ShadowSnip looks: **Original**, **Steel** or **Split**. **Next** steps through them; the change applies as soon as you press Save |
@@ -523,7 +529,7 @@ the dialog back to the front. Close it and snip as usual.
 
 ### Skins
 
-Three looks, chosen at the top of Settings:
+Three looks, chosen on the Appearance tab of Settings:
 
 | Skin | Look |
 | --- | --- |

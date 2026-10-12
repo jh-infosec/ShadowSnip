@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QCursor, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -10,11 +11,14 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -287,38 +291,34 @@ class SettingsDialog(QDialog):
         skin_layout.addWidget(self.skin_combo, 1)
         skin_layout.addWidget(self.skin_next)
 
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form.addRow("Skin", skin_row)
-        form.addRow("", self.skin_about)
-        form.addRow("Snip hotkey", self.hotkey_edit)
-        form.addRow("Quick note hotkey", self.note_hotkey_edit)
-        form.addRow("Save folder", folder_row)
-        form.addRow("Replaced file name", self.name_edit)
-        form.addRow(self.history_check)
-        form.addRow("Keep at most", self.history_limit)
-        form.addRow("File format", self.format_combo)
-        form.addRow("Lossy quality", self.quality)
-        form.addRow("Longest edge", self.max_dimension)
-        form.addRow(self.quantize_check)
-        form.addRow("Colours", self.quantize_colors)
-        form.addRow("Skip above", self.quantize_ceiling)
-        form.addRow("Only if it saves", self.quantize_saving)
-        form.addRow("PNG effort", self.png_level)
-        form.addRow(self.dib_check)
-        form.addRow(self.auto_copy_check)
-        form.addRow(self.auto_copy_double)
-        form.addRow(self.auto_copy_skip)
-        form.addRow(self.auto_copy_dedupe)
-        form.addRow(self.auto_copy_toast)
-        form.addRow("Shortest drag that counts", self.auto_copy_drag)
-        form.addRow("Never copy from", blocked_box)
-        form.addRow(self.preview_check)
-        form.addRow("Overlay dimming", self.dim)
-        form.addRow("Labs folder", lab_row)
-        form.addRow(self.lab_index_check)
-        form.addRow(self.lab_caption_check)
+        # Five short tabs rather than one long column: the column had grown
+        # taller than a laptop screen, and Save was below the bottom edge.
+        self.tabs = QTabWidget()
 
+        appearance = self._tab("Appearance")
+        appearance.addRow("Skin", skin_row)
+        appearance.addRow("", self.skin_about)
+        appearance.addRow(self.preview_check)
+        appearance.addRow("Overlay dimming", self.dim)
+
+        snipping = self._tab("Snipping")
+        snipping.addRow("Snip hotkey", self.hotkey_edit)
+        snipping.addRow("Quick note hotkey", self.note_hotkey_edit)
+        snipping.addRow("Save folder", folder_row)
+        snipping.addRow("Replaced file name", self.name_edit)
+        snipping.addRow(self.history_check)
+        snipping.addRow("Keep at most", self.history_limit)
+
+        image = self._tab("Image")
+        image.addRow("File format", self.format_combo)
+        image.addRow("Lossy quality", self.quality)
+        image.addRow("Longest edge", self.max_dimension)
+        image.addRow(self.quantize_check)
+        image.addRow("Colours", self.quantize_colors)
+        image.addRow("Skip above", self.quantize_ceiling)
+        image.addRow("Only if it saves", self.quantize_saving)
+        image.addRow("PNG effort", self.png_level)
+        image.addRow(self.dib_check)
         note = QLabel(
             "The clipboard always receives a compressed PNG. The file format "
             "setting applies to what is written to disk. Palette reduction is "
@@ -327,19 +327,83 @@ class SettingsDialog(QDialog):
             "code and terminal screenshots sharp at the cost of a larger file."
         )
         note.setWordWrap(True)
+        image.addRow(note)
 
+        copying = self._tab("Copy on select")
+        copying.addRow(self.auto_copy_check)
+        copying.addRow(self.auto_copy_double)
+        copying.addRow(self.auto_copy_skip)
+        copying.addRow(self.auto_copy_dedupe)
+        copying.addRow(self.auto_copy_toast)
+        copying.addRow("Shortest drag that counts", self.auto_copy_drag)
+        copying.addRow("Never copy from", blocked_box)
+
+        labs = self._tab("Labs")
+        labs.addRow("Labs folder", lab_row)
+        labs.addRow(self.lab_index_check)
+        labs.addRow(self.lab_caption_check)
+
+        # Outside the tabs, so they are always on screen whichever tab is open.
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        self.buttons = buttons
 
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        layout.addWidget(note)
+        layout.addWidget(self.tabs, 1)
         layout.addWidget(buttons)
 
         self._sync_quality()
+
+    def _tab(self, title: str) -> QFormLayout:
+        """A tab holding a form, inside a scroll area in case a screen is very small."""
+        page = QWidget()
+        form = QFormLayout(page)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(page)
+        self.tabs.addTab(scroll, title)
+        return form
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._fit_to_screen()
+
+    def _fit_to_screen(self) -> None:
+        """Never taller or wider than the screen it opens on, so Save is always visible."""
+        screen = self.screen() or QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        area = screen.availableGeometry()
+        max_w, max_h = int(area.width() * 0.9), int(area.height() * 0.85)
+        self.setMaximumHeight(max_h)
+        width = min(max(self.width(), self.sizeHint().width()), max_w)
+        height = min(max(self.height(), self._tallest_tab_height()), max_h)
+        self.resize(width, height)
+        frame = self.frameGeometry()
+        if not area.contains(frame):
+            frame.moveCenter(area.center())
+            self.move(frame.topLeft())
+
+    def _tallest_tab_height(self) -> int:
+        """Dialog height that shows the longest tab without scrolling."""
+        current = self.tabs.currentWidget()
+        if current is None or not current.isVisible():
+            return self.sizeHint().height()
+        width = current.viewport().width()
+        page_h = 0
+        for i in range(self.tabs.count()):
+            layout = self.tabs.widget(i).widget().layout()
+            if layout.hasHeightForWidth():
+                page_h = max(page_h, layout.totalHeightForWidth(width))
+            else:
+                page_h = max(page_h, layout.totalSizeHint().height())
+        # A few pixels of slack: an exact fit still shows a scroll bar.
+        return self.height() + max(0, page_h + 6 - current.viewport().height())
 
     def _sync_quality(self) -> None:
         self.quality.setEnabled(self.format_combo.currentData() != "png")

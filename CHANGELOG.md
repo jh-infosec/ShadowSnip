@@ -1,6 +1,15 @@
 # Changelog
 
-## Latest: 0.7.10
+## Latest: 0.7.11
+
+**Fixed**: Settings had grown taller than a laptop screen, so Save, Cancel and
+the Skin choice could sit below the bottom edge. Settings is now split into
+five tabs (Appearance, Skin first, then Snipping, Image, Copy on select and
+Labs) and opens on Appearance. Save and Cancel are pinned below the tabs, the
+window sizes itself to the longest tab but never past 85% of the screen, and a
+tab scrolls if a screen is smaller still.
+
+### 0.7.10 in brief
 
 **Added**: skins. Settings has a **Skin** choice at the top: **Original** (the
 classic look), **Steel** (brushed grey gradient, red accent) or **Split**
