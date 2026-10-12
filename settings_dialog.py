@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 import platforms
+import skins
 import config as config_mod
 import hotkey as hotkey_mod
 
@@ -265,8 +266,31 @@ class SettingsDialog(QDialog):
         self.lab_caption_check.setEnabled(cfg["lab_index"])
         self.lab_index_check.toggled.connect(self.lab_caption_check.setEnabled)
 
+        # The skin: a list to pick from, and a button that steps through them.
+        self.skin_combo = QComboBox()
+        for name in skins.NAMES:
+            self.skin_combo.addItem(skins.LABELS[name], name)
+            self.skin_combo.setItemData(
+                self.skin_combo.count() - 1, skins.DESCRIPTIONS[name], Qt.ItemDataRole.ToolTipRole
+            )
+        self.skin_combo.setCurrentIndex(max(0, self.skin_combo.findData(skins.normalise(cfg.get("skin")))))
+        self.skin_next = QPushButton("Next")
+        self.skin_next.setToolTip("Step to the next skin")
+        self.skin_next.clicked.connect(self._next_skin)
+        self.skin_about = QLabel()
+        self.skin_about.setObjectName("SkinAbout")
+        self.skin_combo.currentIndexChanged.connect(self._describe_skin)
+        self._describe_skin()
+        skin_row = QWidget()
+        skin_layout = QHBoxLayout(skin_row)
+        skin_layout.setContentsMargins(0, 0, 0, 0)
+        skin_layout.addWidget(self.skin_combo, 1)
+        skin_layout.addWidget(self.skin_next)
+
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.addRow("Skin", skin_row)
+        form.addRow("", self.skin_about)
         form.addRow("Snip hotkey", self.hotkey_edit)
         form.addRow("Quick note hotkey", self.note_hotkey_edit)
         form.addRow("Save folder", folder_row)
@@ -424,4 +448,13 @@ class SettingsDialog(QDialog):
         cfg["lab_root"] = self.lab_root_edit.text().strip()
         cfg["lab_index"] = self.lab_index_check.isChecked()
         cfg["lab_caption"] = self.lab_caption_check.isChecked()
+        cfg["skin"] = self.skin_combo.currentData() or "original"
         return cfg
+
+    # -- skin -----------------------------------------------------------------
+    def _next_skin(self) -> None:
+        self.skin_combo.setCurrentIndex((self.skin_combo.currentIndex() + 1) % self.skin_combo.count())
+
+    def _describe_skin(self, *_args) -> None:
+        name = self.skin_combo.currentData() or "original"
+        self.skin_about.setText(skins.DESCRIPTIONS.get(name, ""))

@@ -1,6 +1,16 @@
 # Changelog
 
-## Latest: 0.7.9
+## Latest: 0.7.10
+
+**Added**: skins. Settings has a **Skin** choice at the top: **Original** (the
+classic look), **Steel** (brushed grey gradient, red accent) or **Split**
+(graphite and black on a diagonal, divided by a red seam). **Next** steps
+through them, and the change applies as soon as you press Save. Steel and
+Split keep the original buttons and font; they bring a painted background
+that fits the window, see-through panels, a soft red glow on New snip, an
+amber glow on the lab button while recording, and the ShadowSnip mark.
+
+### 0.7.9 in brief
 
 **Added**: zoom with the mouse wheel over the snip, in the preview window and
 the full-size view. It zooms on the point under the pointer, up to 800%,
@@ -221,6 +231,43 @@ was already running in the tray did nothing. It now brings the window up.
 the second monitor. Windows was taking the mouse capture away as the pointer
 crossed onto the other screen's overlay, and that was being read as letting go
 of the button.
+
+---
+
+## [0.7.10] - 2026-10-12
+
+### Added
+- `skins.py`. Original is what every stylesheet in the code is written in.
+  For Steel and Split, `skins.style(css)` recolours a stylesheet by role
+  (window, well, raised, edge, text, accent...) and adds the skin's own rules
+  on top: flat buttons in the original shape (4px corners, 6px 14px padding)
+  in the skin's colours, translucent wells, underlined tabs. For Original it
+  returns the stylesheet untouched. Colours painted in code (the canvas, the
+  option popups, the outline's section and note rows) go through
+  `skins.color()`, the accent through `skins.accent()`.
+- `skins.paint_background(w, h)`: a multi-stop gradient, radial glows, Split's
+  seam, a sheen across the top, a vignette and a tiled grain. The preview
+  window paints it in `paintEvent`, cached and redrawn when the size changes.
+- `PreviewWindow.apply_skin()` re-applies every stylesheet live (the window,
+  the caption box, the tool strip and its popups, the lab panel, the
+  full-size view), recolours the list selection, shows the brand mark in the
+  skins, and sets the glows: New snip always, the lab button while a lab is
+  recording. Glows are graphics effects on those two buttons only.
+- The `skin` config key (`original`, `steel`, `split`; anything else is
+  Original), read at startup and applied by Settings without a restart.
+- Settings: a **Skin** combo at the top with a **Next** button and a one-line
+  description of the chosen skin.
+
+### Tests
+- The three names in order and shared with the config; Next cycles back to
+  Original; unknown and odd values fall back to Original; Original leaves
+  every stylesheet, colour and background alone; the skins recolour and keep
+  the original button shape; painted colours follow the skin and pen colours
+  do not; the background fills the window and is a gradient; Split's seam is
+  red; the selection follows the accent; switching live and back restores the
+  original exactly; the lab glow only while recording; the background follows
+  a resize; the tool strip follows; Settings lists the three and Next cycles;
+  the saved skin is used at startup; Settings switches it live and saves it.
 
 ---
 

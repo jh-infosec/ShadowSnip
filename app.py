@@ -33,6 +33,7 @@ import hotkey as hotkey_mod
 import imageops
 import lab
 import platforms
+import skins
 import storage
 from overlay import SelectionController
 from preview import PreviewWindow
@@ -54,6 +55,7 @@ class ShadowSnipApp(QObject):
         # The lab filename of the snip on screen, so a note can attach to it.
         self._last_lab_file: str = ""
 
+        skins.set_current(self.cfg.get("skin"))
         self.preview = PreviewWindow(icon=build_icon())
         self.preview.new_snip_requested.connect(self.request_snip)
         self.preview.lab_toggle_requested.connect(self.toggle_lab)
@@ -1130,6 +1132,9 @@ class ShadowSnipApp(QObject):
             self.cfg = config.load()
         except OSError as exc:
             self._warn(f"Settings could not be written: {exc}")
+        if skins.normalise(self.cfg.get("skin")) != skins.current():
+            skins.set_current(self.cfg.get("skin"))
+            self.preview.apply_skin()
         self.autocopy.configure(self.cfg)
         if self.cfg["auto_copy"] and not self.autocopy.engaged:
             self._engage_auto_copy(announce=False)

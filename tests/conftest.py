@@ -32,3 +32,13 @@ def isolated_config(tmp_path, monkeypatch):
     path = tmp_path / "cfgdir" / "config.json"
     monkeypatch.setattr(config_mod, "CONFIG_PATH", path)
     return path
+
+
+@pytest.fixture(autouse=True)
+def _original_skin():
+    """Every test starts and ends in the original look; the skin is module state."""
+    import skins
+
+    skins.set_current(skins.ORIGINAL)
+    yield
+    skins.set_current(skins.ORIGINAL)

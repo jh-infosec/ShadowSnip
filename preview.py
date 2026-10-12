@@ -11,11 +11,13 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import (
+    QColor,
     QCursor,
     QGuiApplication,
     QIcon,
     QImage,
     QKeySequence,
+    QPainter,
     QShortcut,
 )
 from PySide6.QtWidgets import (
@@ -32,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 import config
+import skins
 import storage
 from annotate import AnnotCanvas, AnnotToolbar
 from labsnips import LOCKED_STYLE, ClickToEditLine, LabSnipsPanel
@@ -168,7 +171,8 @@ class PreviewWindow(QWidget):
         self.setWindowTitle("ShadowSnip")
         if icon is not None:
             self.setWindowIcon(icon)
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(skins.style(STYLE))
+        self._skin_bg = None  # the painted background, cached at one size
         self.resize(1100, 760)
 
         # The snip, and the tools to mark it up. See annotate.py.
@@ -201,7 +205,7 @@ class PreviewWindow(QWidget):
         # Locked until double-clicked, so a stray click cannot change it, and
         # hovering shows the whole caption when it is too long for the box.
         self.caption = ClickToEditLine("Caption for the lab index - double-click to write one")
-        self.caption.setStyleSheet(LOCKED_STYLE)
+        self.caption.setStyleSheet(skins.style(LOCKED_STYLE))
         self.caption.setVisible(False)
         self.caption.returnPressed.connect(self._save_caption)
         self.caption.editingFinished.connect(self._save_caption)
@@ -279,8 +283,17 @@ class PreviewWindow(QWidget):
         self.btn_settings.clicked.connect(self.settings_requested.emit)
         self.btn_close.clicked.connect(self.close)
 
+        # The brand mark at the head of the row, shown by the skins that have one.
+        self.brand_icon = QLabel()
+        if icon is not None:
+            self.brand_icon.setPixmap(icon.pixmap(22, 22))
+        self.brand = QLabel("ShadowSnip")
+        self.brand.setObjectName("Brand")
+
         bar = QHBoxLayout()
         bar.setSpacing(8)
+        bar.addWidget(self.brand_icon)
+        bar.addWidget(self.brand)
         bar.addWidget(self.btn_new)
         bar.addWidget(self.btn_lab)
         bar.addWidget(self.btn_snips)
@@ -333,6 +346,8 @@ class PreviewWindow(QWidget):
         for keys in ("Ctrl+=", "Ctrl++"):
             QShortcut(QKeySequence(keys), self, lambda: self.canvas.set_zoom(self.canvas.zoom() * 1.2))
         QShortcut(QKeySequence("Ctrl+-"), self, lambda: self.canvas.set_zoom(self.canvas.zoom() / 1.2))
+        # The brand mark and the glows depend on the skin; set them now.
+        self.apply_skin()
 
     def _build_lab_panel(self) -> QWidget:
         """The section breadcrumb and the note box, shown only during a lab."""
@@ -669,6 +684,57 @@ class PreviewWindow(QWidget):
             self.btn_lab.style().unpolish(self.btn_lab)
             self.btn_lab.style().polish(self.btn_lab)
             self.btn_lab.update()
+            self._apply_glows()
+
+    # -- skins -------------------------------------------------------------
+    def apply_skin(self) -> None:
+        """Re-apply every stylesheet in the current skin. See skins.py."""
+        self.setStyleSheet(skins.style(STYLE))
+        self.caption.setStyleSheet(skins.style(LOCKED_STYLE))
+        self.tools.restyle()
+        self.snips_panel.restyle()
+        branded = not skins.is_original()
+        self.brand_icon.setVisible(branded and self.brand_icon.pixmap() is not None
+                                   and not self.brand_icon.pixmap().isNull())
+        self.brand.setVisible(branded)
+        self._skin_bg = None
+        self._apply_glows()
+        self.canvas.update()
+        self.update()
+
+    def _apply_glows(self) -> None:
+        """A soft glow under New snip, and under the lab button while a lab records.
+
+        Only in the skins; the original look has none. A graphics effect
+        per widget, so it is replaced rather than stacked.
+        """
+        from PySide6.QtWidgets import QGraphicsDropShadowEffect
+
+        def glow(widget, colour, radius, alpha):
+            if colour is None:
+                widget.setGraphicsEffect(None)
+                return
+            effect = QGraphicsDropShadowEffect(widget)
+            effect.setBlurRadius(radius)
+            effect.setOffset(0, 0)
+            c = QColor(colour)
+            c.setAlpha(alpha)
+            effect.setColor(c)
+            widget.setGraphicsEffect(effect)
+
+        skinned = not skins.is_original()
+        glow(self.btn_new, skins.accent() if skinned else None, 22, 95)
+        glow(self.btn_lab, skins.LAB if skinned and self.lab_running() else None, 20, 90)
+
+    def paintEvent(self, event):
+        if not skins.has_background():
+            return super().paintEvent(event)
+        if self._skin_bg is None or self._skin_bg.size() != self.size():
+            self._skin_bg = skins.paint_background(self.width(), self.height())
+        painter = QPainter(self)
+        if self._skin_bg is not None:
+            painter.drawImage(0, 0, self._skin_bg)
+        painter.end()
 
     def lab_running(self) -> bool:
         return bool(self.btn_lab.property("labActive"))

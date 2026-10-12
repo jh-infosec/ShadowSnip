@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.7.9"
+APP_VERSION = "0.7.10"
 
 
 def config_dir() -> Path:
@@ -33,6 +33,8 @@ def default_save_dir() -> Path:
 
 
 CONFIG_PATH = config_dir() / "config.json"
+
+SKIN_NAMES = ("original", "steel", "split")
 
 DEFAULTS = {
     # Global hotkey that starts a snip. Modifiers: ctrl, alt, shift, win.
@@ -105,6 +107,8 @@ DEFAULTS = {
     # Mark-up tools: pen and highlighter colour and width, the redact mode.
     # Checked and clamped by annotate.sanitise_prefs when the window reads it.
     "annotation": {},
+    # How ShadowSnip looks: "original", "steel" or "split". See skins.py.
+    "skin": "original",
 }
 
 
@@ -252,4 +256,8 @@ def _sanitise(cfg: dict) -> dict:
     cfg["lab_root"] = str(cfg.get("lab_root", "") or "").strip()
     if not isinstance(cfg.get("annotation"), dict):
         cfg["annotation"] = {}
+    # The skin names are repeated here rather than imported, so the config
+    # stays free of Qt. skins.NAMES is the same list; a test keeps them equal.
+    skin = str(cfg.get("skin") or "").strip().lower()
+    cfg["skin"] = skin if skin in SKIN_NAMES else "original"
     return cfg

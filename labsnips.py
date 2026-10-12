@@ -69,11 +69,22 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import skins
 from annotate import AnnotCanvas, AnnotToolbar
 
 # The glow around the selected row, the same blue as the thumbnail's hover.
 SELECT_EDGE = "#2f8cff"
 SELECT_FILL = (47, 140, 255, 34)
+
+
+def select_colours() -> tuple[QColor, QColor]:
+    """The selected row's fill and edge: the original blue, or the skin's accent."""
+    if skins.is_original():
+        return QColor(*SELECT_FILL), QColor(SELECT_EDGE)
+    edge = QColor(skins.accent())
+    fill = QColor(edge)
+    fill.setAlpha(SELECT_FILL[3])
+    return fill, edge
 # The thumbnail of the selected snip, under the list.
 DETAIL_THUMB_HEIGHT = 150
 # The preview in a row's hover tooltip.
@@ -209,27 +220,33 @@ class OutlinedTree(QTreeWidget):
         self._fusion = _shared_fusion()
         if self._fusion is not None:
             self.setStyle(self._fusion)
+        self.apply_selection_colours()
+
+    def apply_selection_colours(self) -> None:
+        fill, _edge = select_colours()
         palette = self.palette()
         for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
-            palette.setColor(group, QPalette.ColorRole.Highlight, QColor(*SELECT_FILL))
+            palette.setColor(group, QPalette.ColorRole.Highlight, fill)
             palette.setColor(group, QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
         self.setPalette(palette)
+        self.viewport().update()
 
     def drawRow(self, painter, option, index):
         selected = self.selectionModel() is not None and self.selectionModel().isSelected(index)
         rect = option.rect.adjusted(1, 1, -2, -1)
+        fill, edge = select_colours()
         if selected:
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(*SELECT_FILL))
+            painter.setBrush(fill)
             painter.drawRoundedRect(rect, 4, 4)
             painter.restore()
         super().drawRow(painter, option, index)
         if selected:
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            pen = QPen(QColor(SELECT_EDGE))
+            pen = QPen(edge)
             pen.setWidthF(1.0)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -277,7 +294,7 @@ class SnipViewer(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.Window)
         self.setObjectName("Viewer")
-        self.setStyleSheet(VIEWER_STYLE)
+        self.setStyleSheet(skins.style(VIEWER_STYLE))
         self.setWindowTitle("ShadowSnip - lab snip")
         self._items: list[dict] = []
         self._index = -1
@@ -372,6 +389,12 @@ class SnipViewer(QWidget):
             QShortcut(QKeySequence(key), self, lambda s=step: self.step(s))
 
     # -- the tools ----------------------------------------------------------------
+    def restyle(self) -> None:
+        """Re-apply the stylesheet in the current skin."""
+        self.setStyleSheet(skins.style(VIEWER_STYLE))
+        self.tools.restyle()
+        self.canvas.update()
+
     def set_prefs(self, prefs: dict) -> None:
         """Colours and widths, shared with the preview window."""
         self.tools.set_prefs(prefs)
@@ -601,7 +624,7 @@ class OutlineTree(OutlinedTree):
         font = item.font(0)
         font.setBold(True)
         item.setFont(0, font)
-        item.setForeground(0, QColor("#c9d6ea"))
+        item.setForeground(0, skins.color("#c9d6ea"))
         item.setToolTip(
             0,
             (f"Section {path}" if path else "Entries before the first heading")
@@ -642,7 +665,7 @@ class OutlineTree(OutlinedTree):
         font = item.font(0)
         font.setItalic(True)
         item.setFont(0, font)
-        item.setForeground(0, QColor("#9a9aa6"))
+        item.setForeground(0, skins.color("#9a9aa6"))
         tip = note["text"]
         if not attached and note.get("evidence"):
             tip += "\n\nEvidence: " + ", ".join(note["evidence"])
@@ -933,7 +956,7 @@ class LabSnipsPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(skins.style(STYLE))
         self._rows: dict[str, dict] = {}
         self._current_lab_file = ""
         self._shown_file = ""
@@ -1362,6 +1385,16 @@ class LabSnipsPanel(QWidget):
             self.viewer.remove_requested.connect(lambda name: self.remove_requested.emit([name]))
         self.viewer.set_items(self._viewer_items())
         self.viewer.show_file(filename)
+
+    def restyle(self) -> None:
+        """Re-apply stylesheets and selection colours in the current skin."""
+        self.setStyleSheet(skins.style(STYLE))
+        self.list.apply_selection_colours()
+        self.outline.apply_selection_colours()
+        if self.viewer is not None:
+            self.viewer.restyle()
+        if self._shown_file:
+            self._refresh_detail_view(self._shown_file)
 
     def set_annotation_prefs(self, prefs: dict) -> None:
         """Pen and highlighter settings, kept the same as the preview window's."""

@@ -67,6 +67,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import skins
+
 # -- palettes ---------------------------------------------------------------------
 # The pen's colours come in six families, one per row, each running from light
 # on the left to dark on the right: greys, reds, oranges and yellows, greens,
@@ -108,7 +110,11 @@ MIN_DRAG = 4
 ZOOM_STEP = 1.2
 MAX_ZOOM_SCALE = 8.0
 
-ACCENT = QColor("#2f8cff")
+ACCENT = QColor("#2f8cff")  # the original look; painting asks accent() for the current skin
+
+
+def accent() -> QColor:
+    return QColor(skins.accent())
 # Tools whose cursor carries an icon badge beside the pointer.
 BADGED_TOOLS = ("crop", "redact")
 
@@ -722,7 +728,7 @@ class AnnotCanvas(QWidget):
         if not rows:
             return super().contextMenuEvent(event)
         menu = QMenu(self)
-        menu.setStyleSheet(MENU_STYLE)
+        menu.setStyleSheet(skins.style(MENU_STYLE))
         for row in rows:
             if row is None:
                 menu.addSeparator()
@@ -763,11 +769,11 @@ class AnnotCanvas(QWidget):
     # -- painting -----------------------------------------------------------------------
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#101013"))
-        painter.setPen(QPen(QColor("#2c2c33"), 1))
+        painter.fillRect(self.rect(), skins.color("#101013"))
+        painter.setPen(QPen(skins.color("#2c2c33"), 1))
         painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
         if self._rendered is None:
-            painter.setPen(QColor("#9a9aa6"))
+            painter.setPen(skins.color("#9a9aa6"))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._message)
             return
 
@@ -826,7 +832,7 @@ class AnnotCanvas(QWidget):
             else:
                 fill = QColor(0, 0, 0, 220) if self.prefs["redact_mode"] == "black" else QColor(47, 140, 255, 60)
                 painter.fillRect(rect, fill)
-                painter.setPen(QPen(ACCENT, 1))
+                painter.setPen(QPen(accent(), 1))
             painter.drawRect(rect)
 
         if self._pointer_on_image():
@@ -911,7 +917,7 @@ class AnnotCanvas(QWidget):
             return
         reach = max(size / 2, 4) + 8
         chip = QRectF(pos.x() + reach, pos.y() + reach, 26, 26)
-        painter.setPen(QPen(ACCENT, 1))
+        painter.setPen(QPen(accent(), 1))
         painter.setBrush(QColor(26, 26, 31, 230))
         painter.drawRoundedRect(chip, 6, 6)
         color = self.prefs.get(f"{self.tool}_color") if self.tool in ("pen", "highlighter") else None
@@ -1046,10 +1052,10 @@ class StrokePreview(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        p.fillRect(self.rect(), QColor("#15151a"))
+        p.fillRect(self.rect(), skins.color("#15151a"))
         if self.kind == "highlighter":
             # Some "text" to show it is see-through.
-            p.setPen(QColor("#5c5c66"))
+            p.setPen(skins.color("#5c5c66"))
             for i, y in enumerate((18, 32)):
                 p.drawText(12, y + 4, "nmap -sV -p- 10.10.10.3" if i == 0 else "445/tcp open microsoft-ds")
         w, h = self.width(), self.height()
@@ -1084,7 +1090,7 @@ class Swatch(QPushButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         inset = 4 if self.isChecked() else 3
-        p.setPen(QPen(QColor("#3a3a44"), 1))
+        p.setPen(QPen(skins.color("#3a3a44"), 1))
         p.setBrush(QColor(self.color))
         p.drawRoundedRect(QRectF(self.rect()).adjusted(inset, inset, -inset, -inset), 5, 5)
         if self.isChecked():
@@ -1093,7 +1099,7 @@ class Swatch(QPushButton):
             p.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 7, 7)
         elif self.underMouse():
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(QPen(ACCENT, 1.5))
+            p.setPen(QPen(accent(), 1.5))
             p.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 7, 7)
         p.end()
 
@@ -1110,7 +1116,7 @@ class OptionsPopup(QFrame):
     def __init__(self, kind: str, colors, widths, parent=None, columns: int = 6):
         super().__init__(parent, Qt.WindowType.Popup)
         self.setObjectName("Popup")
-        self.setStyleSheet(POPUP_STYLE)
+        self.setStyleSheet(skins.style(POPUP_STYLE))
         self.kind = kind
 
         title = QLabel("Pen" if kind == "pen" else "Highlighter")
@@ -1184,7 +1190,7 @@ class RedactPopup(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.Popup)
         self.setObjectName("Popup")
-        self.setStyleSheet(POPUP_STYLE)
+        self.setStyleSheet(skins.style(POPUP_STYLE))
         title = QLabel("Redact")
         title.setObjectName("PopupTitle")
         self.black = QPushButton("Black out\nSolid black. Nothing survives.")
@@ -1294,7 +1300,7 @@ class AnnotToolbar(QWidget):
         super().__init__(parent)
         self.setObjectName("ToolStrip")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(STRIP_STYLE)
+        self.setStyleSheet(skins.style(STRIP_STYLE))
         self.prefs = dict(DEFAULT_PREFS)
         self.tool: str | None = None
         self.buttons: dict[str, QToolButton] = {}
@@ -1352,6 +1358,13 @@ class AnnotToolbar(QWidget):
         self.set_undo_enabled(False)
 
     # -- state ------------------------------------------------------------------------
+    def restyle(self) -> None:
+        """Re-apply the strip's and the popups' stylesheets in the current skin."""
+        self.setStyleSheet(skins.style(STRIP_STYLE))
+        for popup in (self.pen_popup, self.hl_popup, self.redact_popup):
+            popup.setStyleSheet(skins.style(POPUP_STYLE))
+        self.update()
+
     def set_prefs(self, prefs: dict) -> None:
         self.prefs = sanitise_prefs(prefs)
         self._refresh_icons()
