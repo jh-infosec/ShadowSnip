@@ -1,6 +1,37 @@
 # Changelog
 
-## Latest: 0.7.12
+## Latest: 0.8.0
+
+**Fixed**: the window no longer pops up after a reboot. Started by Windows at
+login, ShadowSnip now stays in the tray whether or not the shortcut has
+`--tray`: a shortcut in a Startup folder is recognised from the shortcut
+Windows started it with, and a start with no shortcut in the first three
+minutes after sign-in (a Run entry, a scheduled task) counts too. ShadowSnip
+also opts out of Windows reopening "restartable apps" after a restart, and a
+second login entry that finds it already running no longer asks it to open
+the window. Starting it yourself opens the window as before; `--show` forces it.
+
+**Added**: the Snip list without a lab. With no lab running it lists your
+recent snips (the history folder), newest first, with the thumbnail, the
+full-size view and its mark-up tools, Copy, Open and Remove (to
+`history\removed`, nothing deleted). Starting a lab switches it to that lab's
+snips, with sections, captions, notes, the outline and the report as before.
+History is now on by default, and switched on once in an existing config so
+the list has something to show; turning it off again is kept.
+
+**Added**: live skin preview. Picking a skin in Settings (or pressing Next)
+shows it at once: a picture of the window under the list, and on the window
+itself if it is open. Save keeps it; Cancel puts the old skin back.
+
+**Faster**: the snip overlay. Its windows are made once, in the background
+after start-up, and reused for every snip, kept out of sight until each has
+drawn the new frozen screen so the previous snip never flashes up. While you
+drag, only the strip the rectangle moved across is repainted, on the screens
+it touches, instead of every pixel of every screen on each mouse move. On a
+4K screen the overlay now appears about 20 ms sooner after the screen grab,
+and each drag frame takes about 3 ms instead of 17 ms.
+
+### 0.7.12 in brief
 
 **Added**: a fourth skin, **Console**. A night console look: deep navy
 background, an electric blue accent, faint scanlines like an old terminal, a

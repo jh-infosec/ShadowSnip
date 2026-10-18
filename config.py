@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.7.12"
+APP_VERSION = "0.8.0"
 
 
 def config_dir() -> Path:
@@ -45,9 +45,13 @@ DEFAULTS = {
     "save_dir": str(default_save_dir()),
     # Base name of the file that gets replaced on every snip.
     "latest_name": "latest",
-    # Keep timestamped copies alongside the latest file.
-    "keep_history": False,
+    # Keep timestamped copies alongside the latest file. These are also the
+    # Recent snips list in the window when no lab is running (0.8.0), so on
+    # by default.
+    "keep_history": True,
     "history_limit": 50,
+    # Set once a config has had history switched on for the Recent list (0.8.0).
+    "history_reviewed": True,
     # Compression. max_dimension 0 means "do not downscale".
     "max_dimension": 0,
     "quantize": True,
@@ -127,6 +131,12 @@ def load() -> dict:
                 if stored.get("png_compress_level", 9) == 9:
                     cfg["png_compress_level"] = DEFAULTS["png_compress_level"]
                 cfg["png_effort_reviewed"] = True
+            if not stored.get("history_reviewed"):
+                # Before 0.8.0 history was off by default, and an untouched
+                # config still says so. Turned on once so the Recent snips list
+                # has something to show; switching it off again is kept.
+                cfg["keep_history"] = True
+                cfg["history_reviewed"] = True
     except (OSError, ValueError):
         pass
     return _sanitise(cfg)
@@ -138,6 +148,7 @@ def save(cfg: dict) -> None:
     # Written by a version that knows about the PNG effort change, so a 9 in
     # this file from now on was chosen, not inherited.
     cfg["png_effort_reviewed"] = True
+    cfg["history_reviewed"] = True
     target = CONFIG_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
@@ -237,6 +248,7 @@ def _sanitise(cfg: dict) -> dict:
         "auto_copy_dedupe",
         "auto_copy_toast",
         "png_effort_reviewed",
+        "history_reviewed",
     ):
         cfg[flag] = bool(cfg.get(flag))
     cfg["auto_copy_extra_blocked"] = normalise_names(cfg.get("auto_copy_extra_blocked"))

@@ -85,9 +85,42 @@ def test_save_latest_honours_a_custom_name(cfg):
 
 
 # -- history ---------------------------------------------------------------
-def test_history_is_off_by_default(cfg):
+def test_history_is_on_by_default_and_can_be_switched_off(cfg):
+    assert cfg["keep_history"] is True
+    cfg["keep_history"] = False
     assert storage.save_history(b"x", "png", cfg) is None
     assert not (Path(cfg["save_dir"]) / storage.HISTORY_DIRNAME).exists()
+
+
+def test_history_rows_list_the_folder_oldest_first(cfg):
+    folder = Path(cfg["save_dir"]) / storage.HISTORY_DIRNAME
+    folder.mkdir(parents=True)
+    for i, name in enumerate(["snip_2026-10-18_09-00-00-000.png", "snip_2026-10-18_10-30-15-500.png", "other.png"]):
+        path = folder / name
+        path.write_bytes(b"x")
+        _age(path, seconds_ago=30 - i * 10)
+    (folder / "notes.txt").write_text("not an image")
+    rows = storage.history_rows(cfg)
+    assert [r["file"] for r in rows] == [
+        "snip_2026-10-18_09-00-00-000.png", "snip_2026-10-18_10-30-15-500.png", "other.png"]
+    assert [r["number"] for r in rows] == [1, 2, 3]
+    assert rows[1]["time"] == "2026-10-18 10:30:15"
+    assert rows[0]["section"] == "" and rows[0]["notes"] == [] and rows[0]["recorded"] is False
+    assert storage.history_rows({**cfg, "save_dir": str(Path(cfg["save_dir"]) / "nope")}) == []
+
+
+def test_removing_a_recent_snip_moves_it_aside(cfg):
+    cfg["keep_history"] = True
+    path = storage.save_history(b"x", "png", cfg)
+    moved = storage.remove_from_history(cfg, path.name)
+    assert moved is not None and moved.is_file()
+    assert moved.parent.name == storage.REMOVED_DIRNAME
+    assert not path.exists()
+    assert storage.history_rows(cfg) == []
+    # Pruning leaves the removed folder alone.
+    storage.prune_history(cfg)
+    assert moved.is_file()
+    assert storage.remove_from_history(cfg, "missing.png") is None
 
 
 def test_history_writes_a_timestamped_copy(cfg):

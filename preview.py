@@ -253,9 +253,9 @@ class PreviewWindow(QWidget):
         self.btn_snips = QPushButton("Snip list")
         self.btn_snips.setCheckable(True)
         self.btn_snips.setChecked(True)
-        self.btn_snips.setVisible(False)
         self.btn_snips.setToolTip(
-            "Show or hide the list of this lab's snips beside the image"
+            "Show or hide the list beside the image: the lab's snips while a "
+            "lab runs, your recent snips otherwise"
         )
         self.btn_auto = QPushButton("Copy on select")
         self.btn_auto.setCheckable(True)
@@ -610,16 +610,21 @@ class PreviewWindow(QWidget):
 
     # -- the lab's snip list -------------------------------------------------
     def set_snips_visible(self, lab_running: bool, shown: bool = True) -> None:
-        """Offer the Snip list button during a lab, and show the list if it is on."""
-        self.btn_snips.setVisible(lab_running)
+        """The Snip list: the lab's snips during a lab, your recent snips otherwise.
+
+        Offered all the time since 0.8.0; before, it only existed during a lab.
+        """
+        self.btn_snips.setVisible(True)
         blocked = self.btn_snips.blockSignals(True)
         try:
             self.btn_snips.setChecked(shown)
         finally:
             self.btn_snips.blockSignals(blocked)
-        self.snips_panel.setVisible(lab_running and shown)
-        if not lab_running:
+        if self.snips_panel.is_lab_mode() != bool(lab_running):
+            self.snips_panel.hide_viewer()
             self.snips_panel.clear()
+            self.snips_panel.set_lab_mode(lab_running)
+        self.snips_panel.setVisible(shown)
 
     def snips_shown(self) -> bool:
         return self.snips_panel.isVisibleTo(self)

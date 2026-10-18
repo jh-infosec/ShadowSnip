@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QCursor, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -97,8 +97,17 @@ class HotkeyEdit(QLineEdit):
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, cfg: dict, parent=None):
+    # The skin picked in the list, as you pick it, before Save: so the window
+    # can show it straight away. Cancel puts the old one back (app.py).
+    skin_changed = Signal(str)
+
+    # Width of the skin preview picture on the Appearance tab.
+    SKIN_PREVIEW_WIDTH = 340
+
+    def __init__(self, cfg: dict, parent=None, skin_preview=None):
+        """`skin_preview(name)` returns a picture of the window in that skin, or None."""
         super().__init__(parent)
+        self._skin_preview = skin_preview
         self.setWindowTitle("ShadowSnip settings")
         self.setMinimumWidth(460)
         self._cfg = dict(cfg)
@@ -283,8 +292,15 @@ class SettingsDialog(QDialog):
         self.skin_next.clicked.connect(self._next_skin)
         self.skin_about = QLabel()
         self.skin_about.setObjectName("SkinAbout")
+        self.skin_about.setWordWrap(True)
         self.skin_combo.currentIndexChanged.connect(self._describe_skin)
         self._describe_skin()
+        # The window itself, in the skin picked, updated as you cycle.
+        self.skin_picture = QLabel()
+        self.skin_picture.setObjectName("SkinPicture")
+        self.skin_picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.skin_picture.setVisible(skin_preview is not None)
+        self.skin_combo.currentIndexChanged.connect(self._on_skin_picked)
         skin_row = QWidget()
         skin_layout = QHBoxLayout(skin_row)
         skin_layout.setContentsMargins(0, 0, 0, 0)
@@ -298,6 +314,7 @@ class SettingsDialog(QDialog):
         appearance = self._tab("Appearance")
         appearance.addRow("Skin", skin_row)
         appearance.addRow("", self.skin_about)
+        appearance.addRow("", self.skin_picture)
         appearance.addRow(self.preview_check)
         appearance.addRow("Overlay dimming", self.dim)
 
@@ -356,6 +373,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(buttons)
 
         self._sync_quality()
+        self._show_skin_picture(self.skin_combo.currentData() or "original")
 
     def _tab(self, title: str) -> QFormLayout:
         """A tab holding a form, inside a scroll area in case a screen is very small."""
@@ -522,3 +540,26 @@ class SettingsDialog(QDialog):
     def _describe_skin(self, *_args) -> None:
         name = self.skin_combo.currentData() or "original"
         self.skin_about.setText(skins.DESCRIPTIONS.get(name, ""))
+
+    def _on_skin_picked(self, *_args) -> None:
+        name = self.skin_combo.currentData() or "original"
+        self.skin_changed.emit(name)
+        self._show_skin_picture(name)
+
+    def _show_skin_picture(self, name: str) -> None:
+        if self._skin_preview is None:
+            return
+        try:
+            picture = self._skin_preview(name)
+        except Exception:  # noqa: BLE001 - a preview is never worth an error box
+            picture = None
+        if picture is None or picture.isNull():
+            self.skin_picture.clear()
+            return
+        width = self.SKIN_PREVIEW_WIDTH
+        ratio = self.devicePixelRatioF() or 1.0
+        scaled = picture.scaledToWidth(
+            int(width * ratio), Qt.TransformationMode.SmoothTransformation
+        )
+        scaled.setDevicePixelRatio(ratio)
+        self.skin_picture.setPixmap(scaled)

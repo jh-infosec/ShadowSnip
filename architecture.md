@@ -6,14 +6,17 @@ Flat modules at the repo root; every module imports by bare name.
 
 ```
 main.py              entry point, DPI awareness, single-instance guard,
-                     --snip / --note / --tray, Wayland warning
+                     --snip / --note / --tray / --show, telling a login start
+                     from a start by hand, Wayland warning
 app.py               tray icon, snip pipeline, settings plumbing
 config.py            defaults, load/save, sanitising
 capture.py           screen freezing and multi-monitor crop compositing
-overlay.py           the dimmed selection windows
+overlay.py           the dimmed selection windows: made once and reused,
+                     repainting only what a drag moves
 imageops.py          QImage -> Pillow, compression, DIB encoding
 clipboard.py         Win32 clipboard writer (PNG + CF_DIB), Qt fallback
-storage.py           latest-file replacement, history, atomic writes
+storage.py           latest-file replacement, history (the Recent snips list),
+                     atomic writes
 lab.py               lab sessions: numbering, sections, notes, the lab.md tree,
                      outline and moves
 platforms.py         picks the Windows or Linux module for hotkeys and copy on

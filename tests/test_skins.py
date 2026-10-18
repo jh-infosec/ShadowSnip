@@ -241,7 +241,7 @@ def test_settings_switches_the_skin_live(tmp_path, monkeypatch):
         class DialogCode:
             Accepted = 1
 
-        def __init__(self, cfg):
+        def __init__(self, cfg, skin_preview=None):
             self.cfg = dict(cfg)
 
         def exec(self):

@@ -389,6 +389,21 @@ class SnipViewer(QWidget):
             QShortcut(QKeySequence(key), self, lambda s=step: self.step(s))
 
     # -- the tools ----------------------------------------------------------------
+    def set_lab_mode(self, lab: bool) -> None:
+        """Lab wording, or plain wording for the recent snips outside a lab."""
+        self.setWindowTitle("ShadowSnip - lab snip" if lab else "ShadowSnip - recent snip")
+        self.canvas.extra_menu_rows = [
+            ("Remove from lab..." if lab else "Remove...", self.remove_current)
+        ]
+        self.btn_remove.setText("Remove from lab" if lab else "Remove")
+        self.btn_remove.setToolTip(
+            "Take this snip out of the lab and lab.md (Delete). The image is "
+            "moved to the lab's removed folder, not deleted."
+            if lab else
+            "Take this snip off the recent list (Delete). The image is moved to "
+            "history\\removed, not deleted."
+        )
+
     def restyle(self) -> None:
         """Re-apply the stylesheet in the current skin."""
         self.setStyleSheet(skins.style(VIEWER_STYLE))
@@ -963,6 +978,10 @@ class LabSnipsPanel(QWidget):
         self._thumbs = ThumbCache()
         self.viewer: SnipViewer | None = None
         self._annotation_prefs: dict = {}
+        # True while a lab runs. Otherwise the list is the Recent snips from
+        # the history folder: nothing filed, so no sections, captions, notes,
+        # outline or report.
+        self._lab = True
 
         self.title = QLabel("Lab snips")
         self.title.setObjectName("FieldLabel")
@@ -1067,6 +1086,7 @@ class LabSnipsPanel(QWidget):
         self.thumb = ClickableLabel()
         self.thumb.setObjectName("SnipThumb")
         self.thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.thumb.setWordWrap(True)
         # Takes the room the caption and note boxes used to: captions and
         # notes for the snip on screen are written under the image instead.
         self.thumb.setMinimumHeight(DETAIL_THUMB_HEIGHT)
@@ -1116,6 +1136,37 @@ class LabSnipsPanel(QWidget):
         layout.addLayout(buttons)
         return panel
 
+    # -- lab or recent ---------------------------------------------------------
+    def set_lab_mode(self, lab: bool) -> None:
+        """A running lab's snips, or (False) the recent snips outside a lab."""
+        lab = bool(lab)
+        if lab == self._lab:
+            return
+        self._lab = lab
+        for column in (2, 3, 4):
+            self.list.setColumnHidden(column, not lab)
+        self.tabs.setTabVisible(1, lab)
+        self.tabs.setTabVisible(2, lab)
+        if not lab:
+            self.tabs.setCurrentIndex(0)
+        self.tabs.tabBar().setVisible(lab)
+        self.thumb.setToolTip(
+            "Click to expand. Left and Right then cycle through the lab."
+            if lab else "Click to expand. Left and Right then cycle through your recent snips."
+        )
+        self.btn_remove.setToolTip(
+            "Take the selected snips out of the lab and lab.md. Shift-click or "
+            "Ctrl-click to select several. The images are moved to the lab's "
+            "removed folder, not deleted. Notes attached only to them go too."
+            if lab else
+            "Take the selected snips off the list. Shift-click or Ctrl-click to "
+            "select several. The images are moved to history\\removed, not deleted."
+        )
+        self.set_rows([], "")
+
+    def is_lab_mode(self) -> bool:
+        return self._lab
+
     # -- filling ------------------------------------------------------------
     def set_rows(self, rows, current_file: str = "") -> None:
         """Fill from lab.snip_rows(), newest first.
@@ -1157,7 +1208,8 @@ class LabSnipsPanel(QWidget):
             self.list.blockSignals(blocked)
 
         count = len(rows)
-        self.title.setText(f"Lab snips ({count})" if count else "Lab snips - none yet")
+        kind = "Lab snips" if self._lab else "Recent snips"
+        self.title.setText(f"{kind} ({count})" if count else f"{kind} - none yet")
         self._thumbs.keep_only(row.get("path", "") for row in rows)
 
         self._show_detail(self.selected())
@@ -1260,15 +1312,18 @@ class LabSnipsPanel(QWidget):
                 f'<img src="{source}" width="{size.width()}" height="{size.height()}">'
             )
         lines = [f"<b>{html.escape(label)}</b>  {html.escape(row['file'])}"]
-        lines.append(f"Filed under: {html.escape(section)}")
+        filed = row.get("recorded", True) or row.get("section") or row.get("caption") or notes
+        if filed:
+            lines.append(f"Filed under: {html.escape(section)}")
         if when:
             lines.append(f"Taken: {html.escape(when)}")
-        caption = row.get("caption", "")
-        lines.append(f"Caption: {html.escape(caption)}" if caption else "No caption")
-        for text in notes:
-            lines.append(f"Note: {html.escape(text)}".replace("\n", "<br>"))
-        if not notes:
-            lines.append("No notes attached")
+        if filed:
+            caption = row.get("caption", "")
+            lines.append(f"Caption: {html.escape(caption)}" if caption else "No caption")
+            for text in notes:
+                lines.append(f"Note: {html.escape(text)}".replace("\n", "<br>"))
+            if not notes:
+                lines.append("No notes attached")
         if on_screen:
             lines.append("<i>On screen now</i>")
         parts.append("<br>".join(lines))
@@ -1309,11 +1364,13 @@ class LabSnipsPanel(QWidget):
         self._shown_file = filename if filename in self._rows else ""
         if not self._shown_file:
             self.thumb.clear()
-            self.thumb.setText(
-                "Snips taken while this lab runs are listed above, newest first."
-                if not self._rows
-                else "Select a snip"
-            )
+            if self._rows:
+                empty = "Select a snip"
+            elif self._lab:
+                empty = "Snips taken while this lab runs are listed above, newest first."
+            else:
+                empty = "Snips you take are listed above, newest first."
+            self.thumb.setText(empty)
             self.where.setText("")
         else:
             self._refresh_detail_view(filename)
@@ -1332,7 +1389,7 @@ class LabSnipsPanel(QWidget):
         else:
             self.thumb.setPixmap(pixmap)
         when = str(row.get("time", ""))
-        where = f"{label_of(row)}  |  {row.get('section') or 'root'}"
+        where = f"{label_of(row)}  |  {row.get('section') or 'root'}" if self._lab else label_of(row)
         if when:
             where += f"  |  {when}"
         if row["file"] == self._current_lab_file:
@@ -1348,9 +1405,11 @@ class LabSnipsPanel(QWidget):
         chosen = bool(self.selected())
         count = len(self.selected_files())
         self.btn_remove.setEnabled(count > 0)
-        self.btn_remove.setText(
-            f"Remove {count} from lab" if count > 1 else "Remove from lab"
-        )
+        if self._lab:
+            text = f"Remove {count} from lab" if count > 1 else "Remove from lab"
+        else:
+            text = f"Remove {count}" if count > 1 else "Remove"
+        self.btn_remove.setText(text)
         self.btn_open.setEnabled(chosen)
         self.btn_expand.setEnabled(chosen)
 
@@ -1383,6 +1442,7 @@ class LabSnipsPanel(QWidget):
             if self._annotation_prefs:
                 self.viewer.set_prefs(self._annotation_prefs)
             self.viewer.remove_requested.connect(lambda name: self.remove_requested.emit([name]))
+        self.viewer.set_lab_mode(self._lab)
         self.viewer.set_items(self._viewer_items())
         self.viewer.show_file(filename)
 

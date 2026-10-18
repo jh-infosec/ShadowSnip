@@ -106,7 +106,7 @@ ShadowSnip opens its window and puts an icon in the notification area. Press
 | Quick-note hotkey | Registered by ShadowSnip | Same as the snip hotkey: a desktop shortcut that runs `shadowsnip --note` |
 | Copy on select | A mouse hook and a synthetic Ctrl+C | X11 already puts highlighted text in the *primary selection* (what middle-click pastes); ShadowSnip copies it to the clipboard. No hook and no keystroke, so a terminal can never receive a stray Ctrl+C. Each selection is copied once it stops changing. |
 | Settings file | `%APPDATA%\ShadowSnip\config.json` | `~/.config/shadowsnip/config.json` |
-| Start at login | A shortcut in `shell:startup` with `--tray` | `bash install.sh --autostart` |
+| Start at login | A shortcut in `shell:startup`; it starts in the tray with or without `--tray` | `bash install.sh --autostart` |
 
 Everything else (snipping, labs, sections, notes, the outline and preview,
 removal, the viewer) is the same code on both.
@@ -117,8 +117,9 @@ removal, the viewer) is the same code on both.
 | --- | --- |
 | Start a snip | `Ctrl+Shift+S`, the tray menu, or `python main.py --snip` |
 | Jot a note into the lab | `Ctrl+Shift+N`, or **Add note...** in the tray menu |
-| Open the window | starting ShadowSnip opens it; afterwards click the tray icon, or start it again (the taskbar pin) |
+| Open the window | starting ShadowSnip yourself opens it (a start by Windows at login stays in the tray); afterwards click the tray icon, or start it again (the taskbar pin) |
 | Start hidden in the tray | `ShadowSnip.exe --tray` on Windows, `shadowsnip --tray` on Linux (for the login shortcut) |
+| Always open the window | `ShadowSnip.exe --show` |
 | Start or stop a lab | **Start lab** in the preview window, or the tray menu |
 | Drag a region | left mouse button |
 | Grab the whole screen under the cursor | `F` or `Space` |
@@ -391,6 +392,23 @@ Anonymous login allowed on tmp.
 Sections and notes both need the lab record switched on — that is the
 **Keep a lab record** setting, which is on by default.
 
+### Recent snips (no lab running)
+
+The **Snip list** is there all the time. With no lab running it lists your
+recent snips, newest first: the timestamped copies in the `history` folder,
+kept to the **Keep at most** count in Settings. Select one to see it larger,
+**Expand** (or double-click, or Space) for the full-size view with the
+mark-up tools, Left and Right to step through, **Copy** or Ctrl+C to put one
+back on the clipboard, **Open** for your default viewer. **Remove** (or
+Delete) takes the selected snips off the list; the images go to
+`history\removed`, nothing is deleted. Sections, captions, notes, the outline
+and the report belong to labs, so they appear once a lab starts and the list
+switches to that lab's snips.
+
+The list needs history, which is on by default from 0.8.0 (an existing
+config has it switched on once). Turn off **Keep a timestamped copy** in
+Settings and the list stays empty outside a lab.
+
 ### The lab snip list, and removing a snip
 
 While a lab is running, the preview window lists every snip in it beside the
@@ -445,8 +463,9 @@ outside the labs folder.
 ```
 %USERPROFILE%\Pictures\ShadowSnip\
 ├─ latest.png              replaced by every snip
-├─ history\                only when history is switched on
-│  └─ snip_2026-08-09_14-31-07-482.png
+├─ history\                the Recent snips list (on by default)
+│  ├─ snip_2026-08-09_14-31-07-482.png
+│  └─ removed\             snips taken off the list
 └─ labs\
    ├─ .gitignore           written on first use
    └─ htb-lame\
@@ -474,11 +493,11 @@ window is never taller than the screen it opens on.
 
 | Setting | Effect |
 | --- | --- |
-| Skin | How ShadowSnip looks: **Original**, **Steel**, **Split** or **Console**. **Next** steps through them; the change applies as soon as you press Save |
+| Skin | How ShadowSnip looks: **Original**, **Steel**, **Split** or **Console**. **Next** steps through them. Each one shows straight away, in a picture of the window under the list and on the window itself; **Save** keeps it, **Cancel** puts the old one back |
 | Snip hotkey | Click the field and press the combination you want |
 | Quick note hotkey | The same, for the one-line note box |
 | Save folder / replaced file name | Where the standing snip lives |
-| Keep a timestamped copy | Turns on the `history` folder, pruned to a fixed count |
+| Keep a timestamped copy | The `history` folder, pruned to a fixed count. Outside a lab it is the Recent snips list. On by default |
 | File format | What goes to disk: PNG, WebP or JPEG. The clipboard always gets PNG |
 | Longest edge | Downscale anything larger, in pixels. `Full size` disables it |
 | Reduce the colour palette | Palette-quantise when it produces a much smaller PNG; the truecolour version wins if it does not |

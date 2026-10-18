@@ -160,15 +160,36 @@ def test_a_refresh_keeps_the_selection_but_a_new_snip_takes_it(window):
     assert window.selected_snip() == "003_c.png"
 
 
-def test_the_snip_list_button_only_appears_during_a_lab(window):
+def test_the_snip_list_is_offered_with_or_without_a_lab(window):
     window.set_snips_visible(False, True)
-    assert not window.btn_snips.isVisibleTo(window)
-    assert not window.snips_shown()
+    assert window.btn_snips.isVisibleTo(window)
+    assert window.snips_shown()
+    assert not window.snips_panel.is_lab_mode()
+    assert window.snips_panel.title.text().startswith("Recent snips")
 
     window.set_snips_visible(True, True)
     assert window.btn_snips.isVisibleTo(window)
     assert window.btn_snips.isChecked()
     assert window.snips_shown()
+    assert window.snips_panel.is_lab_mode()
+    assert window.snips_panel.title.text().startswith("Lab snips")
+
+
+def test_outside_a_lab_the_list_hides_filing_columns_and_tabs(window):
+    window.set_snips_visible(False, True)
+    panel = window.snips_panel
+    assert [panel.list.isColumnHidden(c) for c in range(5)] == [False, False, True, True, True]
+    assert not panel.tabs.isTabVisible(1) and not panel.tabs.isTabVisible(2)
+    rows = [{"file": "snip_a.png", "number": 1, "time": "2026-10-18 10:00:00", "section": "",
+             "caption": "", "notes": [], "recorded": False}]
+    window.set_lab_snips(rows, "snip_a.png")
+    assert panel.title.text() == "Recent snips (1)"
+    assert panel.btn_remove.text() == "Remove"
+
+    window.set_snips_visible(True, True)
+    assert not panel.list.isColumnHidden(2)
+    assert panel.tabs.isTabVisible(1)
+    assert panel.list.topLevelItemCount() == 0  # switching lists starts empty
 
 
 def test_the_snip_list_can_be_hidden_and_reports_it(window):

@@ -35,6 +35,7 @@ import lab
 import platforms
 import skins
 import storage
+import overlay
 from overlay import SelectionController
 from preview import PreviewWindow
 from settings_dialog import SettingsDialog
@@ -54,6 +55,8 @@ class ShadowSnipApp(QObject):
         self._last_disk: tuple[bytes, str] | None = None
         # The lab filename of the snip on screen, so a note can attach to it.
         self._last_lab_file: str = ""
+        # The same for the history folder: the snip on screen in the Recent list.
+        self._last_history_file: str = ""
 
         skins.set_current(self.cfg.get("skin"))
         self.preview = PreviewWindow(icon=build_icon())
@@ -102,6 +105,12 @@ class ShadowSnipApp(QObject):
         self.tray.activated.connect(self._on_tray_activated)
         self._build_menu()
         self.tray.show()
+
+        # The snip overlay's windows are made now, in the background, so the
+        # first snip does not wait for them; again whenever a screen comes or goes.
+        QTimer.singleShot(300, self._prewarm_overlay)
+        self.qapp.screenAdded.connect(lambda *_: QTimer.singleShot(300, self._prewarm_overlay))
+        self.qapp.screenRemoved.connect(lambda *_: QTimer.singleShot(300, self._prewarm_overlay))
 
         self.hotkeys = platforms.HotkeyManager(self)
         self.hotkeys.triggered.connect(self._on_hotkey)
@@ -208,7 +217,8 @@ class ShadowSnipApp(QObject):
             self.action_section.setText("Set section...")
 
         # The snip list is built from the images in the lab folder, so it is
-        # shown for any running lab, record or not.
+        # shown for any running lab, record or not; outside a lab it lists the
+        # recent snips in the history folder.
         shown = bool(self.cfg.get("lab_snip_list", True))
         self.preview.set_snips_visible(bool(name), shown)
         self._watch_lab_folder()
@@ -229,9 +239,16 @@ class ShadowSnipApp(QObject):
             self.show_window()
 
     # -- the live snip list -------------------------------------------------
-    def _watch_lab_folder(self) -> None:
-        """Point the folder watcher at the running lab, or at nothing."""
+    def _list_folder(self) -> Path | None:
+        """The folder the snip list shows: the running lab, else the history folder."""
         target = lab.active_folder(self.cfg)
+        if target is not None:
+            return target
+        return storage.history_folder(self.cfg)
+
+    def _watch_lab_folder(self) -> None:
+        """Point the folder watcher at the folder the snip list shows."""
+        target = self._list_folder()
         wanted = str(target) if target is not None and target.is_dir() else ""
         if wanted == self._watched_lab:
             return
@@ -246,9 +263,14 @@ class ShadowSnipApp(QObject):
         self._snip_list_timer.start()
 
     def _refresh_snip_list(self) -> None:
-        """Rebuild the snip list and the tray count from the lab folder."""
+        """Rebuild the snip list and the tray count from the lab folder.
+
+        Outside a lab the list shows the recent snips in the history folder.
+        """
         name = lab.active_name(self.cfg)
         if not name:
+            if self.cfg.get("lab_snip_list", True):
+                self.preview.set_lab_snips(storage.history_rows(self.cfg), self._last_history_file)
             return
         self.tray.setToolTip(
             f"ShadowSnip - lab: {name} "
@@ -400,16 +422,17 @@ class ShadowSnipApp(QObject):
         if problems:
             line += "   |   " + "; ".join(problems)
         self.preview.set_status(line)
-        if "lab" in self._snip_paths:
+        listed = self._snip_paths.get("lab") or self._snip_paths.get("history")
+        if listed is not None:
             # The thumbnail and the viewer read the file; the folder watcher
             # sees the change too, this just makes it immediate.
             self._refresh_snip_list()
             if not from_viewer:
-                self.preview.snips_panel.reload_in_viewer(self._snip_paths["lab"].name)
+                self.preview.snips_panel.reload_in_viewer(listed.name)
 
     def _before_viewer_loads(self, filename: str) -> None:
         """Mark-up waiting on the snip on screen goes into its file before the viewer reads it."""
-        if filename and filename == self._last_lab_file:
+        if filename and filename in (self._last_lab_file, self._last_history_file):
             self.preview.flush_edits()
 
     def save_lab_snip_edit(self, filename: str, image) -> None:
@@ -423,17 +446,20 @@ class ShadowSnipApp(QObject):
         """
         if image is None or image.isNull() or not filename:
             return
-        lab_path = self._snip_paths.get("lab")
-        if filename == self._last_lab_file and lab_path is not None and lab_path.name == filename:
+        in_lab = lab.is_active(self.cfg)
+        listed = self._snip_paths.get("lab" if in_lab else "history")
+        on_screen = self._last_lab_file if in_lab else self._last_history_file
+        if filename == on_screen and listed is not None and listed.name == filename:
             self.apply_snip_edit(image, from_viewer=True)
             self.preview.rebase_snip(image)
-            self.preview.viewer_message(f"Edit saved to snip {filename.split('_', 1)[0]} and its copies")
+            label = filename.split("_", 1)[0] if in_lab else "on screen"
+            self.preview.viewer_message(f"Edit saved to snip {label} and its copies")
             return
-        folder = lab.active_folder(self.cfg)
+        folder = self._list_folder()
         if folder is None:
             return
         path = folder / filename
-        label = filename.split("_", 1)[0]
+        label = self._label_for(filename)
         result = imageops.process(image, self.cfg)
         if path.suffix.lower().lstrip(".") != result.disk.ext.lower():
             message = f"Snip {label} kept as it was: the file format was changed in Settings since it was taken"
@@ -558,7 +584,10 @@ class ShadowSnipApp(QObject):
         if isinstance(filenames, str):
             filenames = [filenames]
         filenames = [name for name in (filenames or []) if name]
-        if not filenames or not lab.is_active(self.cfg):
+        if not filenames:
+            return
+        if not lab.is_active(self.cfg):
+            self._remove_recent_snips(filenames)
             return
         rows = {r["file"]: r for r in lab.snip_rows(self.cfg)}
         present = [name for name in filenames if name in rows]
@@ -647,13 +676,70 @@ class ShadowSnipApp(QObject):
             self.preview.set_status(f"Could not remove: {'; '.join(errors)}")
         self._refresh_menu_text()
 
+    def _label_for(self, filename: str) -> str:
+        """How a listed snip is named in messages: its lab number, or its time."""
+        if lab.is_active(self.cfg):
+            return filename.split("_", 1)[0]
+        for row in storage.history_rows(self.cfg):
+            if row["file"] == filename:
+                return f"{row['number']:03d}"
+        return filename
+
+    def _remove_recent_snips(self, filenames) -> None:
+        """Take recent snips off the list: moved to history\\removed, not deleted."""
+        rows = {r["file"]: r for r in storage.history_rows(self.cfg)}
+        present = [name for name in filenames if name in rows]
+        if not present:
+            self.preview.set_status("Those snips are no longer in the history folder.")
+            self._refresh_snip_list()
+            return
+        if len(present) == 1:
+            title = "Remove snip"
+            text = (f"Remove snip {rows[present[0]]['number']:03d} ({present[0]}) from the "
+                    "recent list?\n\nThe image is moved to history\\removed. It is not deleted.")
+        else:
+            title = f"Remove {len(present)} snips"
+            text = (f"Remove {len(present)} snips from the recent list?\n\nThe images are "
+                    "moved to history\\removed. Nothing is deleted.")
+        parent = QApplication.activeWindow()
+        if parent is None and self.preview.isVisible():
+            parent = self.preview
+        answer = QMessageBox.question(
+            parent, title, text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        done, errors = [], []
+        for name in present:
+            try:
+                if storage.remove_from_history(self.cfg, name) is not None:
+                    done.append(f"{rows[name]['number']:03d}")
+            except OSError as exc:
+                errors.append(f"{rows[name]['number']:03d}: {exc}")
+                continue
+            if name == self._last_history_file:
+                self._last_history_file = ""
+                self._snip_paths.pop("history", None)
+                self.preview.forget_snip_on_screen()
+        if done:
+            what = f"Snip {done[0]}" if len(done) == 1 else f"Snips {', '.join(done)}"
+            status = f"{what} removed from the recent list. They are in history\\removed."
+            if errors:
+                status += f" Not removed: {'; '.join(errors)}"
+            self.preview.set_status(status)
+        elif errors:
+            self.preview.set_status(f"Could not remove: {'; '.join(errors)}")
+        self._refresh_snip_list()
+
     def copy_lab_snip(self, filename: str) -> None:
-        """Put a lab snip on the clipboard, from the full-size viewer."""
-        folder = lab.active_folder(self.cfg)
+        """Put a listed snip on the clipboard, from the full-size viewer."""
+        folder = self._list_folder()
         if folder is None or not filename:
             return
         path = folder / filename
-        label = filename.split("_", 1)[0]
+        label = self._label_for(filename)
         try:
             png, image = imageops.clipboard_png_from_file(path, self.cfg)
             clipboard.copy(png, image, include_dib=self.cfg["clipboard_dib_fallback"])
@@ -715,12 +801,13 @@ class ShadowSnipApp(QObject):
         self._refresh_menu_text()
 
     def open_lab_snip(self, filename: str) -> None:
-        target = lab.active_folder(self.cfg)
+        target = self._list_folder()
         if target is None or not filename:
             return
         path = target / filename
         if not path.is_file():
-            self.preview.set_status(f"{filename} is no longer in the lab folder.")
+            where = "lab" if lab.is_active(self.cfg) else "history"
+            self.preview.set_status(f"{filename} is no longer in the {where} folder.")
             self._refresh_menu_text()
             return
         try:
@@ -911,6 +998,14 @@ class ShadowSnipApp(QObject):
         else:
             QTimer.singleShot(0, self._begin_snip)
 
+    def _prewarm_overlay(self) -> None:
+        if self.busy:
+            return
+        try:
+            overlay.prewarm()
+        except Exception:  # noqa: BLE001 - only an optimisation; a snip makes them anyway
+            pass
+
     def _blocked_by_dialog(self) -> None:
         """Say why the snip was refused, and show the window that refused it."""
         self.tray.showMessage(
@@ -1035,6 +1130,7 @@ class ShadowSnipApp(QObject):
             )
 
         self._last_lab_file = lab_path.name if lab_path is not None else ""
+        self._last_history_file = history_path.name if history_path is not None else ""
         self._snip_paths = {
             key: path
             for key, path in (("latest", latest_path), ("lab", lab_path), ("history", history_path))
@@ -1063,6 +1159,10 @@ class ShadowSnipApp(QObject):
 
         if lab_path is not None:
             self._refresh_menu_text()
+        elif history_path is not None:
+            # The history folder may have just been made: watch it from now on.
+            self._watch_lab_folder()
+            self._refresh_snip_list()
 
     def _caption_setter(self, filename: str):
         def apply(text: str) -> bool:
@@ -1109,7 +1209,29 @@ class ShadowSnipApp(QObject):
 
     # -- settings ----------------------------------------------------------
     def open_settings(self) -> None:
-        dialog = SettingsDialog(self.cfg)
+        try:
+            self._run_settings()
+        finally:
+            # Whatever happened (Cancel, a refused change, Save), the window ends
+            # up in the skin that is actually saved, not the last one previewed.
+            self._apply_skin(self.cfg.get("skin"))
+
+    def _apply_skin(self, name) -> None:
+        if skins.normalise(name) != skins.current():
+            skins.set_current(name)
+            self.preview.apply_skin()
+
+    def _skin_picture(self, name: str):
+        """Settings' live preview: put the window in `name` and return a picture of it.
+
+        The window itself changes too, when it is open, so cycling through the
+        skins shows each one on the real thing as well as in Settings.
+        """
+        self._apply_skin(name)
+        return self.preview.grab()
+
+    def _run_settings(self) -> None:
+        dialog = SettingsDialog(self.cfg, skin_preview=self._skin_picture)
         if dialog.exec() != SettingsDialog.DialogCode.Accepted:
             return
         new_cfg = dialog.values()
@@ -1132,9 +1254,7 @@ class ShadowSnipApp(QObject):
             self.cfg = config.load()
         except OSError as exc:
             self._warn(f"Settings could not be written: {exc}")
-        if skins.normalise(self.cfg.get("skin")) != skins.current():
-            skins.set_current(self.cfg.get("skin"))
-            self.preview.apply_skin()
+        self._apply_skin(self.cfg.get("skin"))
         self.autocopy.configure(self.cfg)
         if self.cfg["auto_copy"] and not self.autocopy.engaged:
             self._engage_auto_copy(announce=False)

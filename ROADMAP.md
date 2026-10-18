@@ -65,7 +65,7 @@ same tools work on any lab snip, in the full-size view.
 
 ## v0.11 - after the snip
 
-- Clipboard history strip: the last N snips, one click to re-copy.
+- Clipboard history strip: the last N snips, one click to re-copy. (0.8.0's Recent snips list already re-copies any recent snip from the window; the strip would do it without opening it.)
 - "Copy as" menu: PNG, JPEG, WebP, or a data URI.
 
 ## Notes and sections, still open

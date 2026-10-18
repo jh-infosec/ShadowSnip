@@ -48,10 +48,12 @@ To run it at login: right-click `ShadowSnip.exe`, **Create shortcut**, then
 move the shortcut into `shell:startup` as above. A shortcut rather than the
 exe itself, so Windows starts it from its real folder.
 
-Started by hand, ShadowSnip opens its window. For login you probably want it
-to start quietly in the tray instead: right-click the startup shortcut,
-**Properties**, and add ` --tray` to the end of **Target**, after the closing
-quote, so it reads `"...\ShadowSnip.exe" --tray`.
+Started by hand, ShadowSnip opens its window. Started by Windows at login it
+stays in the tray (0.8.0): a shortcut in a Startup folder is recognised as
+such, and so is a start with no shortcut in the first three minutes after
+you sign in (a Run entry, a scheduled task, Windows reopening apps after a
+restart). Adding ` --tray` to the end of the shortcut's **Target** still works
+and makes it explicit; ` --show` forces the window.
 
 # Linux (X11)
 

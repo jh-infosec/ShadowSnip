@@ -23,6 +23,18 @@ The pointer position also comes from QCursor.pos() rather than from each
 window's local event coordinates. Those are in the receiving window's scale, and
 once the pointer is on a monitor with a different scale the rectangle would be
 drawn in the wrong place.
+
+## Why it is fast (0.8.0)
+
+- The overlay windows are made once, ahead of time (`prewarm`), and kept
+  hidden between snips. Making a full-screen native window is the slowest part
+  of putting the overlay up, so a snip now only shows windows that already
+  exist. A window is made on the spot only for a screen that was plugged in
+  since.
+- While dragging, only the strip of screen the rectangle and its size badge
+  moved across is repainted, on the screens it touches, instead of every pixel
+  of every screen on every mouse move. At 4K that is the difference between
+  repainting 8 million pixels per move and a few thousand.
 """
 
 from __future__ import annotations
@@ -30,7 +42,7 @@ from __future__ import annotations
 import ctypes
 import sys
 
-from PySide6.QtCore import QObject, QPoint, QRect, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QPoint, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QCursor,
@@ -106,9 +118,17 @@ class SelectionController(QObject):
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
         for grab in self._grabs:
-            window = OverlayWindow(grab, self, self._dim)
+            window = _window_for(grab.screen)
+            window.attach(grab, self, self._dim)
             self._windows.append(window)
+            # A reused window still holds the last snip's picture. Kept out of
+            # the compositor until it has painted this one, so that picture is
+            # never seen, not even for a frame.
+            _cloak(window, True)
             window.show()
+        for window in self._windows:
+            window.repaint()
+            _cloak(window, False)
         if self._windows:
             # Focus the overlay the pointer is actually on, so F and Space grab
             # that screen rather than whichever one Windows calls primary.
@@ -125,7 +145,8 @@ class SelectionController(QObject):
     def close_all(self) -> None:
         self._poll.stop()
         for window in self._windows:
-            window.close()
+            # Hidden, not destroyed: the next snip shows it again straight away.
+            window.release_grab()
         self._windows.clear()
 
     # -- selection state ---------------------------------------------------
@@ -143,6 +164,7 @@ class SelectionController(QObject):
         self._release_lost = False
         self._up_polls = 0
         self._last_polled = None
+        # The hint disappears once a drag starts, so this one repaint is whole.
         self._repaint()
         if self._button_down is not None:
             self._poll.start()
@@ -185,8 +207,10 @@ class SelectionController(QObject):
     def drag_to(self, global_pos: QPoint) -> None:
         if self._origin is None:
             return
+        before = self._current
         self._current = QRect(self._origin, global_pos).normalized()
-        self._repaint()
+        if self._current != before:
+            self._repaint_between(before, self._current)
 
     def finish(self) -> None:
         if self._finished:
@@ -218,28 +242,132 @@ class SelectionController(QObject):
         for window in self._windows:
             window.update()
 
+    def _repaint_between(self, before: QRect, after: QRect) -> None:
+        """Repaint only where the rectangle was and where it is now."""
+        dirty = _with_badge(before).united(_with_badge(after))
+        for window in self._windows:
+            window.update_global(dirty)
+
+
+# Room around a selection for its 1 px border and the size badge, which sits
+# above the rectangle (or below it near the top of the screen).
+_BADGE_W = 220
+_BADGE_H = 40
+
+
+def _with_badge(rect: QRect) -> QRect:
+    if rect.isNull():
+        return QRect()
+    return rect.adjusted(-4, -_BADGE_H - 4, 4, _BADGE_H + 4).united(
+        QRect(rect.x() - 4, rect.y() - _BADGE_H - 4, _BADGE_W, _BADGE_H * 2 + rect.height() + 8)
+    )
+
+
+# DWMWA_CLOAK: keeps a shown window out of the composed desktop (Windows 8+).
+_DWMWA_CLOAK = 13
+
+
+def _cloak(window: QWidget, on: bool) -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        value = ctypes.c_int(1 if on else 0)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            ctypes.c_void_p(int(window.winId())), _DWMWA_CLOAK,
+            ctypes.byref(value), ctypes.sizeof(value),
+        )
+    except (AttributeError, OSError, ValueError):
+        pass
+
+
+# -- the window pool ----------------------------------------------------------------------------
+# One overlay window per screen, made ahead of time and reused for every snip.
+_POOL: dict[tuple, "OverlayWindow"] = {}
+
+
+def _screen_key(screen) -> tuple:
+    g = screen.geometry()
+    return (screen.name(), g.x(), g.y(), g.width(), g.height())
+
+
+def _window_for(screen) -> "OverlayWindow":
+    key = _screen_key(screen)
+    window = _POOL.get(key)
+    if window is None:
+        window = OverlayWindow(None, None, 0, screen=screen)
+        _POOL[key] = window
+    return window
+
+
+def prewarm() -> int:
+    """Make the overlay windows now, hidden, so the first snip does not wait.
+
+    Windows for screens that are no longer connected (or have moved or changed
+    resolution) are dropped. Returns how many windows are ready.
+    """
+    from PySide6.QtGui import QGuiApplication
+
+    live = {_screen_key(s): s for s in QGuiApplication.screens()}
+    for key in [k for k in _POOL if k not in live]:
+        window = _POOL.pop(key)
+        if not window.isVisible():
+            window.deleteLater()
+    for key, screen in live.items():
+        window = _window_for(screen)
+        window.winId()  # creates the native window without showing it
+    return len(_POOL)
+
 
 class OverlayWindow(QWidget):
-    def __init__(self, grab, controller: SelectionController, dim: int):
+    def __init__(self, grab, controller: SelectionController | None, dim: int, screen=None):
         super().__init__(None)
         self.grab_info = grab
         self.controller = controller
         self.dim = dim
         self._show_hint = True
+        screen = screen if screen is not None else grab.screen
+        self._screen = screen
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        # Every pixel is painted each time, so Qt need not clear first.
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setCursor(Qt.CursorShape.CrossCursor)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setGeometry(grab.screen.geometry())
+        self.setGeometry(screen.geometry())
+        self.winId()
         handle = self.windowHandle()
         if handle is not None:
-            handle.setScreen(grab.screen)
+            handle.setScreen(screen)
+
+    def attach(self, grab, controller: SelectionController, dim: int) -> None:
+        """Take on a new frozen frame for the next snip."""
+        self.grab_info = grab
+        self.controller = controller
+        self.dim = dim
+        self._show_hint = True
+        if self.geometry() != grab.screen.geometry():
+            self.setGeometry(grab.screen.geometry())
+
+    def release_grab(self) -> None:
+        """Hide until the next snip, and let go of the frozen frame's memory."""
+        self.hide()
+        self.grab_info = None
+        self.controller = None
+
+    def update_global(self, rect: QRect) -> None:
+        """Repaint the part of `rect` (global, logical) that lies on this screen."""
+        if self.grab_info is None:
+            return
+        geom = self.grab_info.screen.geometry()
+        local = rect.translated(-geom.x(), -geom.y()).intersected(self.rect())
+        if not local.isEmpty():
+            self.update(local)
 
     # -- input -------------------------------------------------------------
     def _to_global(self, pos: QPoint) -> QPoint:
@@ -247,6 +375,8 @@ class OverlayWindow(QWidget):
         return QPoint(geom.x() + pos.x(), geom.y() + pos.y())
 
     def mousePressEvent(self, event):
+        if self.controller is None:
+            return
         if event.button() == Qt.MouseButton.RightButton:
             self.controller.cancel()
             return
@@ -255,6 +385,8 @@ class OverlayWindow(QWidget):
             self.controller.begin(self._to_global(event.position().toPoint()))
 
     def mouseMoveEvent(self, event):
+        if self.controller is None:
+            return
         if event.buttons() & Qt.MouseButton.LeftButton or self.controller.release_lost:
             # The global cursor position, not this window's local coordinates:
             # after the pointer crosses onto another monitor the events can
@@ -262,10 +394,14 @@ class OverlayWindow(QWidget):
             self.controller.drag_to(QCursor.pos())
 
     def mouseReleaseEvent(self, event):
+        if self.controller is None:
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             self.controller.release()
 
     def keyPressEvent(self, event):
+        if self.controller is None:
+            return super().keyPressEvent(event)
         key = event.key()
         if key == Qt.Key.Key_Escape:
             self.controller.cancel()
@@ -279,23 +415,25 @@ class OverlayWindow(QWidget):
     # -- painting ----------------------------------------------------------
     def paintEvent(self, event):
         painter = QPainter(self)
+        if self.grab_info is None or self.controller is None:
+            painter.fillRect(event.rect(), QColor(0, 0, 0))
+            painter.end()
+            return
         pixmap: QPixmap = self.grab_info.pixmap
         scale = self.grab_info.scale
         geom = self.grab_info.screen.geometry()
 
-        painter.drawPixmap(self.rect(), pixmap)
-        painter.fillRect(self.rect(), QColor(0, 0, 0, self.dim))
+        # Only the part Qt asked for: a drag repaints a thin strip, not the screen.
+        area = event.rect().intersected(self.rect())
+        painter.drawPixmap(QRectF(area), pixmap, _device_rect(area, scale))
+        painter.fillRect(area, QColor(0, 0, 0, self.dim))
 
         selection = self.controller.selection
         local = selection.translated(-geom.x(), -geom.y()).intersected(self.rect())
         if not local.isEmpty():
-            source = QRect(
-                round(local.x() * scale),
-                round(local.y() * scale),
-                max(1, round(local.width() * scale)),
-                max(1, round(local.height() * scale)),
-            )
-            painter.drawPixmap(local, pixmap, source)
+            bright = local.intersected(area)
+            if not bright.isEmpty():
+                painter.drawPixmap(QRectF(bright), pixmap, _device_rect(bright, scale))
             pen = QPen(ACCENT)
             pen.setWidth(1)
             painter.setPen(pen)
@@ -345,3 +483,8 @@ class OverlayWindow(QWidget):
         painter.drawRoundedRect(box, 6, 6)
         painter.setPen(HINT_FG)
         painter.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
+
+
+def _device_rect(local: QRect, scale: float) -> QRectF:
+    """`local` (logical, on one screen) in that screen's grabbed pixels."""
+    return QRectF(local.x() * scale, local.y() * scale, local.width() * scale, local.height() * scale)
