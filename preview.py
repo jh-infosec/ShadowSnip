@@ -136,6 +136,10 @@ class PreviewWindow(QWidget):
     # Re-file the snip on screen under the current section.
     snip_move_requested = Signal()
     settings_requested = Signal()
+    # Ctrl+Q: quit ShadowSnip altogether (app.py asks first).
+    quit_requested = Signal()
+    # The window was closed with Close or the title bar's X: it hides to the tray.
+    closed = Signal()
     # A lab filename: take it out of the lab.
     # Every file to take out of the lab (a list, from a multi-selection).
     snip_remove_requested = Signal(list)
@@ -272,6 +276,11 @@ class PreviewWindow(QWidget):
             "Hotkeys, save folder, image quality, copy on select, labs"
         )
         self.btn_close = QPushButton("Close")
+        self.btn_close.setToolTip(
+            "Hide the window. ShadowSnip keeps running in the tray so the snip "
+            "hotkey still works. To quit: Ctrl+Q, or right-click the tray icon "
+            "> Quit ShadowSnip."
+        )
 
         self.btn_new.clicked.connect(self.new_snip_requested.emit)
         self.btn_lab.clicked.connect(self.lab_toggle_requested.emit)
@@ -333,6 +342,7 @@ class PreviewWindow(QWidget):
         QShortcut(QKeySequence.StandardKey.Copy, self, self.copy_again)
         # Esc puts a tool down first; with nothing in hand it closes the window.
         QShortcut(QKeySequence("Esc"), self, self._on_escape)
+        QShortcut(QKeySequence("Ctrl+Q"), self, self.quit_requested.emit)
         # Ctrl+Enter files the note without reaching for the mouse. Scoped to
         # the window rather than the box, so it works wherever focus happens
         # to be after a snip.
@@ -659,6 +669,7 @@ class PreviewWindow(QWidget):
         self.snips_panel.hide_viewer()
         self.flush_edits()
         super().closeEvent(event)
+        self.closed.emit()
 
     def forget_snip_on_screen(self) -> None:
         """The snip on screen was removed from the lab: stop offering lab actions for it."""

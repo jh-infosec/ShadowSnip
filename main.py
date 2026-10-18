@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import signal
 import sys
 
 from PySide6.QtCore import QTimer
@@ -247,6 +248,31 @@ def _hand_off_to_running_instance(request: bytes) -> str:
     return "done" if answered else "stuck"
 
 
+def _quit_on_signals(app, shadow) -> None:
+    """Ctrl+C in the terminal it was started from, or `kill`, quits cleanly.
+
+    Python only runs a signal handler when it gets control back, and Qt's
+    event loop is C++, so without help Ctrl+C did nothing but print a
+    KeyboardInterrupt traceback from whatever callback ran next. A timer that
+    wakes Python a few times a second lets the handler run, and the handler
+    quits the same way the tray menu does: pending edits saved, hooks released.
+    """
+    def handle(_signum, _frame):
+        QTimer.singleShot(0, shadow.quit)
+
+    for name in ("SIGINT", "SIGTERM"):
+        number = getattr(signal, name, None)
+        if number is not None:
+            try:
+                signal.signal(number, handle)
+            except (OSError, ValueError, RuntimeError):
+                pass
+    pulse = QTimer(app)
+    pulse.timeout.connect(lambda: None)
+    pulse.start(250)
+    app._signal_pulse = pulse  # kept alive with the application
+
+
 def main() -> int:
     want_snip = "--snip" in sys.argv[1:]
     want_note = "--note" in sys.argv[1:] and not want_snip
@@ -326,6 +352,7 @@ def main() -> int:
         conn.readyRead.connect(_read)
 
     server.newConnection.connect(_on_connection)
+    _quit_on_signals(app, shadow)
 
     if want_snip:
         QTimer.singleShot(200, shadow.request_snip)

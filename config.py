@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.8.2"
+APP_VERSION = "0.8.3"
 
 
 def config_dir() -> Path:
@@ -113,6 +113,9 @@ DEFAULTS = {
     "annotation": {},
     # How ShadowSnip looks: "original", "steel" or "split". See skins.py.
     "skin": "original",
+    # Whether the "still running in the tray" note has been shown, the first
+    # time the window is closed. Shown once, ever.
+    "close_hint_shown": False,
 }
 
 
@@ -249,6 +252,7 @@ def _sanitise(cfg: dict) -> dict:
         "auto_copy_toast",
         "png_effort_reviewed",
         "history_reviewed",
+        "close_hint_shown",
     ):
         cfg[flag] = bool(cfg.get(flag))
     cfg["auto_copy_extra_blocked"] = normalise_names(cfg.get("auto_copy_extra_blocked"))

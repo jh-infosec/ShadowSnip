@@ -118,6 +118,8 @@ removal, the viewer) is the same code on both.
 | Start a snip | `Ctrl+Shift+S`, the tray menu, or `python main.py --snip` |
 | Jot a note into the lab | `Ctrl+Shift+N`, or **Add note...** in the tray menu |
 | Open the window | starting ShadowSnip yourself opens it (a start by Windows at login stays in the tray); afterwards click the tray icon, or start it again (the taskbar pin) |
+| Hide the window | **Close**, or the window's X. ShadowSnip keeps running in the tray, so the hotkey still works; the first time, a note says so |
+| Quit | Right-click the tray icon > **Quit ShadowSnip**, or **Ctrl+Q** in the window (asks first, Enter quits, Esc keeps it running). Started from a terminal, **Ctrl+C** there quits too |
 | Start hidden in the tray | `ShadowSnip.exe --tray` on Windows, `shadowsnip --tray` on Linux (for the login shortcut) |
 | Always open the window | `ShadowSnip.exe --show` |
 | Start or stop a lab | **Start lab** in the preview window, or the tray menu |

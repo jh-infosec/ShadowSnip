@@ -72,6 +72,8 @@ class ShadowSnipApp(QObject):
         self._snip_paths: dict[str, Path] = {}
         self.preview.snip_move_requested.connect(self.move_current_snip)
         self.preview.settings_requested.connect(self.open_settings)
+        self.preview.quit_requested.connect(self.confirm_quit)
+        self.preview.closed.connect(self._on_window_closed)
         self.preview.snip_remove_requested.connect(self.remove_lab_snips)
         self.preview.snip_copy_requested.connect(self.copy_lab_snip)
         self.preview.lab_snip_loading.connect(self._before_viewer_loads)
@@ -1302,6 +1304,46 @@ class ShadowSnipApp(QObject):
 
     def _warn(self, message: str) -> None:
         QMessageBox.warning(None, "ShadowSnip", message)
+
+    def confirm_quit(self) -> None:
+        """Ctrl+Q in the window: quit, after one question.
+
+        One key press is easy to hit by mistake, and quitting turns the snip
+        hotkey off, so it asks. Quit is the default button (Enter), Esc keeps
+        it running. The tray menu's Quit, two deliberate clicks, does not ask.
+        """
+        if self.busy:
+            return
+        detail = "The snip hotkey stops working until you start ShadowSnip again."
+        name = lab.active_name(self.cfg)
+        if name:
+            detail += (f"\n\nLab {name} is kept as it is and carries on when you "
+                       "start it again.")
+        box = QMessageBox(self.preview if self.preview.isVisible() else None)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Quit ShadowSnip")
+        box.setText("Quit ShadowSnip?")
+        box.setInformativeText(detail)
+        quit_button = box.addButton("Quit", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(quit_button)
+        box.exec()
+        if box.clickedButton() is quit_button:
+            self.quit()
+
+    def _on_window_closed(self) -> None:
+        """The first time the window is closed, say where ShadowSnip went."""
+        if self.busy or self.cfg.get("close_hint_shown"):
+            return
+        self.cfg["close_hint_shown"] = True
+        self._persist()
+        self.tray.showMessage(
+            "ShadowSnip is still running",
+            "It is in the tray, ready for the snip hotkey. To quit, right-click "
+            "the tray icon and choose Quit ShadowSnip, or press Ctrl+Q in the window.",
+            build_icon(),
+            6000,
+        )
 
     def quit(self) -> None:
         self.preview.flush_edits()

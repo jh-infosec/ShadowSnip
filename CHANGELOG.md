@@ -1,6 +1,22 @@
 # Changelog
 
-## Latest: 0.8.2
+## Latest: 0.8.3
+
+**Added**: easier quitting, without making it easy to quit by accident.
+
+- **Ctrl+Q** in the window asks "Quit ShadowSnip?" once. Enter quits, Esc
+  keeps it running. If a lab is running, the question says the lab is kept
+  and carries on next time.
+- **Ctrl+C** in the terminal ShadowSnip was started from now quits it cleanly
+  (and so does `kill` or `pkill -x ShadowSnip`). Before, Ctrl+C only printed a
+  KeyboardInterrupt traceback and left it running.
+- **Close** still only hides the window, so the snip hotkey keeps working. The
+  first time you close it, a tray note says ShadowSnip is still running and how
+  to quit. Its tooltip says the same.
+- The tray menu's **Quit ShadowSnip** is unchanged: two deliberate clicks, no
+  question.
+
+### 0.8.2 in brief
 
 **Faster** (Linux): the snip hotkey. The desktop shortcut used to start the
 whole program again just to tell the running copy to snip, which took about
