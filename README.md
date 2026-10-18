@@ -474,7 +474,7 @@ window is never taller than the screen it opens on.
 
 | Setting | Effect |
 | --- | --- |
-| Skin | How ShadowSnip looks: **Original**, **Steel** or **Split**. **Next** steps through them; the change applies as soon as you press Save |
+| Skin | How ShadowSnip looks: **Original**, **Steel**, **Split** or **Console**. **Next** steps through them; the change applies as soon as you press Save |
 | Snip hotkey | Click the field and press the combination you want |
 | Quick note hotkey | The same, for the one-line note box |
 | Save folder / replaced file name | Where the standing snip lives |
@@ -529,21 +529,23 @@ the dialog back to the front. Close it and snip as usual.
 
 ### Skins
 
-Three looks, chosen on the Appearance tab of Settings:
+Four looks, chosen on the Appearance tab of Settings:
 
 | Skin | Look |
 | --- | --- |
 | Original | The classic ShadowSnip look |
 | Steel | Brushed grey gradient, lighter at the top, with a red accent |
 | Split | A two-tone diagonal, graphite and black, divided by a thin red seam |
+| Console | A night console: deep navy, an electric blue accent, faint scanlines and a sparse network of points behind everything. Buttons are outlined in blue, New snip is filled blue and glows |
 
-Steel and Split keep the original buttons and font; they change colours and
+The skins keep the original button shape and font; they change colours and
 depth. The window background is painted (a gradient, soft light, a vignette
 and fine grain) and redrawn to fit as the window is resized. The panels are
 slightly see-through so the background carries through them, New snip glows
-softly in red, and the lab button glows amber while a lab is recording. The
+softly in the skin's accent, and the lab button glows amber while a lab is recording. The
 ShadowSnip mark sits at the head of the toolbar. Tools, the full-size view,
 the right-click menus and the tool options all follow the skin.
+
 ## Running it
 
 On Windows, three options, least to most portable: from source with

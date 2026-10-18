@@ -1,4 +1,4 @@
-"""Skins: how ShadowSnip looks. Original, Steel and Split.
+"""Skins: how ShadowSnip looks. Original, Steel, Split and Console.
 
 Original is the look ShadowSnip has always had, and is what every stylesheet
 in the code is written in. Steel and Split are built on top of it rather than
@@ -27,22 +27,24 @@ from __future__ import annotations
 import random
 import re
 
-from PySide6.QtCore import QPointF
-from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QRadialGradient
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPen, QRadialGradient
 
 ORIGINAL = "original"
-NAMES = (ORIGINAL, "steel", "split")
-LABELS = {ORIGINAL: "Original", "steel": "Steel", "split": "Split"}
+NAMES = (ORIGINAL, "steel", "split", "console")
+LABELS = {ORIGINAL: "Original", "steel": "Steel", "split": "Split", "console": "Console"}
 DESCRIPTIONS = {
     ORIGINAL: "The classic ShadowSnip look",
     "steel": "Brushed grey gradient with a red accent",
     "split": "Two-tone diagonal, graphite and black, divided by a red seam",
+    "console": "Night console: deep navy, electric blue, scanlines and a faint network",
 }
 
 RED = "#e5243b"
 LAB = "#f0a020"
 DANGER = "#e5484d"
 TEXT = "#e8eaed"
+BLUE = "#4d8dff"
 
 # Each skin: the window colour, the accent, and how its background is painted.
 _SKINS = {
@@ -57,6 +59,14 @@ _SKINS = {
         bg=("split", ["#2e2e33", "#1a1a1d", "#0c0c0d", "#050505"]),
         glows=[(0.62, 0.38, 0.22, RED, 30)],
         seam=True,
+    ),
+    # Deep navy with an electric blue accent: outlined buttons, a glowing
+    # filled primary, scanlines and a sparse constellation behind everything.
+    "console": dict(
+        surface="#07101e", accent=BLUE, text="#d5e1f4", ink="#02060d", ghost=True,
+        bg=("vert", ["#060c17", "#04080f", "#03060c"]),
+        glows=[(0.85, -0.1, 0.65, BLUE, 42), (-0.1, 0.3, 0.5, BLUE, 20)],
+        seam=False, scanlines=True, network=True,
     ),
 }
 
@@ -131,12 +141,14 @@ def _ink(c: str) -> str:
 def _palette(name: str) -> dict:
     s = _SKINS[name]
     surf, accent = s["surface"], s["accent"]
+    text = s.get("text", TEXT)
     inset = shade(surf, -0.32)
     return {
         "surface": surf, "accent": accent, "inset": inset, "raised": shade(surf, 0.07),
-        "edge": mix(surf, TEXT, 0.16), "dim": mix(TEXT, surf, 0.42), "faint": mix(TEXT, surf, 0.62),
+        "edge": mix(surf, accent, 0.30) if s.get("ghost") else mix(surf, text, 0.16),
+        "dim": mix(text, surf, 0.42), "faint": mix(text, surf, 0.62),
         # by role, for recolouring
-        "root": surf, "deep": shade(surf, -0.45), "text": TEXT, "accentbg": mix(accent, surf, 0.82),
+        "root": surf, "deep": shade(surf, -0.45), "text": text, "accentbg": mix(accent, surf, 0.82),
     }
 
 
@@ -176,15 +188,44 @@ def style(css: str) -> str:
 def _extra_css() -> str:
     p = _palette(_current)
     a, surf, inset, raised, edge = p["accent"], p["surface"], p["inset"], p["raised"], p["edge"]
-    dim, faint = p["dim"], p["faint"]
+    dim, faint, TEXT = p["dim"], p["faint"], p["text"]
+    s = _SKINS[_current]
+    ink = s.get("ink") or _ink(a)
     hair, hair_strong = "rgba(255,255,255,18)", "rgba(255,255,255,30)"
+    if s.get("ghost"):
+        hair, hair_strong = rgba(a, 40), rgba(a, 107)
+    return _base_css(p, a, surf, inset, raised, edge, dim, faint, TEXT, ink, hair, hair_strong) + (
+        _ghost_css(a, surf, TEXT, hair, hair_strong) if s.get("ghost") else "")
+
+
+def _ghost_css(a, surf, text, hair, hair_strong) -> str:
+    """Outlined buttons in the accent, as on a terminal-style site; the primary stays filled."""
+    hi = mix(a, "#ffffff", 0.45)
+    return f"""
+QPushButton {{ background: transparent; color: {hi}; border: 1px solid {hair_strong}; }}
+QPushButton:hover {{ background: {rgba(a, 26)}; border-color: {a}; }}
+QPushButton:pressed {{ background: {rgba(a, 46)}; }}
+QPushButton#Settings {{ background: transparent; color: {hi}; border-color: {hair_strong}; }}
+QPushButton#Settings:hover {{ background: {rgba(a, 26)}; border-color: {a}; }}
+QPushButton#Primary {{ background: {a}; border-color: {a}; }}
+QPushButton#Primary:hover {{ background: {hi}; border-color: {hi}; }}
+QPushButton:checked {{ background: {rgba(a, 40)}; border-color: {a}; color: #ffffff; }}
+QLabel#Brand {{ color: {text}; font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace; }}
+QTreeWidget, QTextBrowser {{ background: {rgba(shade(surf, -0.3), 165)}; border: 1px solid {hair_strong}; }}
+QLineEdit, QPlainTextEdit, QComboBox {{ background: {rgba(shade(surf, -0.3), 175)}; border: 1px solid {hair_strong}; }}
+QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus {{ border: 1px solid {a}; }}
+QWidget#ToolStrip {{ background: {rgba(surf, 170)}; border: 1px solid {hair}; }}
+"""
+
+
+def _base_css(p, a, surf, inset, raised, edge, dim, faint, TEXT, ink, hair, hair_strong) -> str:
     return f"""
 QWidget#Root {{ background: transparent; }}
 QPushButton {{ background: {raised}; color: {TEXT}; border: 1px solid {edge}; border-radius: 4px; padding: 6px 14px; }}
 QPushButton:hover {{ background: {shade(raised, 0.06)}; }}
 QPushButton:pressed {{ background: {shade(raised, -0.06)}; }}
 QPushButton:disabled {{ color: {faint}; }}
-QPushButton#Primary {{ background: {a}; border-color: {a}; color: {_ink(a)}; }}
+QPushButton#Primary {{ background: {a}; border-color: {a}; color: {ink}; }}
 QPushButton#Primary:hover {{ background: {shade(a, 0.1)}; }}
 QPushButton#Primary:pressed {{ background: {shade(a, -0.1)}; }}
 QPushButton:checked {{ background: {mix(a, surf, 0.80)}; border-color: {mix(a, surf, 0.35)}; color: {shade(a, 0.25)}; }}
@@ -290,6 +331,10 @@ def paint_background(width: int, height: int) -> QImage | None:
         rg.setColorAt(0.45, _qc(col, a // 3))
         rg.setColorAt(1, _qc(col, 0))
         p.fillRect(0, 0, w, h, rg)
+    if s.get("scanlines"):
+        _scanlines(p, w, h, s["accent"])
+    if s.get("network"):
+        _network(p, w, h, s["accent"])
     if s["seam"]:
         seam = QLinearGradient(0, 0, w, h * 0.9)
         for pos, a in ((0.0, 0), (0.495, 0), (0.5, 55), (0.505, 0), (1.0, 0)):
@@ -306,6 +351,37 @@ def paint_background(width: int, height: int) -> QImage | None:
     p.drawTiledPixmap(0, 0, w, h, _pixmap(_grain()))
     p.end()
     return img
+
+
+def _scanlines(p: QPainter, w: int, h: int, colour: str) -> None:
+    """One faint line every four pixels, like an old terminal."""
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+    p.setPen(_qc(colour, 9))
+    for y in range(0, h, 4):
+        p.drawLine(0, y, w, y)
+    p.restore()
+
+
+def _network(p: QPainter, w: int, h: int, colour: str) -> None:
+    """A sparse constellation: faint points joined to their near neighbours."""
+    rnd = random.Random(11)
+    count = max(12, int(w * h / 26000))
+    pts = [QPointF(rnd.random() * w, rnd.random() * h) for _ in range(count)]
+    reach = 0.16 * max(w, h)
+    p.save()
+    for i, a in enumerate(pts):
+        for b in pts[i + 1:]:
+            d = ((a.x() - b.x()) ** 2 + (a.y() - b.y()) ** 2) ** 0.5
+            if d < reach:
+                p.setPen(QPen(_qc(colour, int(52 * (1 - d / reach))), 1))
+                p.drawLine(a, b)
+    p.setPen(Qt.PenStyle.NoPen)
+    for a in pts:
+        p.setBrush(_qc(colour, rnd.randint(40, 110)))
+        r = rnd.choice((1.0, 1.2, 1.6))
+        p.drawEllipse(a, r, r)
+    p.restore()
 
 
 def _pixmap(image: QImage):

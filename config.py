@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.7.11"
+APP_VERSION = "0.7.12"
 
 
 def config_dir() -> Path:
@@ -34,7 +34,7 @@ def default_save_dir() -> Path:
 
 CONFIG_PATH = config_dir() / "config.json"
 
-SKIN_NAMES = ("original", "steel", "split")
+SKIN_NAMES = ("original", "steel", "split", "console")
 
 DEFAULTS = {
     # Global hotkey that starts a snip. Modifiers: ctrl, alt, shift, win.

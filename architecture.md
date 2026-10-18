@@ -30,7 +30,7 @@ labsnips.py          lab panel: snip list, report outline, rendered preview,
                      full-size viewer with the mark-up tools; the
                      click-to-edit caption field
 settings_dialog.py   tabbed settings form (fits the screen) and hotkey recorder
-skins.py             the Original, Steel and Split looks: recoloured stylesheets,
+skins.py             the Original, Steel, Split and Console looks: recoloured stylesheets,
                      the painted window background, colours for painted parts
 install.sh           Linux installer: launcher, menu entry, autostart
 .github/workflows/   tests on Windows and Linux; builds both on a version tag

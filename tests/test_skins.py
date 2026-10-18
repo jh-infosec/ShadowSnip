@@ -17,20 +17,21 @@ def qapp():
 
 
 # -- choosing --------------------------------------------------------------------------------
-def test_three_skins_in_order_and_the_config_knows_them():
-    assert skins.NAMES == ("original", "steel", "split")
+def test_four_skins_in_order_and_the_config_knows_them():
+    assert skins.NAMES == ("original", "steel", "split", "console")
     assert config.SKIN_NAMES == skins.NAMES
-    assert [skins.LABELS[n] for n in skins.NAMES] == ["Original", "Steel", "Split"]
+    assert [skins.LABELS[n] for n in skins.NAMES] == ["Original", "Steel", "Split", "Console"]
 
 
-def test_next_cycles_through_all_three():
+def test_next_cycles_through_all_four():
     assert skins.next_name("original") == "steel"
     assert skins.next_name("steel") == "split"
-    assert skins.next_name("split") == "original"
+    assert skins.next_name("split") == "console"
+    assert skins.next_name("console") == "original"
 
 
 @pytest.mark.parametrize("stored,expected", [
-    (None, "original"), ("", "original"), ("STEEL", "steel"), (" split ", "split"),
+    (None, "original"), ("", "original"), ("STEEL", "steel"), (" split ", "split"), ("Console", "console"),
     ("neon", "original"), (42, "original"),
 ])
 def test_the_config_keeps_only_a_known_skin(stored, expected):
@@ -52,7 +53,7 @@ def test_original_leaves_every_stylesheet_and_colour_alone():
     assert skins.paint_background(200, 100) is None
 
 
-@pytest.mark.parametrize("name", ["steel", "split"])
+@pytest.mark.parametrize("name", ["steel", "split", "console"])
 def test_a_skin_recolours_and_adds_its_own_rules(name):
     import preview
 
@@ -62,7 +63,7 @@ def test_a_skin_recolours_and_adds_its_own_rules(name):
     assert "#1b1b1f" not in css           # the original window colour is replaced
     assert "QTabBar::tab:selected" in css  # the skin's own rules are on top
     assert "border-radius: 4px; padding: 6px 14px" in css  # the original button shape
-    assert skins.accent() == skins.RED
+    assert skins.accent() == (skins.BLUE if name == "console" else skins.RED)
 
 
 def test_painted_colours_follow_the_skin_and_others_are_left_alone():
@@ -71,7 +72,7 @@ def test_painted_colours_follow_the_skin_and_others_are_left_alone():
     assert skins.color("#e81123").name() == "#e81123"  # a pen colour is never a skin colour
 
 
-@pytest.mark.parametrize("name", ["steel", "split"])
+@pytest.mark.parametrize("name", ["steel", "split", "console"])
 def test_the_background_is_painted_at_the_window_size(name):
     skins.set_current(name)
     image = skins.paint_background(640, 400)
@@ -87,6 +88,29 @@ def test_split_has_a_red_seam():
     on_seam = image.pixelColor(400, 225)
     beside = image.pixelColor(400, 120)
     assert on_seam.red() - on_seam.blue() > beside.red() - beside.blue()
+
+
+def test_console_is_navy_and_blue_with_outlined_buttons():
+    import preview
+
+    skins.set_current("console")
+    css = skins.style(preview.STYLE)
+    assert "#4d8dff" in css                       # the electric blue accent
+    assert "#02060d" in css                       # dark text on the filled primary button
+    assert "QPushButton { background: transparent" in css  # the other buttons are outlined
+    image = skins.paint_background(800, 500)
+    mid = image.pixelColor(400, 300)
+    assert mid.blue() > mid.red() and mid.value() < 60  # deep navy, not grey
+
+
+def test_console_draws_scanlines():
+    skins.set_current("console")
+    image = skins.paint_background(400, 200)
+    # Rows on a scanline are a touch bluer than the rows between them.
+    column = [image.pixelColor(10, y).blue() for y in range(40, 80)]
+    on = sum(column[i] for i in range(0, 40, 4)) / 10
+    off = sum(column[i] for i in range(2, 40, 4)) / 10
+    assert on > off
 
 
 def test_the_selected_row_uses_the_skin_accent():
@@ -162,18 +186,21 @@ def test_the_tool_strip_and_viewer_follow_the_skin(window):
 
 
 # -- settings ----------------------------------------------------------------------------------
-def test_settings_offers_the_three_and_next_cycles():
+def test_settings_offers_all_four_and_next_cycles():
     from settings_dialog import SettingsDialog
 
     dialog = SettingsDialog(config._sanitise(dict(config.DEFAULTS)))
     combo = dialog.skin_combo
-    assert [combo.itemText(i) for i in range(combo.count())] == ["Original", "Steel", "Split"]
+    assert [combo.itemText(i) for i in range(combo.count())] == ["Original", "Steel", "Split", "Console"]
     assert dialog.values()["skin"] == "original"
     dialog.skin_next.click()
     assert dialog.values()["skin"] == "steel"
     dialog.skin_next.click()
     assert dialog.values()["skin"] == "split"
     assert "seam" in dialog.skin_about.text()
+    dialog.skin_next.click()
+    assert dialog.values()["skin"] == "console"
+    assert "navy" in dialog.skin_about.text()
     dialog.skin_next.click()
     assert dialog.values()["skin"] == "original"
 

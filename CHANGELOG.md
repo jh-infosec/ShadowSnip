@@ -1,6 +1,16 @@
 # Changelog
 
-## Latest: 0.7.11
+## Latest: 0.7.12
+
+**Added**: a fourth skin, **Console**. A night console look: deep navy
+background, an electric blue accent, faint scanlines like an old terminal, a
+soft blue light from the top corner and a sparse network of points and lines
+behind the panels. Buttons are outlined in blue, New snip is filled blue with
+dark text and a blue glow, tabs underline in blue and the panels are see-through
+enough for the network to show. Pick it on the Appearance tab of Settings, or
+press Next until it comes round.
+
+### 0.7.11 in brief
 
 **Fixed**: Settings had grown taller than a laptop screen, so Save, Cancel and
 the Skin choice could sit below the bottom edge. Settings is now split into
