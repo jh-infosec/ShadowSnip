@@ -43,14 +43,24 @@ mkdir -p "$APP_DIR" "$BIN_DIR" "$APPS_DIR"
 
 # -- system packages Qt needs ---------------------------------------------------
 missing=()
-if command -v ldconfig >/dev/null 2>&1; then
-  ldconfig -p | grep -q 'libxcb-cursor.so.0' || missing+=("libxcb-cursor0")
+# The library list is read into a variable first. Piped straight into
+# `grep -q`, grep stops at the first match, ldconfig is killed mid-write, and
+# with pipefail the pipe counts as failed: the package was reported missing
+# even when it was installed.
+LDCONFIG="$(command -v ldconfig || echo /sbin/ldconfig)"
+if [[ -x "$LDCONFIG" ]]; then
+  libs="$("$LDCONFIG" -p 2>/dev/null || true)"
+  [[ "$libs" == *libxcb-cursor.so.0* ]] || missing+=("libxcb-cursor0")
 fi
 command -v xprop >/dev/null 2>&1 || missing+=("x11-utils")
 if [[ ${#missing[@]} -gt 0 ]]; then
   echo "Missing system packages: ${missing[*]}"
-  echo "  libxcb-cursor0  Qt needs it to open any window on X11"
-  echo "  x11-utils       provides xprop, used to skip password managers in copy on select"
+  for pkg in "${missing[@]}"; do
+    case "$pkg" in
+      libxcb-cursor0) echo "  libxcb-cursor0  Qt needs it to open any window on X11" ;;
+      x11-utils)      echo "  x11-utils       provides xprop, used to skip password managers in copy on select" ;;
+    esac
+  done
   echo "Install them with:"
   echo "  sudo apt install ${missing[*]}"
   echo
@@ -60,8 +70,14 @@ fi
 if [[ -x "$HERE/ShadowSnip" ]]; then
   # A release build: one self-contained binary.
   install -m 755 "$HERE/ShadowSnip" "$APP_DIR/ShadowSnip"
+  # The binary carries its own GLib. Left alone it also loads the system's GIO
+  # plugins (gvfs, dconf), which can be built for a newer GLib and print
+  # "undefined symbol ... Failed to load module" on start. ShadowSnip uses
+  # none of them, so it is pointed at an empty plugin folder instead.
+  mkdir -p "$APP_DIR/gio-modules"
   cat > "$LAUNCHER" <<LAUNCH
 #!/usr/bin/env bash
+export GIO_MODULE_DIR="$APP_DIR/gio-modules"
 exec "$APP_DIR/ShadowSnip" "\$@"
 LAUNCH
 elif [[ -f "$HERE/main.py" ]]; then

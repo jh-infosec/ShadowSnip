@@ -7,6 +7,17 @@ desktop already has a keyboard-shortcut system, so ShadowSnip uses that: the
 shortcut runs ShadowSnip again with `--snip` or `--note`, and the copy that is
 already running takes the request over its local socket (main.py).
 
+## Why the shortcut runs a trigger script (0.8.2)
+
+Starting the whole program just to pass "snip" to the copy already running
+took about 1.3 s from the key press to the overlay with the release build (it
+unpacks itself every time) and about half a second from source (importing Qt).
+The shortcut now runs `shadowsnip-trigger`, a few lines of plain Python with no
+Qt, which sends the request straight to the running copy's socket: about
+20 ms. When nothing is running it starts ShadowSnip with the same flag, so the
+shortcut still starts ShadowSnip and snips in one press. Without a system
+python3 the shortcut runs ShadowSnip itself, as before.
+
 On Xfce (Kali's default desktop) this is done for you: registering writes the
 shortcut into Xfce's settings through `xfconf-query`, and it takes effect
 immediately. A combination Xfce already uses for something else is reported
@@ -102,19 +113,88 @@ def xfce_accelerator(spec: str) -> str:
     return "".join(sorted(mods, key=order.index)) + name
 
 
-def launch_command(flag: str) -> str:
-    """The shell command that reaches this install of ShadowSnip with `flag`.
-
-    A frozen build is its own executable; from source it is this Python
-    running main.py. Both are quoted, because the project lives in a folder
-    with a space in it on more than one machine.
-    """
+def _program() -> list[str]:
+    """How to start this install of ShadowSnip: the frozen build, or Python and main.py."""
     if getattr(sys, "frozen", False):
-        parts = [sys.executable, flag]
-    else:
-        main = Path(__file__).resolve().with_name("main.py")
-        parts = [sys.executable, str(main), flag]
-    return " ".join(shlex.quote(part) for part in parts)
+        return [sys.executable]
+    return [sys.executable, str(Path(__file__).resolve().with_name("main.py"))]
+
+
+def direct_command(flag: str) -> str:
+    """The shell command that starts this install of ShadowSnip with `flag`.
+
+    Quoted, because the project lives in a folder with a space in it on more
+    than one machine.
+    """
+    return " ".join(shlex.quote(part) for part in [*_program(), flag])
+
+
+TRIGGER_NAME = "shadowsnip-trigger"
+# The running copy's socket name; main.IPC_NAME (a test keeps the two equal).
+IPC_NAME = "ShadowSnip.instance"
+
+# Sends the request to the running copy over the socket main.py listens on
+# (QLocalServer: a file named IPC_NAME in Qt's temp folder, $TMPDIR or /tmp),
+# and starts ShadowSnip itself when nothing answers.
+TRIGGER_SOURCE = """\
+# ShadowSnip hotkey trigger, written by ShadowSnip. Plain Python, no Qt, so a
+# key press reaches the running copy in a few milliseconds.
+import os, socket, sys
+
+FALLBACK = {fallback!r}
+NAME = {name!r}
+flag = sys.argv[1] if len(sys.argv) > 1 else "--snip"
+request = {{"--snip": b"snip", "--note": b"note"}}.get(flag, b"show")
+folder = (os.environ.get("TMPDIR") or "/tmp").rstrip("/") or "/"
+try:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+        conn.settimeout(2.0)
+        conn.connect(os.path.join(folder, NAME))
+        conn.sendall(request)
+        if conn.recv(16).startswith(b"ok"):
+            sys.exit(0)
+except OSError:
+    pass
+# Nothing running (or it did not answer): start ShadowSnip with the same flag.
+os.execv(FALLBACK[0], FALLBACK + [flag])
+"""
+
+
+def trigger_path() -> Path:
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(base) / "shadowsnip" / TRIGGER_NAME
+
+
+def ensure_trigger() -> Path | None:
+    """Write the trigger script if it is missing or out of date. None if it cannot be."""
+    text = TRIGGER_SOURCE.format(fallback=_program(), name=IPC_NAME)
+    path = trigger_path()
+    try:
+        if not path.is_file() or path.read_text(encoding="utf-8") != text:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        return path
+    except OSError:
+        return None
+
+
+def _trigger_python() -> str | None:
+    """A Python to run the trigger with: this one from source, the system's for a build."""
+    if not getattr(sys, "frozen", False):
+        return sys.executable
+    return shutil.which("python3")
+
+
+def launch_command(flag: str) -> str:
+    """The shell command a shortcut runs to reach ShadowSnip with `flag`.
+
+    The fast trigger when there is a Python to run it, else ShadowSnip itself.
+    """
+    python = _trigger_python()
+    trigger = ensure_trigger() if python else None
+    if python and trigger is not None:
+        return " ".join(shlex.quote(part) for part in [python, str(trigger), flag])
+    return direct_command(flag)
 
 
 def is_xfce() -> bool:
@@ -232,7 +312,7 @@ def _is_ours(command: str) -> bool:
     `python main.py --snip` from another tool is not ours and is left alone.
     """
     command = command.strip()
-    if command in {launch_command(flag) for flag in ACTION_FLAGS.values()}:
+    if command in {direct_command(flag) for flag in ACTION_FLAGS.values()}:
         return True
     lowered = command.lower()
     ends_with_flag = any(lowered.endswith(" " + flag) for flag in ACTION_FLAGS.values())

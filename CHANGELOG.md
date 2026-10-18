@@ -1,6 +1,23 @@
 # Changelog
 
-## Latest: 0.8.1
+## Latest: 0.8.2
+
+**Faster** (Linux): the snip hotkey. The desktop shortcut used to start the
+whole program again just to tell the running copy to snip, which took about
+1.3 s with the release build before the overlay appeared. It now runs
+`shadowsnip-trigger`, a few lines of plain Python that send the request
+straight to the running copy: about 30 ms. When ShadowSnip is not running the
+trigger starts it with the same flag, so one press still starts it and snips.
+An existing Xfce shortcut is updated the first time 0.8.2 runs. Without a
+system `python3` the shortcut runs ShadowSnip itself, as before.
+
+**Fixed** (Linux installer): `install.sh` could report `libxcb-cursor0` as
+missing when it was installed, and listed every package's description, not
+just the missing ones. The release binary's launcher also stops it loading the
+system's GIO plugins, which on Kali printed "undefined symbol ... Failed to
+load module ... libgvfsdbus.so" at start. That message was harmless.
+
+### 0.8.1 in brief
 
 **Fixed**: the snip list's numbers sat right against the list's left border.
 Every row (and every column) now starts a few pixels in, lined up under the

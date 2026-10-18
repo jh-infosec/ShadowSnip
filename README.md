@@ -102,7 +102,7 @@ ShadowSnip opens its window and puts an icon in the notification area. Press
 
 | | Windows | Linux |
 | --- | --- | --- |
-| Snip hotkey | Registered by ShadowSnip itself | Set in the desktop's own keyboard shortcuts. On Xfce ShadowSnip adds them for you the first time it runs (Settings > Keyboard > Application Shortcuts shows them); on other desktops it tells you the command to bind. The shortcut stays after ShadowSnip quits, so pressing it also starts ShadowSnip. |
+| Snip hotkey | Registered by ShadowSnip itself | Set in the desktop's own keyboard shortcuts. On Xfce ShadowSnip adds them for you the first time it runs (Settings > Keyboard > Application Shortcuts shows them); on other desktops it tells you the command to bind. The shortcut runs a small trigger script that tells the running copy to snip in a few milliseconds, and starts ShadowSnip if it is not running, so one press also starts it. |
 | Quick-note hotkey | Registered by ShadowSnip | Same as the snip hotkey: a desktop shortcut that runs `shadowsnip --note` |
 | Copy on select | A mouse hook and a synthetic Ctrl+C | X11 already puts highlighted text in the *primary selection* (what middle-click pastes); ShadowSnip copies it to the clipboard. No hook and no keystroke, so a terminal can never receive a stray Ctrl+C. Each selection is copied once it stops changing. |
 | Settings file | `%APPDATA%\ShadowSnip\config.json` | `~/.config/shadowsnip/config.json` |

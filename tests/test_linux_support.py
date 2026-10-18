@@ -5,7 +5,10 @@ Xfce and X11 are faked, so this runs on any machine, Windows included.
 
 from __future__ import annotations
 
+import os
+import shlex
 import subprocess
+import sys
 
 import pytest
 from PySide6.QtWidgets import QApplication
@@ -56,11 +59,92 @@ def test_bad_specs_are_refused_like_on_windows(spec):
         hotkey_linux.xfce_accelerator(spec)
 
 
-def test_the_launch_command_quotes_paths_with_spaces(monkeypatch):
+def test_the_direct_command_quotes_paths_with_spaces(monkeypatch):
     monkeypatch.setattr(hotkey_linux.sys, "executable", "/opt/My Apps/python3")
-    command = hotkey_linux.launch_command("--snip")
+    command = hotkey_linux.direct_command("--snip")
     assert command.startswith("'/opt/My Apps/python3' ")
     assert "main.py" in command and command.endswith(" --snip")
+
+
+# -- the fast trigger the shortcut runs (0.8.2) ------------------------------------
+def test_the_shortcut_runs_the_trigger(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data dir"))
+    command = hotkey_linux.launch_command("--snip")
+    trigger = tmp_path / "data dir" / "shadowsnip" / hotkey_linux.TRIGGER_NAME
+    assert trigger.is_file()
+    assert shlex.split(command) == [hotkey_linux.sys.executable, str(trigger), "--snip"]
+    assert hotkey_linux._is_ours(command)
+    # Written once; asking again leaves it alone.
+    before = trigger.stat().st_mtime_ns
+    hotkey_linux.launch_command("--note")
+    assert trigger.stat().st_mtime_ns == before
+
+
+def test_a_frozen_build_without_python_runs_itself(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setattr(hotkey_linux.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(hotkey_linux.sys, "executable", "/opt/ShadowSnip/ShadowSnip")
+    monkeypatch.setattr(hotkey_linux.shutil, "which", lambda name: None)
+    assert hotkey_linux.launch_command("--snip") == "/opt/ShadowSnip/ShadowSnip --snip"
+    monkeypatch.setattr(hotkey_linux.shutil, "which", lambda name: "/usr/bin/python3")
+    command = hotkey_linux.launch_command("--snip")
+    assert command.startswith("/usr/bin/python3 ") and command.endswith(" --snip")
+
+
+def test_the_socket_name_matches_main():
+    import main
+
+    assert hotkey_linux.IPC_NAME == main.IPC_NAME
+
+
+def _run_trigger(tmp_path, flag, answer=b"ok"):
+    """Run the trigger against a fake running copy; returns what it was sent."""
+    import socket
+    import threading
+
+    folder = tmp_path / "t"
+    folder.mkdir(exist_ok=True)
+    got = []
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(folder / hotkey_linux.IPC_NAME))
+    server.listen(1)
+
+    def serve():
+        conn, _ = server.accept()
+        got.append(conn.recv(16))
+        conn.sendall(answer)
+        conn.close()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    script = tmp_path / "trigger.py"
+    script.write_text(hotkey_linux.TRIGGER_SOURCE.format(
+        fallback=["/bin/sh", "-c", "echo started $0 > " + shlex.quote(str(tmp_path / "fallback"))],
+        name=hotkey_linux.IPC_NAME))
+    env = {**os.environ, "TMPDIR": str(folder)}
+    subprocess.run([sys.executable, str(script), flag], env=env, timeout=10, check=True)
+    thread.join(5)
+    server.close()
+    return got
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix sockets: the trigger is Linux-only")
+@pytest.mark.parametrize("flag,request_", [("--snip", b"snip"), ("--note", b"note")])
+def test_the_trigger_asks_the_running_copy(tmp_path, flag, request_):
+    assert _run_trigger(tmp_path, flag) == [request_]
+    assert not (tmp_path / "fallback").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix sockets: the trigger is Linux-only")
+def test_the_trigger_starts_shadowsnip_when_nothing_runs(tmp_path):
+    script = tmp_path / "trigger.py"
+    marker = tmp_path / "fallback"
+    script.write_text(hotkey_linux.TRIGGER_SOURCE.format(
+        fallback=["/bin/sh", "-c", "echo \"$1\" > " + shlex.quote(str(marker)), "sh"],
+        name=hotkey_linux.IPC_NAME))
+    env = {**os.environ, "TMPDIR": str(tmp_path / "empty")}
+    subprocess.run([sys.executable, str(script), "--snip"], env=env, timeout=10, check=True)
+    assert marker.read_text().strip() == "--snip"
 
 
 # -- registering through a fake xfconf -------------------------------------------
