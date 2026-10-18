@@ -52,6 +52,8 @@ from PySide6.QtGui import (
     QTextDocument,
 )
 from PySide6.QtWidgets import (
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QAbstractItemView,
     QApplication,
     QHBoxLayout,
@@ -203,6 +205,25 @@ def _shared_fusion():
     return _FUSION
 
 
+# Space between a list's edge (and each column's divider) and its text, so the
+# numbers do not sit on the border and line up under the column headings.
+ROW_INSET = 6
+
+
+class _InsetDelegate(QStyledItemDelegate):
+    """Draws each cell's content a few pixels in from its left edge."""
+
+    def paint(self, painter, option, index):
+        opt = QStyleOptionViewItem(option)
+        opt.rect = option.rect.adjusted(ROW_INSET, 0, 0, 0)
+        super().paint(painter, opt, index)
+
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        size.setWidth(size.width() + ROW_INSET)
+        return size
+
+
 class OutlinedTree(QTreeWidget):
     """A list whose selected row lights up with a blue edge instead of a fill.
 
@@ -220,6 +241,7 @@ class OutlinedTree(QTreeWidget):
         self._fusion = _shared_fusion()
         if self._fusion is not None:
             self.setStyle(self._fusion)
+        self.setItemDelegate(_InsetDelegate(self))
         self.apply_selection_colours()
 
     def apply_selection_colours(self) -> None:

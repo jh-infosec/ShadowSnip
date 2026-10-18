@@ -1,6 +1,12 @@
 # Changelog
 
-## Latest: 0.8.0
+## Latest: 0.8.1
+
+**Fixed**: the snip list's numbers sat right against the list's left border.
+Every row (and every column) now starts a few pixels in, lined up under the
+column headings, in the snip list and the outline, in every skin.
+
+### 0.8.0 in brief
 
 **Fixed**: the window no longer pops up after a reboot. Started by Windows at
 login, ShadowSnip now stays in the tray whether or not the shortcut has

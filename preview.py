@@ -106,7 +106,7 @@ QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 QHeaderView::section {
     background: #232329; color: #9a9aa6; border: none;
-    border-right: 1px solid #2c2c33; padding: 4px 6px;
+    border-right: 1px solid #2c2c33; padding: 4px 9px;
 }
 QSplitter::handle { background: #2c2c33; }
 QTabWidget::pane { border: none; }

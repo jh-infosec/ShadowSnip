@@ -247,7 +247,7 @@ QTreeWidget, QTextBrowser {{
 }}
 QTreeWidget::item:selected {{ color: {TEXT}; }}
 QHeaderView::section {{
-    background: {inset}; color: {dim}; border: 0; border-bottom: 1px solid {hair_strong}; padding: 5px 8px;
+    background: {inset}; color: {dim}; border: 0; border-bottom: 1px solid {hair_strong}; padding: 5px 9px;
 }}
 QTabWidget::pane {{ border: 0; }}
 QTabBar::tab {{
