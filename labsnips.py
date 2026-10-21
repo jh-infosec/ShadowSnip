@@ -52,6 +52,7 @@ from PySide6.QtGui import (
     QTextDocument,
 )
 from PySide6.QtWidgets import (
+    QMenu,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QAbstractItemView,
@@ -580,8 +581,16 @@ class SnipViewer(QWidget):
 
 
 # -- the report outline -------------------------------------------------------
+# Text colour of a section marked as a finding, by severity: readable on the
+# dark list in every skin.
+FINDING_TEXT = {
+    "Critical": "#ff6b81", "High": "#ff8a65", "Medium": "#ffc857",
+    "Low": "#6fb3ff", "Info": "#b5b5c0",
+}
+
 KEY_ROLE = Qt.ItemDataRole.UserRole
 SECTION_ROLE = Qt.ItemDataRole.UserRole + 1
+FINDING_ROLE = Qt.ItemDataRole.UserRole + 3
 ROOT_LABEL = "Top of the report"
 
 
@@ -599,6 +608,8 @@ class OutlineTree(OutlinedTree):
     move_requested = Signal(str, str, str)
     # A snip filename, when a snip or a note under one is clicked.
     snip_chosen = Signal(str)
+    # A section's path: mark it as a finding, or edit its finding (0.9.0).
+    finding_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -621,6 +632,8 @@ class OutlineTree(OutlinedTree):
         self.itemExpanded.connect(lambda item: self._collapsed.discard(item.data(0, KEY_ROLE)))
         self.itemClicked.connect(self._on_clicked)
         self.tooltip_for = None  # set by the panel: filename -> hover html
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._context_menu)
 
     # -- filling ------------------------------------------------------------
     def set_outline(self, data: dict) -> None:
@@ -655,18 +668,29 @@ class OutlineTree(OutlinedTree):
         path = section["path"]
         count = sum(1 for e in section["entries"] if e["kind"] == "snip")
         name = section["name"] or ROOT_LABEL
-        item = QTreeWidgetItem([f"{name}   ({count})" if count else name])
+        finding = section.get("finding")
+        text = f"{name}   ({count})" if count else name
+        if finding:
+            text += f"   [{finding['severity']}]"
+        item = QTreeWidgetItem([text])
         item.setData(0, KEY_ROLE, f"section:{path}")
         item.setData(0, SECTION_ROLE, path)
+        item.setData(0, FINDING_ROLE, bool(finding))
         font = item.font(0)
         font.setBold(True)
         item.setFont(0, font)
-        item.setForeground(0, skins.color("#c9d6ea"))
-        item.setToolTip(
-            0,
-            (f"Section {path}" if path else "Entries before the first heading")
-            + "\nDrop a snip or note here to file it under this section.",
+        item.setForeground(
+            0, QColor(FINDING_TEXT[finding["severity"]]) if finding else skins.color("#c9d6ea")
         )
+        tip = (f"Section {path}" if path else "Entries before the first heading")
+        if finding:
+            tip += f"\nFinding: {finding['severity']}"
+            if finding.get("host"):
+                tip += f", {finding['host']}"
+        tip += "\nDrop a snip or note here to file it under this section."
+        if path:
+            tip += "\nRight-click to mark it as a finding."
+        item.setToolTip(0, tip)
         # A section is somewhere to drop things, not something to drag.
         item.setFlags(
             Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
@@ -698,9 +722,15 @@ class OutlineTree(OutlinedTree):
     @staticmethod
     def _note_item(note: dict, section: str, attached: bool) -> QTreeWidgetItem:
         first = (note["text"].splitlines() or [""])[0]
-        item = QTreeWidgetItem([f"\u270e {first}"])
-        font = item.font(0)
-        font.setItalic(True)
+        if note.get("code"):
+            item = QTreeWidgetItem([f"$ {note.get('label') or first}"])
+            font = item.font(0)
+            font.setFamily("Consolas")
+            font.setStyleHint(font.StyleHint.Monospace)
+        else:
+            item = QTreeWidgetItem([f"\u270e {first}"])
+            font = item.font(0)
+            font.setItalic(True)
         item.setFont(0, font)
         item.setForeground(0, skins.color("#9a9aa6"))
         tip = note["text"]
@@ -760,6 +790,23 @@ class OutlineTree(OutlinedTree):
         filename = item.data(0, Qt.ItemDataRole.UserRole + 2)
         if filename:
             self.snip_chosen.emit(str(filename))
+
+    def _context_menu(self, pos) -> None:
+        """Right-click a section: mark it as a finding, or edit its finding."""
+        item = self.itemAt(pos)
+        if item is None:
+            return
+        key = str(item.data(0, KEY_ROLE) or "")
+        if not key.startswith("section:"):
+            return
+        path = key.split(":", 1)[1]
+        if not path:
+            return  # the top of the report is not a finding
+        menu = QMenu(self)
+        marked = bool(item.data(0, FINDING_ROLE))
+        action = menu.addAction("Edit finding..." if marked else "Mark as finding...")
+        action.triggered.connect(lambda: self.finding_requested.emit(path))
+        menu.exec(self.viewport().mapToGlobal(pos))
 
     # -- dragging -------------------------------------------------------------
     def dropEvent(self, event):
@@ -990,6 +1037,10 @@ class LabSnipsPanel(QWidget):
     move_requested = Signal(str, str, str)
     # The Preview tab's button: open lab.md itself.
     open_md_requested = Signal()
+    # The Preview tab's other button: export the report (0.9.0).
+    export_requested = Signal()
+    # From the outline: a section to mark as a finding or edit.
+    finding_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1043,9 +1094,10 @@ class LabSnipsPanel(QWidget):
         self.outline.tooltip_for = self._tooltip_for_file
         self.outline.move_requested.connect(self.move_requested.emit)
         self.outline.snip_chosen.connect(self.select)
+        self.outline.finding_requested.connect(self.finding_requested.emit)
         self.outline_hint = QLabel(
             "Drag snips and notes between sections, or up and down, to "
-            "rearrange lab.md."
+            "rearrange lab.md. Right-click a section to mark it as a finding."
         )
         self.outline_hint.setObjectName("SnipWhere")
         self.outline_hint.setWordWrap(True)
@@ -1061,6 +1113,12 @@ class LabSnipsPanel(QWidget):
         self.btn_open_md = QPushButton("Open lab.md")
         self.btn_open_md.setToolTip("Open lab.md in your default editor")
         self.btn_open_md.clicked.connect(self.open_md_requested.emit)
+        self.btn_export = QPushButton("Export report...")
+        self.btn_export.setToolTip(
+            "One file to hand over: a self-contained HTML page or a Word "
+            "document, with the images inside"
+        )
+        self.btn_export.clicked.connect(self.export_requested.emit)
         preview_page = QWidget()
         preview_layout = QVBoxLayout(preview_page)
         preview_layout.setContentsMargins(0, 6, 0, 0)
@@ -1068,6 +1126,7 @@ class LabSnipsPanel(QWidget):
         preview_layout.addWidget(self.md_preview, 1)
         md_bar = QHBoxLayout()
         md_bar.addStretch(1)
+        md_bar.addWidget(self.btn_export)
         md_bar.addWidget(self.btn_open_md)
         preview_layout.addLayout(md_bar)
         self._md_text = ""

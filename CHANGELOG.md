@@ -1,6 +1,40 @@
 # Changelog
 
-## Latest: 0.8.3
+## Latest: 0.9.0
+
+The report release. A lab now drafts the pentest report as you go, and hands
+it over as one file.
+
+**Added**: findings. Mark a section as a finding (**Finding...** beside the
+Section box, or right-click it in the Outline) with a severity (Critical, High,
+Medium, Low, Info), the affected host, and description, impact and
+remediation. `lab.md` gets a findings summary table at the top, most severe
+first, and a finding block under the section's heading, above the snips and
+notes that are its evidence. The Outline shows a finding's severity in colour.
+
+**Added**: export. **Export report...** (Preview tab, or the tray menu) writes
+the lab as one self-contained HTML page with the images inside, or as a Word
+document with real headings, the summary table, finding blocks, embedded
+images and monospace command output. Both follow `lab.md` exactly. The Word
+export needs `python-docx`, now in requirements.txt and in the release builds.
+
+**Added**: command output as text. **Ctrl+Alt+O**, **Add output** under the
+note box, or the tray menu files copied (on Linux, highlighted) text as a code
+block in the current section, after a window shows it for checking. A prompt
+line (`$ id`, `root@lame:~# id`, Kali's `└─$ id`, `PS C:\> whoami`) becomes the
+command shown above the block. It can be attached to the snip on screen,
+dragged in the Outline, edited and removed like a note.
+
+**Added**: methodology sections. **Phases** lays out Recon, Enumeration,
+Initial access, Privilege escalation and Post-exploitation as sections before
+anything is filed in them. **Start new labs with the methodology sections** in
+Settings does it for every new lab.
+
+**Fixed**: the quick-note box opened from the Linux hotkey could make the
+shortcut report ShadowSnip as not responding while you typed. The running copy
+now answers first, then opens the box.
+
+### 0.8.3 in brief
 
 **Added**: easier quitting, without making it easy to quit by accident.
 

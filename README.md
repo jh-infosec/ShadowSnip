@@ -104,6 +104,7 @@ ShadowSnip opens its window and puts an icon in the notification area. Press
 | --- | --- | --- |
 | Snip hotkey | Registered by ShadowSnip itself | Set in the desktop's own keyboard shortcuts. On Xfce ShadowSnip adds them for you the first time it runs (Settings > Keyboard > Application Shortcuts shows them); on other desktops it tells you the command to bind. The shortcut runs a small trigger script that tells the running copy to snip in a few milliseconds, and starts ShadowSnip if it is not running, so one press also starts it. |
 | Quick-note hotkey | Registered by ShadowSnip | Same as the snip hotkey: a desktop shortcut that runs `shadowsnip --note` |
+| Command output hotkey | Registered by ShadowSnip | The same, running `shadowsnip --output`; files the highlighted text (the primary selection) when there is some, else the clipboard |
 | Copy on select | A mouse hook and a synthetic Ctrl+C | X11 already puts highlighted text in the *primary selection* (what middle-click pastes); ShadowSnip copies it to the clipboard. No hook and no keystroke, so a terminal can never receive a stray Ctrl+C. Each selection is copied once it stops changing. |
 | Settings file | `%APPDATA%\ShadowSnip\config.json` | `~/.config/shadowsnip/config.json` |
 | Start at login | A shortcut in `shell:startup`; it starts in the tray with or without `--tray` | `bash install.sh --autostart` |
@@ -117,6 +118,9 @@ removal, the viewer) is the same code on both.
 | --- | --- |
 | Start a snip | `Ctrl+Shift+S`, the tray menu, or `python main.py --snip` |
 | Jot a note into the lab | `Ctrl+Shift+N`, or **Add note...** in the tray menu |
+| File command output into the lab | `Ctrl+Alt+O`, **Add output** in the window, or **File command output...** in the tray menu |
+| Mark a section as a finding | **Finding...** beside the Section box, or right-click it in the Outline |
+| Export the report | **Export report...** on the Preview tab, or in the tray menu |
 | Open the window | starting ShadowSnip yourself opens it (a start by Windows at login stays in the tray); afterwards click the tray icon, or start it again (the taskbar pin) |
 | Hide the window | **Close**, or the window's X. ShadowSnip keeps running in the tray, so the hotkey still works; the first time, a note says so |
 | Quit | Right-click the tray icon > **Quit ShadowSnip**, or **Ctrl+Q** in the window (asks first, Enter quits, Esc keeps it running). Started from a terminal, **Ctrl+C** there quits too |
@@ -312,11 +316,73 @@ The lab panel beside the image has three tabs:
 | --- | --- |
 | **Snips** | Every snip in the lab, newest first, with its section, caption and notes |
 | **Outline** | `lab.md` as a tree: sections, the snips in them, the notes under those. Drag a snip or note onto a section to file it there, or above or below another entry to move it to that spot. A snip always takes its attached notes with it. |
-| **Preview** | `lab.md` rendered as it will read, screenshots scaled to fit, with **Open lab.md** to edit the file itself |
+| **Preview** | `lab.md` rendered as it will read, screenshots scaled to fit, with **Open lab.md** to edit the file itself and **Export report...** to hand it over |
 
 Rearranging in the outline is saved to `lab.json` and `lab.md` straight away.
 Once you have moved something by hand, the order of the sections is kept as it
 is, so emptying a section's first snip does not reshuffle the report.
+
+### Findings
+
+A finding is a section of the report: the snips, notes and output filed in it
+are its evidence. Set the **Section** box (`10.10.10.3 / SMB`, say) and press
+**Finding...**, or right-click the section in the **Outline**. Fill in:
+
+| Field | |
+| --- | --- |
+| Severity | Critical, High, Medium, Low or Info |
+| Affected host | Filled in from the breadcrumb when it starts with an address or hostname |
+| Description, Impact, Remediation | Free text |
+
+`lab.md` gets a **Findings summary** table at the top, most severe first, and
+a finding block straight under the section's heading, above its evidence. In
+the Outline a finding section shows its severity, in colour. Open it again to
+edit, or press **Not a finding** to unmark it; the section and its evidence
+stay. The tray menu has **Finding for this section...** too.
+
+### Command output
+
+Commands and their output belong in a report as text people can copy, not
+only as screenshots. Copy the output (on Linux, just highlight it), then press
+**Ctrl+Alt+O**, **Add output** under the note box, or the tray menu's **File
+command output...**. A window shows what is about to be filed:
+
+- When the first line is a prompt and a command (`$ id`, `root@lame:~# id`,
+  Kali's two-line `└─$ id`, `PS C:\> whoami`), the command goes in the
+  **Command** box and the rest is the output.
+- Edit anything, and check it for passwords and tokens: it goes into `lab.md`
+  as text.
+- **Attach to the snip on screen** puts it straight under that snip.
+
+**File it** adds it to the current section as a code block, with the command
+above it. Indentation is kept exactly. In the Outline it shows as `$ command`,
+and it can be dragged, edited and removed like any note. Nothing is filed
+without that look first, so a stray hotkey press can never put a clipboard
+full of secrets into the report.
+
+### Methodology sections
+
+**Phases** beside the Section box lays out **Recon**, **Enumeration**,
+**Initial access**, **Privilege escalation** and **Post-exploitation** as
+sections, in that order, before anything is filed in them, and points the
+Section box at Recon if nothing else was chosen. Sub-sections go under them as
+usual: `Enumeration / SMB`. To have every new lab start that way, tick **Start
+new labs with the methodology sections** on the Labs tab of Settings.
+
+### Exporting the report
+
+**Export report...** (on the **Preview** tab, or in the tray menu) writes the
+running lab as one file to hand over, and opens it:
+
+| Format | What you get |
+| --- | --- |
+| Web page (`.html`) | One self-contained file: the images are inside it. Opens in any browser, prints to PDF |
+| Word document (`.docx`) | Real Word headings, the findings summary as a table with coloured severities, finding blocks, the images embedded and scaled to the page, command output in a monospace block. Ready to edit or to paste into a client template |
+
+The default name is `<lab>-report.html` in the lab folder. The report follows
+`lab.md` exactly: findings summary, then the sections in report order. The
+Word export needs `python-docx` (`pip install -r requirements.txt`); the
+release builds include it.
 
 ### Sections
 
@@ -498,6 +564,7 @@ window is never taller than the screen it opens on.
 | Skin | How ShadowSnip looks: **Original**, **Steel**, **Split** or **Console**. **Next** steps through them. Each one shows straight away, in a picture of the window under the list and on the window itself; **Save** keeps it, **Cancel** puts the old one back |
 | Snip hotkey | Click the field and press the combination you want |
 | Quick note hotkey | The same, for the one-line note box |
+| Command output hotkey | The same, for filing command output as a code block |
 | Save folder / replaced file name | Where the standing snip lives |
 | Keep a timestamped copy | The `history` folder, pruned to a fixed count. Outside a lab it is the Recent snips list. On by default |
 | File format | What goes to disk: PNG, WebP or JPEG. The clipboard always gets PNG |
@@ -518,6 +585,7 @@ window is never taller than the screen it opens on.
 | Labs folder | Where labs live. Blank means a `labs` folder inside the save folder; stop an active lab before changing this or the save folder |
 | Keep a lab record | Keeps `lab.json` and the rendered `lab.md` up to date. Sections and notes need it |
 | Offer a caption box | Shows a caption field under the snip in the preview window during a lab |
+| Start new labs with the methodology sections | A new lab starts with Recon, Enumeration, Initial access, Privilege escalation and Post-exploitation laid out. Off by default; **Phases** does it for one lab |
 
 Every copy-on-select setting, **Never copy from** included, can be filled in
 whether or not **Copy highlighted text** is ticked. Building the exclusion

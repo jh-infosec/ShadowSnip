@@ -19,6 +19,8 @@ from PySide6.QtCore import QFileSystemWatcher, QObject, QRect, QTimer, Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
+    QFileDialog,
     QInputDialog,
     QMenu,
     QMessageBox,
@@ -33,6 +35,8 @@ import hotkey as hotkey_mod
 import imageops
 import lab
 import platforms
+import report
+import report_dialogs
 import skins
 import storage
 import overlay
@@ -83,6 +87,10 @@ class ShadowSnipApp(QObject):
         self.preview.note_added.connect(self._on_note_from_preview)
         self.preview.lab_entry_move_requested.connect(self.move_lab_entry)
         self.preview.lab_md_open_requested.connect(self.open_lab_md)
+        self.preview.finding_requested.connect(self.edit_finding)
+        self.preview.output_requested.connect(lambda attach: self.file_output(attach))
+        self.preview.methodology_requested.connect(self.add_methodology)
+        self.preview.export_requested.connect(self.export_report)
 
         # The snip list follows the lab folder itself rather than relying on
         # every code path that writes into it remembering to refresh. A snip,
@@ -158,6 +166,18 @@ class ShadowSnipApp(QObject):
         self.action_section.triggered.connect(self.ask_section)
         menu.addAction(self.action_section)
 
+        self.action_output = QAction("File command output...", self)
+        self.action_output.triggered.connect(lambda: self.file_output())
+        menu.addAction(self.action_output)
+
+        self.action_finding = QAction("Finding for this section...", self)
+        self.action_finding.triggered.connect(lambda: self.edit_finding(None))
+        menu.addAction(self.action_finding)
+
+        self.action_export = QAction("Export report...", self)
+        self.action_export.triggered.connect(self.export_report)
+        menu.addAction(self.action_export)
+
         self.action_auto = QAction("Copy on select", self)
         self.action_auto.setCheckable(True)
         self.action_auto.triggered.connect(self.toggle_auto_copy)
@@ -207,6 +227,12 @@ class ShadowSnipApp(QObject):
         notes_live = bool(name) and keeping_record
         self.action_note.setEnabled(notes_live)
         self.action_section.setEnabled(notes_live)
+        self.action_output.setEnabled(notes_live)
+        self.action_finding.setEnabled(notes_live)
+        self.action_export.setEnabled(notes_live)
+        self.action_output.setText(
+            f"File command output...\t{hotkey_mod.describe(self.cfg['output_hotkey'])}"
+        )
         self.preview.set_notes_visible(notes_live)
         if notes_live:
             where = lab.section(self.cfg)
@@ -338,6 +364,13 @@ class ShadowSnipApp(QObject):
         self._refresh_menu_text()
 
         existing = lab.count(self.cfg)
+        if (self.cfg.get("lab_methodology") and self.cfg["lab_index"]
+                and not existing and not lab.entries(self.cfg)):
+            try:
+                lab.add_methodology(self.cfg)
+            except lab.LabError as exc:
+                self.preview.set_status(f"Could not lay out the phases: {exc}")
+            self._refresh_menu_text()
         where = lab.section(self.cfg)
         state = f"resumed, {existing} snips already in it" if existing else "new lab"
         if where:
@@ -857,6 +890,140 @@ class ShadowSnipApp(QObject):
         self._refresh_menu_text()
         return True
 
+    # -- the report (0.9.0) ------------------------------------------------
+    def _needs_record(self, what: str) -> bool:
+        """True when a lab with a record is running; otherwise say so."""
+        if lab.is_active(self.cfg) and self.cfg["lab_index"]:
+            return True
+        self.tray.showMessage(
+            "ShadowSnip",
+            f"{what} belong to a lab. Start one first, and leave Keep a lab "
+            "record switched on in Settings.",
+            build_icon(),
+            4000,
+        )
+        return False
+
+    def _dialog_parent(self):
+        return QApplication.activeWindow() or (self.preview if self.preview.isVisible() else None)
+
+    def edit_finding(self, path=None) -> None:
+        """Mark a section as a finding, or edit or remove its finding.
+
+        `path` None means the current section.
+        """
+        if not self._needs_record("Findings"):
+            return
+        path = lab.normalise_section(lab.section(self.cfg) if path is None else path)
+        if not path:
+            self._warn(
+                "Pick a section first. A finding is a section of the report: set "
+                "the Section box (10.10.10.3 / SMB, say), then press Finding."
+            )
+            return
+        dialog = report_dialogs.FindingDialog(path, lab.finding(self.cfg, path), self._dialog_parent())
+        result = dialog.exec()
+        if result == QDialog.DialogCode.Rejected:
+            return
+        try:
+            if result == report_dialogs.REMOVE:
+                lab.set_finding(self.cfg, path, None)
+                self.preview.set_status(f"{path} is no longer a finding")
+            else:
+                stored = lab.set_finding(self.cfg, path, dialog.values())
+                if stored is not None:
+                    self.preview.set_status(f"Finding saved: {path} ({stored['severity']})")
+        except lab.LabError as exc:
+            self._warn(f"The finding could not be saved: {exc}")
+        self._refresh_menu_text()
+
+    def _selected_text(self) -> str:
+        """What to file as output: the highlighted text on Linux, else the clipboard."""
+        board = QApplication.clipboard()
+        if board.supportsSelection():
+            from PySide6.QtGui import QClipboard
+
+            highlighted = board.text(QClipboard.Mode.Selection)
+            if highlighted.strip():
+                return highlighted
+        return board.text()
+
+    def file_output(self, attach: bool = False) -> None:
+        """Copied or highlighted command output, filed as a code block after a look."""
+        if not self._needs_record("Command output and notes"):
+            return
+        where = lab.section(self.cfg) or "the top of the report"
+        can_attach = bool(self._last_lab_file) and self.preview.isVisible()
+        dialog = report_dialogs.OutputDialog(
+            self._selected_text(), where, can_attach, self._dialog_parent()
+        )
+        dialog.attach.setChecked(bool(attach))
+        dialog.raise_()
+        dialog.activateWindow()
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        label, text, attach_it = dialog.values()
+        target = [self._last_lab_file] if attach_it and self._last_lab_file else []
+        try:
+            entry = lab.add_note(self.cfg, text, attach=target, fmt="code", label=label)
+        except lab.LabError as exc:
+            self._warn(f"The output could not be saved: {exc}")
+            return
+        if entry is None:
+            self.preview.set_status("There was no output to file.")
+            return
+        lines = entry["text"].count("\n") + 1
+        self.preview.set_status(
+            f"Output {entry['id']} ({lines} line{'s' if lines != 1 else ''}) filed under "
+            f"{entry['section'] or 'the top of the report'}"
+        )
+        self._refresh_menu_text()
+
+    def add_methodology(self) -> None:
+        if not self._needs_record("Sections"):
+            return
+        try:
+            added = lab.add_methodology(self.cfg)
+        except lab.LabError as exc:
+            self._warn(f"The phases could not be added: {exc}")
+            return
+        if added:
+            self.preview.set_status(
+                f"Added {len(added)} sections: {', '.join(added)}. Filing under "
+                f"{lab.section(self.cfg) or 'the top of the report'}."
+            )
+        else:
+            self.preview.set_status("The methodology sections are already in this lab.")
+        self._refresh_menu_text()
+
+    def export_report(self) -> None:
+        """Save the running lab as one HTML page or Word document, then open it."""
+        if not self._needs_record("Reports"):
+            return
+        folder = lab.active_folder(self.cfg)
+        filters = "Web page, images inside (*.html);;Word document (*.docx)"
+        chosen, selected = QFileDialog.getSaveFileName(
+            self._dialog_parent(), "Export report",
+            str(report.default_path(folder, "html")), filters,
+        )
+        if not chosen:
+            return
+        path = Path(chosen)
+        fmt = path.suffix.lower().lstrip(".")
+        if fmt not in report.EXPORT_FORMATS:
+            fmt = "docx" if "docx" in selected else "html"
+            path = path.with_suffix(f".{fmt}")
+        try:
+            written = report.export(folder, fmt, path)
+        except report.ExportError as exc:
+            self._warn(str(exc))
+            return
+        self.preview.set_status(f"Report exported to {written}")
+        try:
+            storage.open_file(written)
+        except OSError:
+            pass
+
     # -- copy on select ----------------------------------------------------
     def toggle_auto_copy(self) -> None:
         if self.autocopy.engaged:
@@ -924,11 +1091,14 @@ class ShadowSnipApp(QObject):
     HOTKEYS = (
         ("snip", "hotkey", "Snip from the tray icon"),
         ("note", "note_hotkey", "Add notes from the tray menu"),
+        ("output", "output_hotkey", "File command output from the tray menu"),
     )
 
     def _on_hotkey(self, name: str) -> None:
         if name == "note":
             self.quick_note()
+        elif name == "output":
+            self.file_output()
         else:
             self.request_snip()
 
@@ -1268,7 +1438,7 @@ class ShadowSnipApp(QObject):
         """Replace changed hotkeys atomically, restoring the old ones on error."""
         desired = {name: new_cfg[key] for name, key, _ in self.HOTKEYS}
         if len(set(desired.values())) != len(desired):
-            self._warn("The snip and quick-note hotkeys must be different.")
+            self._warn("The snip, quick-note and command-output hotkeys must all be different.")
             return False
 
         changed = [

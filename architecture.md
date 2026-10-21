@@ -17,8 +17,12 @@ imageops.py          QImage -> Pillow, compression, DIB encoding
 clipboard.py         Win32 clipboard writer (PNG + CF_DIB), Qt fallback
 storage.py           latest-file replacement, history (the Recent snips list),
                      atomic writes
-lab.py               lab sessions: numbering, sections, notes, the lab.md tree,
-                     outline and moves
+lab.py               lab sessions: numbering, sections, notes, command output,
+                     findings, methodology phases, the lab.md tree, outline
+                     and moves
+report.py            exporting a lab: one model of the report, written as a
+                     self-contained HTML page or a Word document (python-docx)
+report_dialogs.py    the Finding and File command output dialogs
 platforms.py         picks the Windows or Linux module for hotkeys and copy on
                      select; nothing else tests the platform for these
 hotkey.py            Windows: RegisterHotKey and a native event filter

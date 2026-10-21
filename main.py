@@ -8,6 +8,8 @@
     python main.py --show    always open the window, even straight after login
     python main.py --note    jot a note into the running lab (what the Linux
                              quick-note shortcut runs)
+    python main.py --output  file copied or highlighted command output into
+                             the running lab as a code block
 
 Started normally (double-clicking the .exe, the Start menu, a taskbar pin) it
 opens the window, so there is something to see that it has started.
@@ -276,10 +278,11 @@ def _quit_on_signals(app, shadow) -> None:
 def main() -> int:
     want_snip = "--snip" in sys.argv[1:]
     want_note = "--note" in sys.argv[1:] and not want_snip
-    quiet = not (want_snip or want_note) and started_at_login(
+    want_output = "--output" in sys.argv[1:] and not (want_snip or want_note)
+    quiet = not (want_snip or want_note or want_output) and started_at_login(
         sys.argv[1:], _launch_shortcut(), _seconds_since_logon()
     )
-    request = request_for(want_snip, want_note, quiet)
+    request = b"output" if want_output else request_for(want_snip, want_note, quiet)
     _set_dpi_awareness()
     _opt_out_of_restart_apps()
 
@@ -340,7 +343,12 @@ def main() -> int:
             if payload.startswith(b"snip"):
                 shadow.request_snip()
             elif payload.startswith(b"note"):
-                shadow.quick_note()
+                # After the answer, not before: the note box waits for typing,
+                # and the launch that asked would give up waiting and report
+                # ShadowSnip as stuck.
+                QTimer.singleShot(0, shadow.quick_note)
+            elif payload.startswith(b"output"):
+                QTimer.singleShot(0, shadow.file_output)
             elif payload.startswith(b"tray"):
                 pass  # a login start that found this copy running: stay put
             else:
@@ -358,6 +366,8 @@ def main() -> int:
         QTimer.singleShot(200, shadow.request_snip)
     elif want_note:
         QTimer.singleShot(200, shadow.quick_note)
+    elif want_output:
+        QTimer.singleShot(200, shadow.file_output)
     elif not quiet:
         # Launched by hand: show the window. Before 0.4.8 a fresh start went
         # straight to the tray, which looked like nothing had happened.

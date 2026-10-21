@@ -94,9 +94,10 @@ class _Hotkeys:
 
 
 def test_failed_hotkey_update_restores_the_previous_registration():
-    old = {"hotkey": "ctrl+shift+s", "note_hotkey": "ctrl+shift+n"}
+    old = {"hotkey": "ctrl+shift+s", "note_hotkey": "ctrl+shift+n", "output_hotkey": "ctrl+alt+o"}
     warnings = []
-    hotkeys = _Hotkeys({"snip": old["hotkey"], "note": old["note_hotkey"]}, {"ctrl+shift+x"})
+    hotkeys = _Hotkeys({"snip": old["hotkey"], "note": old["note_hotkey"],
+                        "output": old["output_hotkey"]}, {"ctrl+shift+x"})
     state = SimpleNamespace(
         HOTKEYS=app.ShadowSnipApp.HOTKEYS,
         cfg=old,
@@ -104,19 +105,22 @@ def test_failed_hotkey_update_restores_the_previous_registration():
         qapp=object(),
         _warn=lambda message: warnings.append(message),
     )
-    requested = {"hotkey": "ctrl+shift+x", "note_hotkey": "ctrl+shift+m"}
+    requested = {"hotkey": "ctrl+shift+x", "note_hotkey": "ctrl+shift+m",
+                 "output_hotkey": "ctrl+alt+o"}
 
     changed = app.ShadowSnipApp._replace_hotkeys(state, requested)
 
     assert changed is False
-    assert hotkeys.specs == {"snip": "ctrl+shift+s", "note": "ctrl+shift+n"}
+    assert hotkeys.specs == {"snip": "ctrl+shift+s", "note": "ctrl+shift+n",
+                             "output": "ctrl+alt+o"}
     assert "Previous hotkeys were restored." in warnings[0]
 
 
 def test_duplicate_hotkeys_are_rejected_without_unregistration():
-    old = {"hotkey": "ctrl+shift+s", "note_hotkey": "ctrl+shift+n"}
+    old = {"hotkey": "ctrl+shift+s", "note_hotkey": "ctrl+shift+n", "output_hotkey": "ctrl+alt+o"}
     warnings = []
-    hotkeys = _Hotkeys({"snip": old["hotkey"], "note": old["note_hotkey"]})
+    hotkeys = _Hotkeys({"snip": old["hotkey"], "note": old["note_hotkey"],
+                        "output": old["output_hotkey"]})
     state = SimpleNamespace(
         HOTKEYS=app.ShadowSnipApp.HOTKEYS,
         cfg=old,
@@ -126,12 +130,14 @@ def test_duplicate_hotkeys_are_rejected_without_unregistration():
     )
 
     changed = app.ShadowSnipApp._replace_hotkeys(
-        state, {"hotkey": "ctrl+shift+x", "note_hotkey": "ctrl+shift+x"}
+        state, {"hotkey": "ctrl+shift+x", "note_hotkey": "ctrl+shift+x",
+                "output_hotkey": "ctrl+alt+o"}
     )
 
     assert changed is False
-    assert hotkeys.specs == {"snip": "ctrl+shift+s", "note": "ctrl+shift+n"}
-    assert warnings == ["The snip and quick-note hotkeys must be different."]
+    assert hotkeys.specs == {"snip": "ctrl+shift+s", "note": "ctrl+shift+n",
+                             "output": "ctrl+alt+o"}
+    assert warnings == ["The snip, quick-note and command-output hotkeys must all be different."]
 
 
 # -- copy on select and the toggles that report it -------------------------

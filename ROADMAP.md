@@ -30,20 +30,19 @@ same tools work on any lab snip, in the full-size view.
 - Redo, beside undo.
 - Moving or resizing a mark after it is drawn.
 
-## v0.8 - the pentest report (next)
+## Done in v0.9.0 - the pentest report
 
-- **Findings.** Mark a section as a finding with a severity (Critical, High,
-  Medium, Low, Info), the affected host, and description, impact and
-  remediation fields. It renders in `lab.md` as a standard finding block, so
-  the report drafts itself as findings are confirmed.
-- **Export.** A single HTML file or a .docx with the images embedded, ready to
-  hand over, instead of `lab.md` plus a folder of images.
-- **Command output as text.** While a lab runs, highlighted text can be filed
-  as a code block, so commands in the report are copyable.
-- **Methodology sections.** One click to lay out Recon, Enumeration, Initial
-  access, Privilege escalation and Post-exploitation when a lab starts.
+Findings (severity, host, description, impact, remediation) with a summary
+table, export to a self-contained HTML page or a Word document, command output
+filed as code blocks, and the methodology phases laid out in one click.
 
-## v0.9 - integration
+## The report, still open
+
+- A PDF export straight from the app (today: print the HTML page to PDF).
+- Exporting into a client's own Word template (styles and cover page).
+- CVSS scores on findings, and a findings-only export.
+
+## v0.10 - integration
 
 - Run at login toggle in Settings, writing the shortcut itself and reading
   back the real state rather than a stored flag.
@@ -55,7 +54,7 @@ same tools work on any lab snip, in the full-size view.
   route to different projects.
 - Signed release binaries so SmartScreen stops warning on first run.
 
-## v0.10 - capture modes
+## v0.11 - capture modes
 
 - Window mode: highlight and grab the window under the cursor.
 - Freeform (lasso) selection, matching Snipping Tool's freeform mode.
@@ -63,7 +62,7 @@ same tools work on any lab snip, in the full-size view.
 - Snap the selection to detected UI element edges while dragging.
 - Magnifier loupe near the cursor for pixel-exact edges.
 
-## v0.11 - after the snip
+## v0.12 - after the snip
 
 - Clipboard history strip: the last N snips, one click to re-copy. (0.8.0's Recent snips list already re-copies any recent snip from the window; the strip would do it without opening it.)
 - "Copy as" menu: PNG, JPEG, WebP, or a data URI.
@@ -75,10 +74,8 @@ same tools work on any lab snip, in the full-size view.
   sections by dragging. Still missing: editing a note that is not attached to
   any snip, reordering the sections themselves, and restoring a removed snip
   from inside the app.
-- Export beyond markdown. `lab.md` pastes into most things, but a
-  self-contained HTML with the images inlined, or a .docx built against a
-  client template, would drop straight into a report rather than needing the
-  images carried alongside.
+- Export beyond markdown: done in 0.9.0 (HTML and Word). A client-template
+  export is listed under the report above.
 - A note is filed against whatever section is set at that moment, so a note
   typed after moving on lands in the new section. Whether an attached note
   should instead inherit its snip's section is a real question; today the
@@ -127,7 +124,7 @@ same tools work on any lab snip, in the full-size view.
   partial in Chromium, absent in terminals. Worth measuring before adopting.
 - Copy on select silently replaces a snip on the clipboard. Whether the two
   should share a small history, rather than one overwriting the other, is the
-  question the clipboard history strip in v0.10 would answer.
+  question the clipboard history strip in v0.12 would answer.
 
 ## Open questions
 

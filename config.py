@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.8.3"
+APP_VERSION = "0.9.0"
 
 
 def config_dir() -> Path:
@@ -41,6 +41,9 @@ DEFAULTS = {
     "hotkey": "ctrl+shift+s",
     # Global hotkey that files a one-line note into the engaged lab.
     "note_hotkey": "ctrl+shift+n",
+    # Global hotkey that files copied or highlighted command output into the
+    # engaged lab as a code block, after a look at it (0.9.0).
+    "output_hotkey": "ctrl+alt+o",
     # Where the always-overwritten snip and any history land.
     "save_dir": str(default_save_dir()),
     # Base name of the file that gets replaced on every snip.
@@ -105,6 +108,9 @@ DEFAULTS = {
     "lab_index": True,
     # Offer a caption box under the image after each snip filed in a lab.
     "lab_caption": True,
+    # Lay out the methodology phases (Recon ... Post-exploitation) as sections
+    # when a new lab starts (0.9.0). Off: the Phases button does it on demand.
+    "lab_methodology": False,
     # The list of the running lab's snips beside the image in the preview
     # window. Toggled with the Snip list button; remembered between runs.
     "lab_snip_list": True,
@@ -253,6 +259,7 @@ def _sanitise(cfg: dict) -> dict:
         "png_effort_reviewed",
         "history_reviewed",
         "close_hint_shown",
+        "lab_methodology",
     ):
         cfg[flag] = bool(cfg.get(flag))
     cfg["auto_copy_extra_blocked"] = normalise_names(cfg.get("auto_copy_extra_blocked"))
@@ -260,7 +267,7 @@ def _sanitise(cfg: dict) -> dict:
     # the string "None" and sail through as a real value. A null save_dir in
     # particular reaches Path() as None and raises TypeError on the first snip,
     # which is not an OSError and so is not caught where the writes happen.
-    for key in ("hotkey", "note_hotkey"):
+    for key in ("hotkey", "note_hotkey", "output_hotkey"):
         if not str(cfg.get(key) or "").strip():
             cfg[key] = DEFAULTS[key]
     if not str(cfg.get("save_dir") or "").strip():

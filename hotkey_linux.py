@@ -47,7 +47,7 @@ XFCE_CHANNEL = "xfce4-keyboard-shortcuts"
 XFCE_PREFIX = "/commands/custom/"
 
 # The command-line flag each action is reached by.
-ACTION_FLAGS = {"snip": "--snip", "note": "--note"}
+ACTION_FLAGS = {"snip": "--snip", "note": "--note", "output": "--output"}
 
 _XFCE_MODIFIERS = {
     "ctrl": "<Primary>",
@@ -144,7 +144,7 @@ import os, socket, sys
 FALLBACK = {fallback!r}
 NAME = {name!r}
 flag = sys.argv[1] if len(sys.argv) > 1 else "--snip"
-request = {{"--snip": b"snip", "--note": b"note"}}.get(flag, b"show")
+request = {{"--snip": b"snip", "--note": b"note", "--output": b"output"}}.get(flag, b"show")
 folder = (os.environ.get("TMPDIR") or "/tmp").rstrip("/") or "/"
 try:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:

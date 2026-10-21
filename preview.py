@@ -155,6 +155,12 @@ class PreviewWindow(QWidget):
     # From the outline: (entry key, section, key to go before or "").
     lab_entry_move_requested = Signal(str, str, str)
     lab_md_open_requested = Signal()
+    # 0.9.0, the report: a section's finding, command output to file (attach
+    # to the snip on screen?), the methodology phases, and the export.
+    finding_requested = Signal(str)
+    output_requested = Signal(bool)
+    methodology_requested = Signal()
+    export_requested = Signal()
     # The snip on screen was marked up: the edited image, to save everywhere.
     snip_edited = Signal(QImage)
     # Pen and highlighter colours and widths, the redact mode.
@@ -228,6 +234,8 @@ class PreviewWindow(QWidget):
         self.snips_panel.open_requested.connect(self.snip_open_requested.emit)
         self.snips_panel.move_requested.connect(self.lab_entry_move_requested.emit)
         self.snips_panel.open_md_requested.connect(self.lab_md_open_requested.emit)
+        self.snips_panel.export_requested.connect(self.export_requested.emit)
+        self.snips_panel.finding_requested.connect(self.finding_requested.emit)
         # Short names for the parts other code and the tests reach for.
         self.snips_list = self.snips_panel.list
         self.snips_title = self.snips_panel.title
@@ -387,6 +395,21 @@ class PreviewWindow(QWidget):
         )
         self.btn_move_snip.clicked.connect(self.snip_move_requested.emit)
 
+        self.btn_finding = QPushButton("Finding...")
+        self.btn_finding.setToolTip(
+            "Mark the section above as a finding: severity, affected host, "
+            "description, impact and remediation"
+        )
+        self.btn_finding.clicked.connect(
+            lambda: self.finding_requested.emit(self.section_edit.currentText().strip())
+        )
+        self.btn_phases = QPushButton("Phases")
+        self.btn_phases.setToolTip(
+            "Lay out Recon, Enumeration, Initial access, Privilege escalation and "
+            "Post-exploitation as sections, ready to file into"
+        )
+        self.btn_phases.clicked.connect(self.methodology_requested.emit)
+
         section_row = QHBoxLayout()
         section_row.setContentsMargins(0, 0, 0, 0)
         section_label = QLabel("Section")
@@ -394,6 +417,8 @@ class PreviewWindow(QWidget):
         section_row.addWidget(section_label)
         section_row.addWidget(self.section_edit, 1)
         section_row.addWidget(self.btn_move_snip)
+        section_row.addWidget(self.btn_finding)
+        section_row.addWidget(self.btn_phases)
 
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -414,9 +439,21 @@ class PreviewWindow(QWidget):
             "rather than on its own in the section"
         )
 
+        self.btn_output = QPushButton("Add output")
+        self.btn_output.setToolTip(
+            "File command output (what you copied or highlighted) as a code "
+            "block. You check it before it is filed."
+        )
+        self.btn_output.clicked.connect(
+            lambda: self.output_requested.emit(
+                self.attach_note.isChecked() and self.attach_note.isEnabled()
+            )
+        )
+
         note_buttons = QVBoxLayout()
         note_buttons.setContentsMargins(0, 0, 0, 0)
         note_buttons.addWidget(self.btn_note)
+        note_buttons.addWidget(self.btn_output)
         note_buttons.addWidget(self.attach_note)
         note_buttons.addStretch(1)
 

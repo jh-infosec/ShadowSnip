@@ -49,6 +49,31 @@ hashes and tokens, and now it holds them as text as well -- see the warning in
 README.md. The `.gitignore` written into the labs root stops the obvious
 accident and nothing else.
 
+## Findings (0.9.0)
+
+A section can be marked as a **finding**: a severity (Critical, High, Medium,
+Low, Info), the affected host, and description, impact and remediation text.
+It is stored in lab.json under `findings`, keyed by the section's breadcrumb,
+and lab.md renders it as a finding block straight under that section's
+heading, with a findings summary table at the top of the report. The snips
+and notes filed in the section are the finding's evidence.
+
+## Command output (0.9.0)
+
+A note can hold command output rather than prose: `"format": "code"`, with an
+optional `label` (usually the command that produced it). It renders as a
+fenced code block, so the commands and output in the report stay copyable.
+Everything else about it is a note: it is filed in the current section, can be
+attached to a snip, moved in the outline and edited or removed the same way.
+
+## Methodology sections (0.9.0)
+
+`add_methodology` lays out the usual phases (Recon, Enumeration, Initial
+access, Privilege escalation, Post-exploitation) as planned sections, stored in
+lab.json under `planned`. A planned section shows in the outline, the section
+list and lab.md before anything is filed in it, so the report has its shape
+from the start.
+
 ## Compatibility
 
 Records written by 0.3.x have entries with no `kind` and no `section`. They
@@ -88,6 +113,20 @@ MAX_HEADING_LEVEL = 6
 _SUFFIXES = (".png", ".webp", ".jpg", ".jpeg")
 _NUMBER_RE = re.compile(r"^(\d+)_")
 _NOTE_ID_RE = re.compile(r"^n(\d+)$")
+
+# Finding severities, most serious first. The order is the summary's sort order.
+SEVERITIES = ("Critical", "High", "Medium", "Low", "Info")
+FINDING_FIELDS = ("description", "impact", "remediation")
+MAX_FINDING_TEXT = 20000
+
+# The phases a pentest report usually follows, for add_methodology().
+METHODOLOGY = (
+    "Recon",
+    "Enumeration",
+    "Initial access",
+    "Privilege escalation",
+    "Post-exploitation",
+)
 
 
 class LabError(RuntimeError):
@@ -299,12 +338,15 @@ def sections(cfg: dict) -> list[str]:
         return []
     state = _load_state(target)
 
-    used: list[str] = []
+    used: list[str] = _planned_sections(state)
     for entry in state.get("entries", []) if isinstance(state.get("entries"), list) else []:
         if not isinstance(entry, dict):
             continue
         path = entry_section(entry)
         if path and path not in used:
+            used.append(path)
+    for path in _structural_sections(state):
+        if path not in used:
             used.append(path)
     current = normalise_section(state.get("section", ""))
     if current and current not in used:
@@ -415,8 +457,11 @@ def set_caption(cfg: dict, filename: str, caption: str) -> bool:
     return False
 
 
-def add_note(cfg: dict, text: str, attach=None) -> dict | None:
+def add_note(cfg: dict, text: str, attach=None, fmt: str = "text", label: str = "") -> dict | None:
     """Record a note in the active lab's current section.
+
+    `fmt="code"` makes it command output: rendered as a code block, with
+    `label` (the command, say) above it. Code keeps its exact whitespace.
 
     `attach` is an iterable of snip filenames the note belongs to. An attached
     note renders directly beneath that snip's image rather than on its own,
@@ -429,8 +474,9 @@ def add_note(cfg: dict, text: str, attach=None) -> dict | None:
     target = active_folder(cfg)
     if target is None or not cfg.get("lab_index", True):
         return None
-    text = str(text or "").strip()
-    if not text:
+    code = fmt == "code"
+    text = _clean_code(text) if code else str(text or "").strip()
+    if not text.strip():
         return None
 
     state = _load_state(target) or _blank_state(target.name)
@@ -442,6 +488,11 @@ def add_note(cfg: dict, text: str, attach=None) -> dict | None:
         "section": normalise_section(state.get("section", "")),
         "attach": [str(name) for name in (attach or ()) if str(name).strip()],
     }
+    if code:
+        entry["format"] = "code"
+        label = " ".join(str(label or "").split())
+        if label:
+            entry["label"] = label[:300]
     state.setdefault("entries", []).append(entry)
     _save_state(target, state, cfg)
     return entry
@@ -627,19 +678,21 @@ def update_note(cfg: dict, note_id: str, text: str) -> str | None:
     state = _load_state(target)
     if not state:
         return None
-    text = str(text or "").strip()
     recorded = state.get("entries", [])
     for index, entry in enumerate(recorded):
         if not isinstance(entry, dict) or entry_kind(entry) != "note":
             continue
         if str(entry.get("id", "")) != str(note_id):
             continue
-        if not text:
+        text = _clean_code(text) if is_code(entry) else str(text or "").strip()
+        if not text.strip():
             entry["removed"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             state.setdefault("removed", []).append(recorded.pop(index))
             _save_state(target, state, cfg)
             return "removed"
-        if str(entry.get("text", "")).strip() == text:
+        if str(entry.get("text", "")) == text or (
+            not is_code(entry) and str(entry.get("text", "")).strip() == text
+        ):
             return "unchanged"
         entry["text"] = text
         entry["edited"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -669,6 +722,164 @@ def entry_section(entry: dict) -> str:
     return normalise_section(entry.get("section", ""))
 
 
+def is_code(entry: dict) -> bool:
+    """A note holding command output, rendered as a code block."""
+    return entry_kind(entry) == "note" and str(entry.get("format", "")) == "code"
+
+
+def _clean_code(text) -> str:
+    """Command output as filed: line endings unified, blank lines at either end
+    and trailing spaces dropped, everything else (indentation) kept exactly."""
+    lines = str(text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    lines = [line.rstrip() for line in lines]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines)
+
+
+# -- findings ----------------------------------------------------------------
+def normalise_finding(data) -> dict | None:
+    """A finding as stored: known severity, tidy host, trimmed texts.
+
+    None when `data` is not a finding at all (not a dict, or no severity).
+    """
+    if not isinstance(data, dict):
+        return None
+    severity = str(data.get("severity", "")).strip().capitalize()
+    if severity not in SEVERITIES:
+        return None
+    finding = {"severity": severity, "host": " ".join(str(data.get("host", "")).split())[:200]}
+    for field in FINDING_FIELDS:
+        finding[field] = str(data.get(field, "") or "").strip()[:MAX_FINDING_TEXT]
+    return finding
+
+
+def _findings_of(state: dict) -> dict[str, dict]:
+    stored = state.get("findings")
+    out: dict[str, dict] = {}
+    if isinstance(stored, dict):
+        for path, data in stored.items():
+            clean = normalise_finding(data)
+            key = normalise_section(path)
+            if clean is not None and key:
+                out[key] = clean
+    return out
+
+
+def finding(cfg: dict, path) -> dict | None:
+    """The finding recorded for a section of the active lab, if any."""
+    target = active_folder(cfg)
+    if target is None:
+        return None
+    return _findings_of(_load_state(target)).get(normalise_section(path))
+
+
+def set_finding(cfg: dict, path, data) -> dict | None:
+    """Mark a section as a finding, update it, or (data None) unmark it.
+
+    Returns the stored finding, or None when it was removed or there is no
+    lab, no record, or no section (the top of the report cannot be a finding).
+    """
+    target = active_folder(cfg)
+    if target is None or not cfg.get("lab_index", True):
+        return None
+    key = normalise_section(path)
+    if not key:
+        return None
+    state = _load_state(target) or _blank_state(target.name)
+    stored = _findings_of(state)
+    clean = normalise_finding(data) if data is not None else None
+    if clean is None:
+        if key not in stored:
+            return None
+        stored.pop(key)
+    else:
+        if stored.get(key) == clean:
+            return clean
+        stored[key] = clean
+    state["findings"] = stored
+    _save_state(target, state, cfg)
+    return clean
+
+
+def findings(cfg: dict) -> list[dict]:
+    """Every finding in the active lab, most severe first, then report order.
+
+    Each is the stored finding plus "path" and "title" (the breadcrumb, for
+    the summary and the export).
+    """
+    target = active_folder(cfg)
+    if target is None:
+        return []
+    return findings_of_state(_load_state(target))
+
+
+def findings_of_state(state: dict) -> list[dict]:
+    stored = _findings_of(state)
+    order = [path for path, _depth in _walk_sections(_ordered_groups(state))]
+    rank = {path: i for i, path in enumerate(order)}
+    out = []
+    for path, data in stored.items():
+        out.append({**data, "path": path, "title": path.replace(SECTION_SEPARATOR, " / ")})
+    out.sort(key=lambda f: (SEVERITIES.index(f["severity"]), rank.get(f["path"], len(rank))))
+    return out
+
+
+# -- methodology -------------------------------------------------------------
+def add_methodology(cfg: dict, under: str = "") -> list[str]:
+    """Lay out the usual pentest phases as sections, ready to file into.
+
+    `under` puts them beneath a section (a host, say) rather than at the top
+    of the report. Phases already there are left alone. Returns the paths
+    added; the current section moves to the first phase if it was at the top.
+    """
+    target = active_folder(cfg)
+    if target is None or not cfg.get("lab_index", True):
+        return []
+    base = normalise_section(under)
+    state = _load_state(target) or _blank_state(target.name)
+    planned = [normalise_section(p) for p in state.get("planned", []) if normalise_section(p)]
+    existing = set(planned) | set(_ordered_groups(state))
+    added = []
+    for phase in METHODOLOGY:
+        path = normalise_section(f"{base}{SECTION_SEPARATOR}{phase}" if base else phase)
+        if path and path not in existing:
+            planned.append(path)
+            existing.add(path)
+            added.append(path)
+    if not added:
+        return []
+    state["planned"] = planned
+    if isinstance(state.get("section_order"), list):
+        for path in added:
+            if path not in state["section_order"]:
+                state["section_order"].append(path)
+    if not normalise_section(state.get("section", "")) or normalise_section(state.get("section", "")) == base:
+        state["section"] = added[0]
+    _save_state(target, state, cfg)
+    return added
+
+
+def _planned_sections(state: dict) -> list[str]:
+    out: list[str] = []
+    for path in state.get("planned", []) if isinstance(state.get("planned"), list) else []:
+        clean = normalise_section(path)
+        if clean and clean not in out:
+            out.append(clean)
+    return out
+
+
+def _structural_sections(state: dict) -> list[str]:
+    """Sections that exist without entries: planned phases and findings."""
+    out: list[str] = _planned_sections(state)
+    for path in _findings_of(state):
+        if path not in out:
+            out.append(path)
+    return out
+
+
 def entries(cfg: dict) -> list[dict]:
     target = active_folder(cfg)
     if target is None:
@@ -696,6 +907,16 @@ def render_index(state: dict) -> str:
         recorded = []
 
     grouped = _ordered_groups(state)
+    stored_findings = _findings_of(state)
+
+    summary = findings_of_state(state)
+    if summary:
+        lines.extend(["## Findings summary", "", "| # | Finding | Severity | Host |", "| --- | --- | --- | --- |"])
+        for index, item in enumerate(summary, start=1):
+            title = item["title"].replace("|", "\\|")
+            host = (item["host"] or "-").replace("|", "\\|")
+            lines.append(f"| {index} | {title} | {item['severity']} | {host} |")
+        lines.append("")
 
     # Notes attached to a snip in the same section render under that snip, so
     # they must not also render on their own.
@@ -706,6 +927,8 @@ def render_index(state: dict) -> str:
         level = min(depth + 2, MAX_HEADING_LEVEL)
         lines.append(f"{'#' * level} {path.rsplit(SECTION_SEPARATOR, 1)[-1]}")
         lines.append("")
+        if path in stored_findings:
+            lines.extend(_render_finding(stored_findings[path]))
         lines.extend(_render_entries(grouped.get(path, []), consumed))
 
     return "\n".join(lines).rstrip() + "\n"
@@ -724,10 +947,14 @@ def _ordered_groups(state: dict, include=()) -> dict[str, list[dict]]:
     if not isinstance(recorded, list):
         recorded = []
     grouped: dict[str, list[dict]] = {}
+    # Planned phases first, in methodology order, so the report has its shape
+    # before anything is filed; then sections in the order they were used.
+    for path in _planned_sections(state):
+        grouped.setdefault(path, [])
     for entry in recorded:
         if isinstance(entry, dict):
             grouped.setdefault(entry_section(entry), []).append(entry)
-    for path in include:
+    for path in [*_structural_sections(state), *include]:
         if path:
             grouped.setdefault(normalise_section(path), [])
 
@@ -784,6 +1011,8 @@ def outline(cfg: dict) -> dict:
                         "id": note_id,
                         "text": str(entry.get("text", "")).strip(),
                         "evidence": [str(n) for n in entry.get("attach", ()) if str(n).strip()],
+                        "code": is_code(entry),
+                        "label": str(entry.get("label", "")),
                     }
                 )
                 continue
@@ -796,6 +1025,8 @@ def outline(cfg: dict) -> dict:
                     "id": str(note.get("id", "")),
                     "text": str(note.get("text", "")).strip(),
                     "evidence": [filename],
+                    "code": is_code(note),
+                    "label": str(note.get("label", "")),
                 }
                 for note in here
                 if entry_kind(note) == "note" and filename in note.get("attach", ())
@@ -812,7 +1043,9 @@ def outline(cfg: dict) -> dict:
             )
         return out
 
-    sections = [{"path": "", "name": "", "depth": -1, "entries": nodes(grouped.get("", []))}]
+    stored_findings = _findings_of(state)
+    sections = [{"path": "", "name": "", "depth": -1, "entries": nodes(grouped.get("", [])),
+                 "finding": None}]
     for path, depth in _walk_sections(grouped):
         sections.append(
             {
@@ -820,6 +1053,7 @@ def outline(cfg: dict) -> dict:
                 "name": path.rsplit(SECTION_SEPARATOR, 1)[-1],
                 "depth": depth,
                 "entries": nodes(grouped.get(path, [])),
+                "finding": stored_findings.get(path),
             }
         )
     return {"name": state.get("name", target.name), "record": record, "sections": sections}
@@ -947,14 +1181,52 @@ def _render_snip(entry: dict, section_entries) -> list[str]:
         if entry_kind(note) != "note":
             continue
         if filename and filename in note.get("attach", ()):
+            if is_code(note):
+                lines.extend(_render_code(note))
+                continue
             for chunk in str(note.get("text", "")).strip().splitlines():
                 lines.append(f"> {chunk}" if chunk.strip() else ">")
             lines.append("")
     return lines
 
 
+def _fence(text: str) -> str:
+    """A code fence longer than any run of backticks inside the text."""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    return "`" * max(3, longest + 1)
+
+
+def _render_code(entry: dict) -> list[str]:
+    text = str(entry.get("text", ""))
+    fence = _fence(text)
+    lines = []
+    label = str(entry.get("label", "")).strip()
+    if label:
+        tick = "`" * (max((len(r) for r in re.findall(r"`+", label)), default=0) + 1)
+        pad = " " if label.startswith("`") or label.endswith("`") else ""
+        lines += [f"{tick}{pad}{label}{pad}{tick}", ""]
+    lines += [f"{fence}text", *text.split("\n"), fence, ""]
+    return lines
+
+
+def _render_finding(item: dict) -> list[str]:
+    lines = [f"> **Finding: {item['severity']}**"]
+    if item.get("host"):
+        lines.append(f"> Affected host: {item['host']}")
+    lines.append("")
+    for field, heading in (("description", "Description"), ("impact", "Impact"),
+                           ("remediation", "Remediation")):
+        text = str(item.get(field, "")).strip()
+        if text:
+            lines += [f"**{heading}**", "", text, ""]
+    return lines
+
+
 def _render_note(entry: dict) -> list[str]:
-    lines = [str(entry.get("text", "")).strip(), ""]
+    if is_code(entry):
+        lines = _render_code(entry)
+    else:
+        lines = [str(entry.get("text", "")).strip(), ""]
     attached = [str(name) for name in entry.get("attach", ()) if str(name).strip()]
     if attached:
         # Reaching here means the snip is filed in another section, so the note

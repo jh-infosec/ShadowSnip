@@ -114,6 +114,7 @@ class SettingsDialog(QDialog):
 
         self.hotkey_edit = HotkeyEdit(cfg["hotkey"])
         self.note_hotkey_edit = HotkeyEdit(cfg["note_hotkey"])
+        self.output_hotkey_edit = HotkeyEdit(cfg["output_hotkey"])
 
         self.folder_edit = QLineEdit(cfg["save_dir"])
         browse = QPushButton("Browse...")
@@ -278,6 +279,16 @@ class SettingsDialog(QDialog):
         self.lab_caption_check.setChecked(cfg["lab_caption"])
         self.lab_caption_check.setEnabled(cfg["lab_index"])
         self.lab_index_check.toggled.connect(self.lab_caption_check.setEnabled)
+        self.lab_methodology_check = QCheckBox(
+            "Start new labs with the methodology sections"
+        )
+        self.lab_methodology_check.setToolTip(
+            "Recon, Enumeration, Initial access, Privilege escalation and "
+            "Post-exploitation, laid out as sections when a new lab starts"
+        )
+        self.lab_methodology_check.setChecked(cfg["lab_methodology"])
+        self.lab_methodology_check.setEnabled(cfg["lab_index"])
+        self.lab_index_check.toggled.connect(self.lab_methodology_check.setEnabled)
 
         # The skin: a list to pick from, and a button that steps through them.
         self.skin_combo = QComboBox()
@@ -321,6 +332,7 @@ class SettingsDialog(QDialog):
         snipping = self._tab("Snipping")
         snipping.addRow("Snip hotkey", self.hotkey_edit)
         snipping.addRow("Quick note hotkey", self.note_hotkey_edit)
+        snipping.addRow("Command output hotkey", self.output_hotkey_edit)
         snipping.addRow("Save folder", folder_row)
         snipping.addRow("Replaced file name", self.name_edit)
         snipping.addRow(self.history_check)
@@ -359,6 +371,7 @@ class SettingsDialog(QDialog):
         labs.addRow("Labs folder", lab_row)
         labs.addRow(self.lab_index_check)
         labs.addRow(self.lab_caption_check)
+        labs.addRow(self.lab_methodology_check)
 
         # Outside the tabs, so they are always on screen whichever tab is open.
         buttons = QDialogButtonBox(
@@ -498,6 +511,7 @@ class SettingsDialog(QDialog):
         cfg = dict(self._cfg)
         cfg["hotkey"] = self.hotkey_edit.spec
         cfg["note_hotkey"] = self.note_hotkey_edit.spec
+        cfg["output_hotkey"] = self.output_hotkey_edit.spec
         cfg["save_dir"] = self.folder_edit.text().strip()
         cfg["latest_name"] = self.name_edit.text().strip()
         cfg["keep_history"] = self.history_check.isChecked()
@@ -530,6 +544,7 @@ class SettingsDialog(QDialog):
         cfg["lab_root"] = self.lab_root_edit.text().strip()
         cfg["lab_index"] = self.lab_index_check.isChecked()
         cfg["lab_caption"] = self.lab_caption_check.isChecked()
+        cfg["lab_methodology"] = self.lab_methodology_check.isChecked()
         cfg["skin"] = self.skin_combo.currentData() or "original"
         return cfg
 
