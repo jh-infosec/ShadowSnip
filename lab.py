@@ -710,6 +710,40 @@ def caption_of(cfg: dict, filename: str) -> str | None:
 
 
 # -- reading the record ----------------------------------------------------
+def is_bare_image_name(name) -> bool:
+    """A plain image file name: no folder, drive, parent step or odd character."""
+    name = str(name or "")
+    return bool(
+        name and name not in (".", "..")
+        and not any(ch in name for ch in "/\\:\0")
+        and Path(name).name == name
+        and Path(name).suffix.lower() in _SUFFIXES
+    )
+
+
+def image_in(folder, filename) -> Path | None:
+    """The image `filename` inside `folder`, or None if it is not safely there.
+
+    Filenames come from lab.json, which is a plain text file: a lab copied from
+    someone else could name `../../secrets.png` or an absolute path, and an
+    export would then read a file from outside the lab into the report. Only a
+    bare file name with an image extension is accepted, and only when the file
+    it resolves to, links followed, sits directly in the lab folder.
+    """
+    name = str(filename or "")
+    if not is_bare_image_name(name):
+        return None
+    path = Path(folder) / name
+    try:
+        resolved = path.resolve(strict=True)
+        home = Path(folder).resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+    if resolved.parent != home or not resolved.is_file():
+        return None
+    return path
+
+
 def entry_kind(entry: dict) -> str:
     """"snip" or "note", including for records written before notes existed."""
     kind = str(entry.get("kind", "")).strip().lower()
@@ -1176,7 +1210,13 @@ def _render_snip(entry: dict, section_entries) -> list[str]:
     if caption:
         header += f" - {caption}"
 
-    lines = [header, "", f"![{label}]({filename})", ""]
+    if is_bare_image_name(filename):
+        lines = [header, "", f"![{label}]({filename})", ""]
+    else:
+        # A record naming a path rather than a file in this folder (a lab from
+        # somewhere else, edited by hand): never linked, so neither lab.md nor
+        # its preview reaches outside the lab.
+        lines = [header, "", "_(image left out: not a file in this lab folder)_", ""]
     for note in section_entries:
         if entry_kind(note) != "note":
             continue

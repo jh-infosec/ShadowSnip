@@ -371,3 +371,85 @@ def test_the_output_hotkey_reaches_a_running_copy():
     assert config.DEFAULTS["output_hotkey"] == "ctrl+alt+o"
     assert ("output", "output_hotkey") in [(n, k) for n, k, _ in __import__("app").ShadowSnipApp.HOTKEYS]
     assert main.request_for(False, False, False) == b"show"
+
+
+# -- a crafted lab cannot pull outside files into a report (0.9.1) ---------------------------------
+def _crafted_lab(cfg, filenames):
+    """A lab whose lab.json names `filenames`, as a lab shared by someone else could."""
+    import json
+
+    folder = lab.active_folder(cfg)
+    state = lab._load_state(folder) or lab._blank_state(folder.name)
+    for n, name in enumerate(filenames, start=1):
+        state["entries"].append({"kind": "snip", "file": name, "number": n, "time": "", "section": ""})
+    (folder / lab.STATE_NAME).write_text(json.dumps(state), encoding="utf-8")
+    return folder
+
+
+SECRET = b"\x89PNG\r\n\x1a\n" + b"TOP-SECRET-MARKER" * 20
+
+
+def _leaks(html_text: str) -> bool:
+    """Whether the secret file is in the page, as text or as an embedded image."""
+    import base64
+
+    return ("TOP-SECRET-MARKER" in html_text
+            or base64.b64encode(SECRET).decode()[:40] in html_text
+            or "data:image/" in html_text)
+
+
+@pytest.mark.parametrize("make_name", [
+    lambda outside: "../outside.png",
+    lambda outside: "..\\outside.png",
+    lambda outside: str(outside),            # absolute path
+    lambda outside: "sub/../../outside.png",
+])
+def test_export_never_reads_a_file_outside_the_lab(cfg_lab, make_name):
+    folder = lab.active_folder(cfg_lab)
+    outside = folder.parent / "outside.png"
+    outside.write_bytes(SECRET)
+    _crafted_lab(cfg_lab, [make_name(outside)])
+    html_text = report.export(folder, "html").read_text(encoding="utf-8")
+    assert not _leaks(html_text)
+    assert report.MISSING in html_text
+    if report.docx_available():
+        data = report.export(folder, "docx").read_bytes()
+        assert b"TOP-SECRET-MARKER" not in data
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            assert not [n for n in z.namelist() if n.startswith("word/media/")]
+
+
+def test_a_link_out_of_the_lab_is_refused(cfg_lab):
+    import os
+
+    folder = lab.active_folder(cfg_lab)
+    outside = folder.parent / "outside.png"
+    outside.write_bytes(SECRET)
+    try:
+        os.symlink(outside, folder / "001_link.png")
+    except (OSError, NotImplementedError):
+        pytest.skip("this system does not let the tests make a symlink")
+    _crafted_lab(cfg_lab, ["001_link.png"])
+    html_text = report.export(folder, "html").read_text(encoding="utf-8")
+    assert not _leaks(html_text)
+    assert report.MISSING in html_text
+
+
+@pytest.mark.parametrize("name", ["", ".", "..", "../x.png", "a/b.png", "a\\b.png", "C:x.png",
+                                  "notes.txt", "x.png\0.txt"])
+def test_only_a_bare_image_name_in_the_folder_is_accepted(tmp_path, name):
+    assert lab.image_in(tmp_path, name) is None
+
+
+def test_a_real_snip_is_still_accepted(cfg_lab):
+    path = lab.save(_png(), "png", cfg_lab)
+    assert lab.image_in(lab.active_folder(cfg_lab), path.name) == path
+    assert lab.image_in(lab.active_folder(cfg_lab), "999_missing.png") is None
+
+
+def test_lab_md_never_links_outside_the_lab(cfg_lab):
+    folder = _crafted_lab(cfg_lab, ["../outside.png", "C:\\secret.png", "002_ok.png"])
+    md = lab.render_index(lab._load_state(folder))
+    assert "../outside.png" not in md and "secret.png" not in md
+    assert md.count("image left out") == 2
+    assert "![003](002_ok.png)" in md

@@ -1,0 +1,105 @@
+# Tests ShadowSnip on Windows and Linux on every push and pull request.
+# On a version tag (v0.6.0, v0.6.1, ...) it also builds both executables and
+# attaches them to a GitHub release for that tag:
+#
+#   ShadowSnip-<tag>-windows.exe
+#   ShadowSnip-<tag>-linux.tar.gz   (binary, install.sh, icon, README)
+#
+# PyInstaller only builds for the system it runs on, which is why each build
+# runs on its own platform here.
+
+name: test and build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    env:
+      # No display on CI machines; Qt renders off screen instead.
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Qt's system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxcb-cursor0 libfontconfig1 libdbus-1-3
+      - name: Install
+        run: pip install -r requirements-dev.txt
+      - name: Run the tests
+        run: python -m pytest -q
+
+  build:
+    name: build (${{ matrix.os }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt pyinstaller
+      - name: Icons
+        # shadowsnip.ico for the Windows .exe, shadowsnip.png for the Linux
+        # launcher entry that install.sh writes.
+        run: python make_icon.py
+      - name: Build
+        run: pyinstaller ShadowSnip.spec
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir out
+          cp dist/ShadowSnip.exe "out/ShadowSnip-${GITHUB_REF_NAME}-windows.exe"
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          name="ShadowSnip-${GITHUB_REF_NAME}-linux"
+          mkdir -p "pkg/$name" out
+          cp dist/ShadowSnip install.sh shadowsnip.png README.md "pkg/$name/"
+          chmod +x "pkg/$name/ShadowSnip" "pkg/$name/install.sh"
+          tar -C pkg -czf "out/$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadowsnip-${{ runner.os }}
+          path: out/*
+
+  release:
+    name: attach to the release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true

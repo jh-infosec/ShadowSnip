@@ -491,9 +491,9 @@ class ShadowSnipApp(QObject):
             self.preview.viewer_message(f"Edit saved to snip {label} and its copies")
             return
         folder = self._list_folder()
-        if folder is None:
+        path = lab.image_in(folder, filename) if folder is not None else None
+        if path is None:
             return
-        path = folder / filename
         label = self._label_for(filename)
         result = imageops.process(image, self.cfg)
         if path.suffix.lower().lstrip(".") != result.disk.ext.lower():
@@ -773,8 +773,13 @@ class ShadowSnipApp(QObject):
         folder = self._list_folder()
         if folder is None or not filename:
             return
-        path = folder / filename
         label = self._label_for(filename)
+        path = lab.image_in(folder, filename)
+        if path is None:
+            message = f"Snip {label} is no longer in the folder"
+            self.preview.set_status(message)
+            self.preview.viewer_message(message)
+            return
         try:
             png, image = imageops.clipboard_png_from_file(path, self.cfg)
             clipboard.copy(png, image, include_dib=self.cfg["clipboard_dib_fallback"])
@@ -839,8 +844,8 @@ class ShadowSnipApp(QObject):
         target = self._list_folder()
         if target is None or not filename:
             return
-        path = target / filename
-        if not path.is_file():
+        path = lab.image_in(target, filename)
+        if path is None:
             where = "lab" if lab.is_active(self.cfg) else "history"
             self.preview.set_status(f"{filename} is no longer in the {where} folder.")
             self._refresh_menu_text()

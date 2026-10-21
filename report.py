@@ -41,6 +41,10 @@ SEVERITY_COLOURS = {
 _IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
 
+# Said in place of a snip whose image is missing or not inside the lab folder.
+MISSING = "image not found in the lab folder, left out"
+
+
 class ExportError(RuntimeError):
     """An export that could not be written, with the reason."""
 
@@ -79,12 +83,15 @@ def model(folder: Path) -> dict:
                 continue
             filename = str(entry.get("file", ""))
             number = entry.get("number", 0)
+            # Only an image that is really in the lab folder is read: see
+            # lab.image_in. Anything else is reported in place, never embedded.
+            image = lab.image_in(folder, filename)
             blocks.append({
                 "type": "snip",
                 "label": f"{number:03d}" if isinstance(number, int) else str(number),
                 "time": str(entry.get("time", "")).strip(),
                 "caption": str(entry.get("caption", "")).strip(),
-                "path": str(folder / filename) if filename else "",
+                "path": str(image) if image is not None else "",
             })
             for note in here:
                 if lab.entry_kind(note) == "note" and filename and filename in note.get("attach", ()):
@@ -244,7 +251,7 @@ def to_html(data: dict) -> bytes:
             label = f"<b>{_esc(block['label'])}</b>"
             bits = [label] + [_esc(x) for x in (block["time"], block["caption"]) if x]
             if uri is None:
-                out.append(f'<p class="missing">Snip {_esc(block["label"])}: image not found</p>')
+                out.append(f'<p class="missing">Snip {_esc(block["label"])}: {MISSING}</p>')
             else:
                 out.append(f'<figure><img src="{uri}" alt="Snip {_esc(block["label"])}">'
                            f"<figcaption>{' - '.join(bits)}</figcaption></figure>")
@@ -374,9 +381,11 @@ def to_docx(data: dict) -> bytes:
                         doc.add_paragraph(line)
         elif kind == "snip":
             try:
+                if not block["path"]:
+                    raise FileNotFoundError(block["label"])
                 stream, (w, h) = _picture_stream(block["path"])
             except Exception:  # noqa: BLE001 - a missing image is reported in place
-                doc.add_paragraph(f"Snip {block['label']}: image not found").italic = True
+                doc.add_paragraph().add_run(f"Snip {block['label']}: {MISSING}").italic = True
                 continue
             # 96 dpi to inches, never wider than the page.
             width = min(Inches(w / 96), usable)

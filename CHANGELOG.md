@@ -1,6 +1,23 @@
 # Changelog
 
-## Latest: 0.9.0
+## Latest: 0.9.1
+
+**Security**: a crafted lab could make an export read a file from outside the
+lab. Image names come from `lab.json`, a plain text file, so a lab shared by
+someone else could name `../outside.png` or an absolute path, and **Export
+report** would embed that file in the HTML or Word report. Found in an
+external review of 0.9.0. Now only a bare image file name that really sits in
+the lab folder (links followed) is ever read: by both exports, and by the
+full-size view's Copy, Open and edit saving. Anything else is left out of the
+report with a note in its place, and `lab.md` no longer links it either, so
+the Preview tab cannot show it.
+
+**Fixed**: the tests-and-builds workflow (`.github/workflows/build.yml`)
+described in BUILD.md was never in the repository. It is now: every push runs
+the tests on Windows and Linux, and a version tag also builds both and
+attaches them to that tag's GitHub release.
+
+### 0.9.0 in brief
 
 The report release. A lab now drafts the pentest report as you go, and hands
 it over as one file.
