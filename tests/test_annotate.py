@@ -495,7 +495,7 @@ def test_right_click_on_a_redaction_offers_both_modes(canvas):
     canvas._refresh()
     canvas.set_tool("pen")  # works with a tool in hand too
     rows = canvas.context_actions(canvas.to_widget(QPointF(100, 80)))
-    assert _labels(rows) == ["Black out this redaction", "Blur this redaction"]
+    assert _labels(rows)[:2] == ["Black out this redaction", "Blur this redaction"]
     assert rows[0][2] is True and rows[1][2] is False
     edits = []
     canvas.edited.connect(lambda: edits.append(1))
@@ -523,9 +523,19 @@ def test_on_a_redaction_with_no_tool_both_menus_show(canvas):
     assert _labels(rows) == ["Black out this redaction", "Blur this redaction", "--", "Save as...", "Copy"]
 
 
-def test_with_a_tool_in_hand_a_right_click_elsewhere_offers_nothing(canvas):
-    canvas.set_tool("highlighter")
-    assert canvas.context_actions(canvas._target().center()) == []
+@pytest.mark.parametrize("tool", ["pen", "highlighter", "eraser", "crop", "redact"])
+def test_with_a_tool_in_hand_save_as_and_copy_are_still_there(canvas, tool):
+    """0.9.2: drawing uses the left button only, so the menu never needs hiding."""
+    canvas.set_tool(tool)
+    asked = []
+    canvas.save_as_requested.connect(lambda: asked.append("save"))
+    canvas.copy_requested.connect(lambda: asked.append("copy"))
+    rows = canvas.context_actions(canvas._target().center())
+    assert _labels(rows) == ["Save as...", "Copy"]
+    rows[0][1]()
+    rows[1][1]()
+    assert asked == ["save", "copy"]
+    assert canvas.tool == tool  # the tool stays in hand
 
 
 def test_right_click_off_the_snip_offers_nothing(canvas):

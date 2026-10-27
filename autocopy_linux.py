@@ -23,6 +23,21 @@ cannot be identified for one selection, that selection is not copied.
 The selection changes continuously while a drag is in progress, so a copy is
 made only once it has been still for a moment.
 
+## Whose selection it is (0.9.2)
+
+The program in front is read when the selection *changes*, not only when the
+copy is made. Before 0.9.2 it was read once, after the settle delay, so text
+selected in a password manager could be copied if you switched to another
+window within those 300 ms: the check then saw the new window, not the one the
+text came from. Now every change in a burst records the program in front at
+that moment, and the copy happens only when all of them are the same allowed
+program and it is still the one in front. A burst that touched a blocked or
+unidentified program, or during which focus moved, is dropped.
+
+During a drag the selection changes on every mouse move, so the program is
+read at most every PROBE_MS rather than on each one. The first change of a
+burst is always read.
+
 Wayland: the primary selection exists under most compositors, but a
 background application is often not told when it changes. When the platform
 has no selection at all, engaging says so rather than pretending to work.
@@ -34,6 +49,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QClipboard, QGuiApplication
@@ -44,6 +60,11 @@ from autocopy import BLOCKED_PROCESSES, AutoCopyError
 # updates it on every mouse move; copying each step would flood the clipboard
 # and the toast.
 SETTLE_MS = 300
+
+# During one burst of selection changes, the program in front is read at most
+# this often (ms). The first change of a burst is always read. Switching to
+# another window and selecting there takes far longer than this.
+PROBE_MS = 50
 
 # How long to wait for xprop when asking which program is in front.
 _PROCESS_TIMEOUT = 1.5
@@ -91,6 +112,10 @@ class AutoCopy(QObject):
         self._paused = False
         self._last_text: str | None = None
         self._clipboard = None
+        # The program in front at each selection change since the last copy
+        # attempt (None where it could not be told). See "Whose selection it is".
+        self._origins: set[str | None] = set()
+        self._last_probe = 0.0
         self._settle = QTimer(self)
         self._settle.setSingleShot(True)
         self._settle.setInterval(SETTLE_MS)
@@ -139,22 +164,32 @@ class AutoCopy(QObject):
                 pass
         self._clipboard = None
         self._settle.stop()
+        self._origins.clear()
         self._engaged = False
         self._last_text = None
 
     def pause(self) -> None:
         self._paused = True
         self._settle.stop()
+        self._origins.clear()
 
     def resume(self) -> None:
         self._paused = False
 
     # -- the copy ----------------------------------------------------------
     def _on_selection_changed(self) -> None:
-        if self._engaged and not self._paused:
-            self._settle.start()
+        if not self._engaged or self._paused:
+            return
+        now = time.monotonic()
+        if not self._origins or (now - self._last_probe) * 1000 >= PROBE_MS:
+            # Who is in front now, while the selection is being made: the
+            # program it comes from, whatever is in front by the time it is copied.
+            self._origins.add(active_process())
+            self._last_probe = now
+        self._settle.start()
 
     def _capture(self) -> None:
+        origins, self._origins = self._origins, set()
         if not self._engaged or self._paused or self._clipboard is None:
             return
         text = self._clipboard.text(QClipboard.Mode.Selection)
@@ -163,6 +198,12 @@ class AutoCopy(QObject):
         if self._cfg.get("auto_copy_dedupe", True) and text == self._last_text:
             return
         process = active_process()
+        if not origins or origins != {process}:
+            # No change was seen (nothing to say where the text came from), or
+            # the selection was made while another program was in front: focus
+            # moved during the settle delay, perhaps away from a password
+            # manager. Not copied; the next selection will be.
+            return
         if process is None or process == "own" or self.is_blocked(process):
             # None: the program in front could not be identified, so the block
             # list cannot be applied. Skip this one rather than guess.

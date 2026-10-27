@@ -693,9 +693,11 @@ class AnnotCanvas(QWidget):
         """What a right-click at `pos` offers, as (label, callback, checked) rows.
 
         Over a redaction: switch it between black out and blur, any time.
-        Anywhere on the snip with no tool in hand: Save as and Copy. With a
-        tool in hand, a right-click elsewhere offers nothing, so it cannot get
-        in the way of drawing.
+        Anywhere on the snip: Save as and Copy, with or without a tool in hand.
+        Before 0.9.2 a tool in hand hid them; every tool draws with the left
+        button only, so the right-click menu never got in its way, and having
+        to put the pen down just to copy the marked-up snip was the wrong way
+        round.
         """
         if self.doc is None or self._rendered is None or not self._target().contains(pos):
             return []
@@ -705,14 +707,13 @@ class AnnotCanvas(QWidget):
             mode = self.doc.redact_mode(redaction)
             rows.append(("Black out this redaction", lambda r=redaction: self.restyle(r, "black"), mode == "black"))
             rows.append(("Blur this redaction", lambda r=redaction: self.restyle(r, "blur"), mode == "blur"))
-        if self.tool is None:
-            if rows:
-                rows.append(None)  # a separator
-            if self.offer_save_as:
-                rows.append(("Save as...", self.save_as_requested.emit, None))
-            rows.append(("Copy", self.copy_requested.emit, None))
-            for label, callback in self.extra_menu_rows:
-                rows.append((label, callback, None))
+        if rows:
+            rows.append(None)  # a separator
+        if self.offer_save_as:
+            rows.append(("Save as...", self.save_as_requested.emit, None))
+        rows.append(("Copy", self.copy_requested.emit, None))
+        for label, callback in self.extra_menu_rows:
+            rows.append((label, callback, None))
         return rows
 
     def restyle(self, redaction: "Redact", mode: str) -> None:

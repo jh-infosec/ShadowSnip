@@ -52,6 +52,7 @@ from PySide6.QtGui import (
     QTextDocument,
 )
 from PySide6.QtWidgets import (
+    QFileDialog,
     QMenu,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -73,6 +74,7 @@ from PySide6.QtWidgets import (
 )
 
 import skins
+import storage
 from annotate import AnnotCanvas, AnnotToolbar
 
 # The glow around the selected row, the same blue as the thumbnail's hover.
@@ -325,7 +327,7 @@ class SnipViewer(QWidget):
         self._edit_pending = False
 
         self.canvas = AnnotCanvas()
-        self.canvas.offer_save_as = False
+        self.canvas.save_as_requested.connect(self.save_current_as)
         self.canvas.extra_menu_rows = [("Remove from lab...", self.remove_current)]
         self.tools = AnnotToolbar()
         self.tools.set_available(False)
@@ -348,7 +350,7 @@ class SnipViewer(QWidget):
         self.caption.setTextFormat(Qt.TextFormat.PlainText)
         self.hint = QLabel(
             "Left / Right: previous and next snip   |   Scroll: zoom, drag to move, "
-            "Ctrl+0 to fit   |   Ctrl+Z: undo   |   Ctrl+C: copy   |   Delete: remove   |   Esc: close"
+            "Ctrl+0 to fit   |   Ctrl+Z: undo   |   Ctrl+C: copy   |   Ctrl+S: save as   |   Delete: remove   |   Esc: close"
         )
         self.hint.setObjectName("ViewerHint")
         self._hint_text = self.hint.text()
@@ -360,6 +362,8 @@ class SnipViewer(QWidget):
         self.btn_next = QPushButton("Next >")
         self.btn_copy = QPushButton("Copy")
         self.btn_copy.setToolTip("Put this snip on the clipboard, with any mark-up (Ctrl+C)")
+        self.btn_save = QPushButton("Save as...")
+        self.btn_save.setToolTip("Save a copy of this snip, with any mark-up, somewhere else (Ctrl+S)")
         self.btn_remove = QPushButton("Remove from lab")
         self.btn_remove.setObjectName("Danger")
         self.btn_remove.setToolTip(
@@ -370,9 +374,10 @@ class SnipViewer(QWidget):
         self.btn_prev.clicked.connect(lambda: self.step(-1))
         self.btn_next.clicked.connect(lambda: self.step(1))
         self.btn_copy.clicked.connect(self.copy_current)
+        self.btn_save.clicked.connect(self.save_current_as)
         self.btn_remove.clicked.connect(self.remove_current)
         self.btn_close.clicked.connect(self.close)
-        for button in (self.btn_prev, self.btn_next, self.btn_copy,
+        for button in (self.btn_prev, self.btn_next, self.btn_copy, self.btn_save,
                        self.btn_remove, self.btn_close):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
@@ -383,6 +388,7 @@ class SnipViewer(QWidget):
         bar.addWidget(self.btn_next)
         bar.addStretch(1)
         bar.addWidget(self.btn_copy)
+        bar.addWidget(self.btn_save)
         bar.addWidget(self.btn_remove)
         bar.addSpacing(16)
         bar.addWidget(self.btn_close)
@@ -402,6 +408,7 @@ class SnipViewer(QWidget):
 
         QShortcut(QKeySequence("Esc"), self, self._on_escape)
         QShortcut(QKeySequence.StandardKey.Copy, self, self.copy_current)
+        QShortcut(QKeySequence.StandardKey.Save, self, self.save_current_as)
         QShortcut(QKeySequence.StandardKey.Delete, self, self.remove_current)
         QShortcut(QKeySequence.StandardKey.Undo, self, self.canvas.undo)
         QShortcut(QKeySequence("Ctrl+0"), self, self.canvas.reset_zoom)
@@ -527,6 +534,33 @@ class SnipViewer(QWidget):
             self.flush_edits()
             self.copy_requested.emit(filename)
 
+    def save_current_as(self) -> None:
+        """Save a copy of the snip shown, mark-up included, wherever you choose.
+
+        The copy is taken from the snip's file, so mark-up still waiting is
+        saved into it first, the same as Copy.
+        """
+        if not (0 <= self._index < len(self._items)):
+            return
+        item = self._items[self._index]
+        source = Path(item.get("path") or "")
+        if not source.is_file():
+            self.flash("This snip's file is no longer there")
+            return
+        self.flush_edits()
+        start = str(Path.home() / source.name)
+        suffix = source.suffix.lower().lstrip(".") or "png"
+        filters = f"{suffix.upper()} image (*.{suffix});;All files (*)"
+        target, _ = QFileDialog.getSaveFileName(self, "Save snip", start, filters)
+        if not target:
+            return
+        try:
+            storage.write_atomic(Path(target), source.read_bytes())
+        except OSError as exc:
+            self.flash(f"Could not save: {exc}")
+            return
+        self.flash(f"Saved to {target}")
+
     def remove_current(self) -> None:
         filename = self.current_file()
         if filename:
@@ -566,6 +600,7 @@ class SnipViewer(QWidget):
         self.btn_prev.setEnabled(self._index > 0)
         self.btn_next.setEnabled(self._index < len(self._items) - 1)
         self.btn_copy.setEnabled(self.canvas.doc is not None)
+        self.btn_save.setEnabled(self.canvas.doc is not None)
         if announce:
             self.current_changed.emit(item["file"])
 

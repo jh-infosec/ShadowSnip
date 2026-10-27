@@ -105,7 +105,7 @@ ShadowSnip opens its window and puts an icon in the notification area. Press
 | Snip hotkey | Registered by ShadowSnip itself | Set in the desktop's own keyboard shortcuts. On Xfce ShadowSnip adds them for you the first time it runs (Settings > Keyboard > Application Shortcuts shows them); on other desktops it tells you the command to bind. The shortcut runs a small trigger script that tells the running copy to snip in a few milliseconds, and starts ShadowSnip if it is not running, so one press also starts it. |
 | Quick-note hotkey | Registered by ShadowSnip | Same as the snip hotkey: a desktop shortcut that runs `shadowsnip --note` |
 | Command output hotkey | Registered by ShadowSnip | The same, running `shadowsnip --output`; files the highlighted text (the primary selection) when there is some, else the clipboard |
-| Copy on select | A mouse hook and a synthetic Ctrl+C | X11 already puts highlighted text in the *primary selection* (what middle-click pastes); ShadowSnip copies it to the clipboard. No hook and no keystroke, so a terminal can never receive a stray Ctrl+C. Each selection is copied once it stops changing. |
+| Copy on select | A mouse hook and a synthetic Ctrl+C | X11 already puts highlighted text in the *primary selection* (what middle-click pastes); ShadowSnip copies it to the clipboard. No hook and no keystroke, so a terminal can never receive a stray Ctrl+C. Each selection is copied once it stops changing, and only if the program it was made in is the one still in front, so switching away from a password manager straight after selecting never copies from it. |
 | Settings file | `%APPDATA%\ShadowSnip\config.json` | `~/.config/shadowsnip/config.json` |
 | Start at login | A shortcut in `shell:startup`; it starts in the tray with or without `--tray` | `bash install.sh --autostart` |
 
@@ -166,8 +166,9 @@ cannot draw on it. With no tool in hand, Esc closes the window as before.
 
 - On a redaction, any time: switch it between **Black out** and **Blur**. The
   current one is ticked, and undo switches it back.
-- Anywhere on the snip with no tool in hand: **Save as...** and **Copy**, the
-  same as the buttons, including any mark-up not yet saved.
+- Anywhere on the snip, with or without a tool in hand: **Save as...** and
+  **Copy**, the same as the buttons, including any mark-up not yet saved. The
+  tool stays in hand.
 
 **Zoom** with the mouse wheel over the snip, in the preview window and the
 full-size view alike. It zooms on the point under the pointer, up to eight
@@ -493,9 +494,10 @@ lab** below it. Its caption and notes show in the list's columns; they are
 written from the boxes under the snip on screen. Click the thumbnail, press
 **Expand**, double-click a row or
 press Space to see the snip full size; Left and Right step through the lab.
-In that full-size view, **Copy** (or Ctrl+C) puts the snip on the clipboard
-and **Remove from lab** (or Delete) takes it out; both are also on the
-right-click menu. After a removal the view moves on to the next snip.
+In that full-size view, **Copy** (or Ctrl+C) puts the snip on the clipboard,
+**Save as...** (or Ctrl+S) saves a copy of it anywhere you choose, and **Remove
+from lab** (or Delete) takes it out. All three are also on the right-click
+menu, with or without a tool in hand, and include any mark-up not yet saved. After a removal the view moves on to the next snip.
 
 The full-size view has the same mark-up tools as the preview window, so any
 snip in the lab can be drawn on, highlighted, cropped or redacted, not only

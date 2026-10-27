@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QColor, QImage
@@ -205,7 +207,35 @@ def test_the_viewer_right_click_menu(panel):
     canvas.resize(600, 400)
     centre = QPointF(canvas._target().center())
     texts = [row[0] for row in canvas.context_actions(centre) if row]
-    assert texts == ["Copy", "Remove from lab..."]
+    assert texts == ["Save as...", "Copy", "Remove from lab..."]
+    canvas.set_tool("pen")
+    assert [row[0] for row in canvas.context_actions(centre) if row] == texts
+
+
+def test_the_viewer_saves_a_copy_with_its_mark_up(panel, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    panel.expand()
+    viewer = panel.viewer
+    source = Path(viewer._items[viewer._index]["path"])
+    target = tmp_path / "out" / "kept.png"
+    flushed = []
+    monkeypatch.setattr(viewer, "flush_edits", lambda: flushed.append(True) or False)
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
+    assert viewer.btn_save.isEnabled()
+    viewer.btn_save.click()
+    assert flushed == [True]  # mark-up waiting is saved into the file first
+    assert target.read_bytes() == source.read_bytes()
+    assert "Saved to" in viewer.hint.text()
+
+
+def test_cancelling_the_viewer_save_writes_nothing(panel, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    panel.expand()
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: ("", ""))
+    panel.viewer.save_current_as()
+    assert not list(tmp_path.glob("**/kept.png"))
 
 
 def test_the_viewer_says_what_happened_then_shows_the_hints_again(panel, qapp):

@@ -1,6 +1,33 @@
 # Changelog
 
-## Latest: 0.9.1
+## Latest: 0.9.2
+
+**Security** (Linux): copy on select could copy text selected in a password
+manager. It waited 300 ms for the selection to stop changing, then asked which
+program was in front, so switching to another window within that time made
+the block list check the new window instead of the password manager the text
+came from. Found in an external review of 0.9.1. The program in front is now
+read when the selection changes, and the copy is made only if every change
+came from the same allowed program and it is still the one in front. A
+selection made while focus moved is dropped; the next one is copied as usual.
+Windows was not affected: there the copy is a Ctrl+C sent to the window in
+front at that moment, so it can never reach a password manager left behind.
+
+**Fixed**: with a mark-up tool in hand (pen, highlighter, eraser, crop or
+redact) the right-click menu on the snip offered nothing, so copying or saving
+the marked-up snip meant putting the tool down first. **Save as...** and
+**Copy** are now always there, and the tool stays in hand.
+
+**Added**: **Save as...** in the full-size view (button, Ctrl+S and the
+right-click menu), saving a copy of the snip with its mark-up anywhere you
+choose.
+
+**Fixed** (tests): run without python-docx installed, the test suite opened a
+real "The Word export needs python-docx" message box and waited for it to be
+clicked. The Word export tests now skip when python-docx is missing, and no
+test can open a real message box any more: they are answered automatically.
+
+### 0.9.1 in brief
 
 **Security**: a crafted lab could make an export read a file from outside the
 lab. Image names come from `lab.json`, a plain text file, so a lab shared by

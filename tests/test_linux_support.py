@@ -246,6 +246,13 @@ def _engaged(cfg=None, selection="", process="qterminal"):
     return copy, got
 
 
+def _select_and_settle(copy):
+    """A selection change, then the settle timer firing: the real order of events."""
+    copy._on_selection_changed()
+    copy._settle.stop()
+    copy._capture()
+
+
 @pytest.fixture
 def front(monkeypatch):
     state = {"process": "qterminal"}
@@ -255,15 +262,15 @@ def front(monkeypatch):
 
 def test_a_selection_is_copied_to_the_clipboard(front):
     copy, got = _engaged(selection="nmap -sV 10.10.10.3")
-    copy._capture()
+    _select_and_settle(copy)
     assert copy._clipboard.clipboard == "nmap -sV 10.10.10.3"
     assert got == [("nmap -sV 10.10.10.3", "selection")]
 
 
 def test_the_same_selection_twice_is_copied_once(front):
     copy, got = _engaged(selection="same")
-    copy._capture()
-    copy._capture()
+    _select_and_settle(copy)
+    _select_and_settle(copy)
     assert len(got) == 1
 
 
@@ -271,7 +278,7 @@ def test_password_managers_are_never_copied_from(front):
     for process in ("keepassxc", "KeePassXC", "bitwarden", "pinentry-gnome3"):
         front["process"] = process
         copy, got = _engaged(selection="hunter2")
-        copy._capture()
+        _select_and_settle(copy)
         assert got == [] and copy._clipboard.clipboard == ""
 
 
@@ -279,26 +286,26 @@ def test_never_copy_from_works_with_or_without_exe(front):
     front["process"] = "obsidian"
     for entry in (["obsidian"], ["obsidian.exe"], "obsidian"):
         copy, got = _engaged({"auto_copy_extra_blocked": entry}, selection="x")
-        copy._capture()
+        _select_and_settle(copy)
         assert got == []
 
 
 def test_shadowsnips_own_windows_are_skipped(front):
     front["process"] = "own"
     copy, got = _engaged(selection="from our own note box")
-    copy._capture()
+    _select_and_settle(copy)
     assert got == []
 
 
 def test_blank_selections_and_a_paused_copy_do_nothing(front):
     copy, got = _engaged(selection="   ")
-    copy._capture()
+    _select_and_settle(copy)
     copy._clipboard.selection = "real"
     copy.pause()
-    copy._capture()
+    _select_and_settle(copy)
     assert got == []
     copy.resume()
-    copy._capture()
+    _select_and_settle(copy)
     assert got == [("real", "selection")]
 
 
@@ -307,6 +314,89 @@ def test_a_drag_is_copied_once_it_settles(front):
     copy._on_selection_changed()
     assert copy._settle.isActive()
     assert copy._settle.interval() == autocopy_linux.SETTLE_MS
+
+
+# -- whose selection it is: the review finding fixed in 0.9.2 ---------------------
+def test_switching_away_from_a_password_manager_during_the_delay_copies_nothing(front):
+    """Select in KeePassXC, switch to a terminal before the 300 ms are up."""
+    copy, got = _engaged(selection="hunter2")
+    front["process"] = "keepassxc"
+    copy._on_selection_changed()          # the selection is made in the vault
+    front["process"] = "qterminal"         # focus moves before the copy
+    copy._settle.stop()
+    copy._capture()
+    assert got == [] and copy._clipboard.clipboard == ""
+
+
+def test_a_drag_that_touched_a_blocked_program_is_dropped(front, monkeypatch):
+    monkeypatch.setattr(autocopy_linux, "PROBE_MS", 0)  # read on every change
+    copy, got = _engaged(selection="hunter2")
+    for process in ("qterminal", "keepassxc", "qterminal"):
+        front["process"] = process
+        copy._on_selection_changed()
+    copy._settle.stop()
+    copy._capture()
+    assert got == []
+
+
+def test_focus_moving_between_two_allowed_programs_is_also_dropped(front):
+    copy, got = _engaged(selection="text")
+    front["process"] = "firefox-esr"
+    copy._on_selection_changed()
+    front["process"] = "qterminal"
+    copy._settle.stop()
+    copy._capture()
+    assert got == []
+    # The next selection, made and copied in one place, goes through.
+    _select_and_settle(copy)
+    assert got == [("text", "selection")]
+
+
+def test_an_unidentified_origin_fails_closed(front):
+    copy, got = _engaged(selection="x")
+    front["process"] = None
+    copy._on_selection_changed()
+    front["process"] = "qterminal"
+    copy._settle.stop()
+    copy._capture()
+    assert got == []
+
+
+def test_a_capture_with_no_selection_change_copies_nothing(front):
+    copy, got = _engaged(selection="already there")
+    copy._capture()
+    assert got == []
+
+
+def test_each_burst_starts_afresh(front):
+    copy, got = _engaged(selection="one")
+    front["process"] = "keepassxc"
+    _select_and_settle(copy)              # blocked, and forgotten afterwards
+    front["process"] = "qterminal"
+    copy._clipboard.selection = "two"
+    _select_and_settle(copy)
+    assert got == [("two", "selection")]
+
+
+def test_a_drag_reads_the_program_at_most_every_probe_interval(front, monkeypatch):
+    calls = []
+    monkeypatch.setattr(autocopy_linux, "active_process", lambda: calls.append(1) or "qterminal")
+    copy, _got = _engaged(selection="growing")
+    for _ in range(50):
+        copy._on_selection_changed()
+    assert len(calls) <= 2  # the first change, maybe one more; not fifty xprop runs
+    copy._settle.stop()
+
+
+def test_pausing_forgets_the_burst(front):
+    copy, got = _engaged(selection="x")
+    front["process"] = "keepassxc"
+    copy._on_selection_changed()
+    copy.pause()
+    copy.resume()
+    front["process"] = "qterminal"
+    _select_and_settle(copy)
+    assert got == [("x", "selection")]
 
 
 def test_engage_refuses_without_a_primary_selection(monkeypatch):

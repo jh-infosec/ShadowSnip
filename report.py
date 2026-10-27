@@ -272,9 +272,13 @@ def to_html(data: dict) -> bytes:
 
 # -- Word --------------------------------------------------------------------------------------
 def docx_available() -> bool:
+    """Whether the Word export can run: python-docx is installed and loads."""
     import importlib.util
 
-    return importlib.util.find_spec("docx") is not None
+    try:
+        return importlib.util.find_spec("docx") is not None
+    except (ImportError, ValueError):
+        return False
 
 
 def _picture_stream(path: str):

@@ -340,6 +340,7 @@ def test_cancelled_output_files_nothing(shadow, monkeypatch):
 
 
 def test_export_from_the_window(shadow, monkeypatch, tmp_path):
+    pytest.importorskip("docx")  # the Word export needs python-docx installed
     lab.add_note(shadow.cfg, "hello")
     opened = []
     import app as app_mod
@@ -351,6 +352,25 @@ def test_export_from_the_window(shadow, monkeypatch, tmp_path):
     shadow.export_report()
     assert opened == [target.with_suffix(".docx")]
     assert opened[0].is_file()
+
+
+def test_a_word_export_without_python_docx_says_so(shadow, monkeypatch, tmp_path):
+    """Without python-docx the export warns (once) and writes nothing."""
+    import app as app_mod
+
+    def no_docx(*_a, **_k):
+        raise report.ExportError("The Word export needs python-docx.")
+
+    monkeypatch.setattr(report, "to_docx", no_docx)
+    warned = []
+    monkeypatch.setattr(shadow, "_warn", warned.append)
+    monkeypatch.setattr(app_mod.storage, "open_file", lambda p: None)
+    target = tmp_path / "report.docx"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        lambda *a, **k: (str(target), "Word document (*.docx)"))
+    shadow.export_report()
+    assert warned and "python-docx" in warned[0]
+    assert not target.exists()
 
 
 def test_new_labs_can_start_with_the_phases(shadow, monkeypatch):
