@@ -1,51 +1,31 @@
 # Changelog
 
-## Latest: 0.10.0
+## Latest: 0.10.1
 
-Text and editable marks: three features that came out of comparing ShadowSnip
-with Windows Snipping Tool, and one asked for directly.
+**Changed**: the Recent snips list uses its width. Each row now shows the
+snip's **Dimensions** (1920 × 1080) and file **Size** (245 KB) beside the
+number and time, and a ✎ under **Marks** when its marks are still editable.
+The columns fill the list, each at least as wide as its contents with the
+spare room shared out, so nothing is cut short in a narrow window and there is
+no empty band on the right in a wide one. Every column and its heading are
+centred, the number and time included, which were slightly off to the left
+before, and faint lines separate the columns, lined up with the header's.
 
-**Added**: marks stay editable after you leave a snip. Draw on a snip, take
-more snips, come back to it later in the full-size view (or the preview
-window, while it is still the snip on screen), and every mark is still
-separate: erase a line, undo a crop, or take a redaction off again. Before,
-leaving a snip fixed its marks into the picture. Works in labs and in the
-history folder. Each edited snip gets a hidden `.edits` folder beside it with
-the list of marks and the original capture. That original is from before any
-redaction, so read the README's "Coming back to a snip later" before zipping a
-whole lab folder for someone else. **Keep marks editable** (Settings, Snipping
-tab) turns it off, and **Delete edit history...** removes what is kept. A snip
-edited in another program opens as it is, never reverted; removing a snip
-moves its edit history to `removed` with it, and history pruning deletes it.
+**Changed**: times older than today say which day. "18:20:10" for today,
+"Yesterday 16:41", "29 Oct 09:14", and the year once it is not this year. In
+labs too, where a lab that runs over several days showed only the clock.
 
-**Added**: copy text from a snip. The new **Text** tool reads the snip and
-outlines every word; click, drag or Shift+click to pick words, Ctrl+A for all,
-and Ctrl+C or the right-click menu to copy them as text, one line per line.
-Windows uses its own OCR engine; Linux uses Tesseract
-(`sudo apt install tesseract-ocr`), and the tool says so when it is missing.
-Reading happens in the background and on your machine only.
+**Added**: hovering a snip in either list shows its dimensions and file size,
+and says when its marks are still editable.
 
-**Added**: **Quick redact**, the button after the tools. It reads the snip and
-offers to cover what looks sensitive, grouped by kind with tick boxes:
-passwords, keys and tokens (including `-p 'secret'`, CrackMapExec's
-`[+] DOMAIN\user:password` and Impacket's `user:password@host`), hashes (NTLM,
-`LM:NT` and secretsdump lines, NetNTLMv2, MD5 and SHA, crypt), email
-addresses, phone numbers, and IP addresses (unticked by default). Only the
-value is covered, not its label. The matches are ordinary redactions in your
-usual style: erase any one, or undo them all with one Ctrl+Z. The kinds you
-pick are remembered.
+### 0.10.0 in brief
 
-**Changed**: Ctrl+C in the preview window and the full-size view copies the
-picked words when the Text tool is in hand with words picked; otherwise it
-copies the snip, as before. The Copy buttons always copy the snip.
-
-**Requirements**: on Windows, from source, `pip install -r requirements.txt`
-adds the `winrt` packages the OCR engine is reached through. The release build
-includes them. On Linux, `install.sh` mentions `tesseract-ocr` if it is
-missing; everything else works without it.
-
-**Roadmap**: shapes and text labels are next (0.11). Window and freeform
-snips, a colour picker, and Print Screen / Alt+N are on the roadmap.
+Text and editable marks. **Added**: marks stay editable after you leave a
+snip, redactions included, through hidden `.edits` sidecars (with a Settings
+switch and **Delete edit history...**). **Added**: the **Text** tool copies
+text out of a snip (Windows OCR, or Tesseract on Linux). **Added**: **Quick
+redact** finds passwords, keys, hashes, emails and phone numbers (and IP
+addresses on request) and covers them in one undoable step.
 
 ### 0.9.2 in brief
 

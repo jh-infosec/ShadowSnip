@@ -34,6 +34,7 @@ under the image.
 from __future__ import annotations
 
 import html
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
@@ -189,6 +190,82 @@ def label_of(row: dict) -> str:
     return f"{number:03d}" if isinstance(number, int) else str(number)
 
 
+# -- the list's columns (0.10.1) ---------------------------------------------------------------
+# Logical column numbers. The first five are the lab's; Dimensions, File size
+# and Marks were added later and shown only in Recent snips, where nothing is
+# filed and the room is otherwise empty. The header puts them after Time.
+COL_NUMBER, COL_TIME, COL_SECTION, COL_CAPTION, COL_NOTES = range(5)
+COL_DIMENSIONS, COL_BYTES, COL_MARKS = 5, 6, 7
+HEADERS = ["#", "Time", "Section", "Caption", "Notes", "Dimensions", "Size", "Marks"]
+RECENT_ONLY = (COL_DIMENSIONS, COL_BYTES, COL_MARKS)
+LAB_ONLY = (COL_SECTION, COL_CAPTION, COL_NOTES)
+CENTRED = (COL_NUMBER, COL_TIME, COL_DIMENSIONS, COL_BYTES, COL_MARKS)
+# The faint lines between columns: the list's text colour, barely there.
+COLUMN_LINE_ALPHA = 26
+
+
+def when_text(when: str, today: date | None = None) -> str:
+    """A snip's time as the list shows it: the clock today, the day before that.
+
+    "14:02:11" today, "Yesterday 14:02", then "28 Oct 14:02", and the year
+    too once it is not this year. Anything unreadable is shown as it is.
+    """
+    try:
+        moment = datetime.strptime(str(when).strip(), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        text = str(when)
+        return text.split(" ", 1)[1] if " " in text else text
+    today = today or date.today()
+    day = moment.date()
+    if day == today:
+        return moment.strftime("%H:%M:%S")
+    if day == today - timedelta(days=1):
+        return "Yesterday " + moment.strftime("%H:%M")
+    label = f"{day.day} {moment.strftime('%b')}"
+    if day.year != today.year:
+        label += f" {day.year}"
+    return f"{label} {moment.strftime('%H:%M')}"
+
+
+def size_text(count: int) -> str:
+    """A file size the way people read one: 845 B, 245 KB, 1.4 MB."""
+    if count < 1024:
+        return f"{count} B"
+    if count < 1024 * 1024:
+        return f"{round(count / 1024)} KB"
+    return f"{count / (1024 * 1024):.1f} MB"
+
+
+_FACTS: dict[tuple, tuple] = {}
+
+
+def snip_facts(path: str) -> tuple[int, int, int, bool] | None:
+    """(width, height, bytes, marks editable) for a snip file, or None.
+
+    The size comes from the image header alone, so this is cheap enough for
+    every row. Cached on the file's size and time, so an edit is seen.
+    """
+    if not path:
+        return None
+    file = Path(path)
+    try:
+        stat = file.stat()
+    except OSError:
+        return None
+    key = (str(file), stat.st_mtime_ns, stat.st_size)
+    facts = _FACTS.get(key)
+    if facts is None:
+        size = QImageReader(str(file)).size()
+        width, height = (size.width(), size.height()) if size.isValid() else (0, 0)
+        facts = (width, height, stat.st_size, False)
+        if len(_FACTS) > 2000:
+            _FACTS.clear()
+        _FACTS[key] = facts
+    # Not cached: a sidecar comes and goes without the snip file changing.
+    editable = (file.parent / edits.DIR_NAME / f"{file.name}.json").is_file()
+    return facts[:3] + (editable,)
+
+
 _FUSION = None
 
 
@@ -215,16 +292,20 @@ ROW_INSET = 6
 
 
 class _InsetDelegate(QStyledItemDelegate):
-    """Draws each cell's content a few pixels in from its left edge."""
+    """Draws each cell's content a few pixels in from its edges.
+
+    Both edges, so a centred column stays centred under its heading, and
+    left-aligned text never touches the line between columns.
+    """
 
     def paint(self, painter, option, index):
         opt = QStyleOptionViewItem(option)
-        opt.rect = option.rect.adjusted(ROW_INSET, 0, 0, 0)
+        opt.rect = option.rect.adjusted(ROW_INSET, 0, -ROW_INSET, 0)
         super().paint(painter, opt, index)
 
     def sizeHint(self, option, index):
         size = super().sizeHint(option, index)
-        size.setWidth(size.width() + ROW_INSET)
+        size.setWidth(size.width() + 2 * ROW_INSET)
         return size
 
 
@@ -247,6 +328,16 @@ class OutlinedTree(QTreeWidget):
             self.setStyle(self._fusion)
         self.setItemDelegate(_InsetDelegate(self))
         self.apply_selection_colours()
+        # Faint lines between the columns, lined up with the header's. Off by
+        # default: the report outline is a tree with one column.
+        self.column_lines = False
+        # Called after every resize, so a panel can refit its columns.
+        self.on_resized = None
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.on_resized is not None:
+            self.on_resized()
 
     def apply_selection_colours(self) -> None:
         fill, _edge = select_colours()
@@ -269,6 +360,8 @@ class OutlinedTree(QTreeWidget):
             painter.drawRoundedRect(rect, 4, 4)
             painter.restore()
         super().drawRow(painter, option, index)
+        if self.column_lines:
+            self._draw_column_lines(painter, option.rect)
         if selected:
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -278,6 +371,26 @@ class OutlinedTree(QTreeWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(rect, 4, 4)
             painter.restore()
+
+
+    def column_line_xs(self) -> list[int]:
+        """Where the lines between the visible columns fall, in the viewport."""
+        header = self.header()
+        visible = [header.logicalIndex(v) for v in range(header.count())]
+        visible = [c for c in visible if not header.isSectionHidden(c)]
+        return [
+            header.sectionViewportPosition(c) + header.sectionSize(c) - 1
+            for c in visible[:-1]
+        ]
+
+    def _draw_column_lines(self, painter, rect) -> None:
+        colour = skins.color("#e6e6ec")
+        colour.setAlpha(COLUMN_LINE_ALPHA)
+        painter.save()
+        painter.setPen(QPen(colour, 1))
+        for x in self.column_line_xs():
+            painter.drawLine(x, rect.top() + 3, x, rect.bottom() - 3)
+        painter.restore()
 
 
 class ClickableLabel(QLabel):
@@ -1114,8 +1227,15 @@ class LabSnipsPanel(QWidget):
         self.title.setObjectName("FieldLabel")
 
         self.list = OutlinedTree()
-        self.list.setColumnCount(5)
-        self.list.setHeaderLabels(["#", "Time", "Section", "Caption", "Notes"])
+        self.list.column_lines = True
+        self.list.on_resized = lambda: self._fit_recent_columns()
+        self.list.setColumnCount(len(HEADERS))
+        self.list.setHeaderLabels(HEADERS)
+        heading = self.list.headerItem()
+        for column in range(len(HEADERS)):
+            align = Qt.AlignmentFlag.AlignCenter if column in CENTRED else (
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            heading.setTextAlignment(column, align)
         self.list.setRootIsDecorated(False)
         self.list.setAlternatingRowColors(True)
         self.list.setUniformRowHeights(True)
@@ -1125,11 +1245,11 @@ class LabSnipsPanel(QWidget):
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list.setTextElideMode(Qt.TextElideMode.ElideRight)
         header = self.list.header()
-        header.setStretchLastSection(True)
-        for column in (0, 1):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
-        self.list.setColumnWidth(2, 100)
-        self.list.setColumnWidth(3, 100)
+        # Dimensions, Size and Marks sit after Time, wherever they are numbered.
+        for place, column in enumerate(RECENT_ONLY, start=2):
+            header.moveSection(header.visualIndex(column), place)
+        header.setSectionsMovable(False)
+        self._apply_columns()
         self.list.itemSelectionChanged.connect(self._on_selection_changed)
         self.list.itemDoubleClicked.connect(lambda _item, _column: self.expand())
 
@@ -1278,8 +1398,7 @@ class LabSnipsPanel(QWidget):
         if lab == self._lab:
             return
         self._lab = lab
-        for column in (2, 3, 4):
-            self.list.setColumnHidden(column, not lab)
+        self._apply_columns()
         self.tabs.setTabVisible(1, lab)
         self.tabs.setTabVisible(2, lab)
         if not lab:
@@ -1301,6 +1420,47 @@ class LabSnipsPanel(QWidget):
 
     def is_lab_mode(self) -> bool:
         return self._lab
+
+    def _apply_columns(self) -> None:
+        """The lab's columns, or Recent snips' (which fill the width evenly)."""
+        header = self.list.header()
+        for column in LAB_ONLY:
+            self.list.setColumnHidden(column, not self._lab)
+        for column in RECENT_ONLY:
+            self.list.setColumnHidden(column, self._lab)
+        Mode = QHeaderView.ResizeMode
+        if self._lab:
+            header.setStretchLastSection(True)
+            for column in (COL_NUMBER, COL_TIME):
+                header.setSectionResizeMode(column, Mode.ResizeToContents)
+            for column in (COL_SECTION, COL_CAPTION):
+                header.setSectionResizeMode(column, Mode.Interactive)
+                self.list.setColumnWidth(column, 100)
+            header.setSectionResizeMode(COL_NOTES, Mode.Interactive)
+        else:
+            header.setStretchLastSection(False)
+            for column in (COL_NUMBER, COL_TIME, *RECENT_ONLY):
+                header.setSectionResizeMode(column, Mode.Interactive)
+            self._fit_recent_columns()
+        self.list.viewport().update()
+
+    def _fit_recent_columns(self) -> None:
+        """Recent snips: every column wide enough for its contents, then the
+        spare width shared out evenly, so the list fills the panel without
+        cutting a time or a size short in a narrow window.
+        """
+        if self._lab:
+            return
+        header = self.list.header()
+        columns = [COL_NUMBER, COL_TIME, *RECENT_ONLY]
+        needed = {
+            c: max(self.list.sizeHintForColumn(c), header.sectionSizeFromContents(c).width()) + 4
+            for c in columns
+        }
+        spare = max(0, self.list.viewport().width() - sum(needed.values()))
+        share, extra = divmod(spare, len(columns))
+        for i, column in enumerate(columns):
+            self.list.setColumnWidth(column, needed[column] + share + (1 if i < extra else 0))
 
     # -- filling ------------------------------------------------------------
     def set_rows(self, rows, current_file: str = "") -> None:
@@ -1342,6 +1502,7 @@ class LabSnipsPanel(QWidget):
         finally:
             self.list.blockSignals(blocked)
 
+        self._fit_recent_columns()
         count = len(rows)
         kind = "Lab snips" if self._lab else "Recent snips"
         self.title.setText(f"{kind} ({count})" if count else f"{kind} - none yet")
@@ -1408,7 +1569,15 @@ class LabSnipsPanel(QWidget):
     def _item_for(self, row: dict) -> QTreeWidgetItem:
         label = label_of(row)
         when = str(row.get("time", ""))
-        clock = when.split(" ", 1)[1] if " " in when else when
+        clock = when_text(when)
+        facts = snip_facts(row.get("path", ""))
+        if facts is not None:
+            width, height, count, editable = facts
+            dimensions = f"{width} \u00d7 {height}" if width and height else ""
+            file_size = size_text(count)
+            marks = "\u270e" if editable else ""
+        else:
+            dimensions = file_size = marks = ""
         notes = [str(text) for text in row.get("notes", ()) if str(text).strip()]
         if not notes:
             note_text = ""
@@ -1421,9 +1590,11 @@ class LabSnipsPanel(QWidget):
 
         item = QTreeWidgetItem(
             [f"{label} *" if on_screen else label, clock, section,
-             row.get("caption", ""), note_text]
+             row.get("caption", ""), note_text, dimensions, file_size, marks]
         )
         item.setData(0, Qt.ItemDataRole.UserRole, row["file"])
+        for column in CENTRED:
+            item.setTextAlignment(column, Qt.AlignmentFlag.AlignCenter)
 
         tooltip = self._hover_html(row, label, section, when, notes, on_screen)
         for column in range(item.columnCount()):
@@ -1452,6 +1623,12 @@ class LabSnipsPanel(QWidget):
             lines.append(f"Filed under: {html.escape(section)}")
         if when:
             lines.append(f"Taken: {html.escape(when)}")
+        facts = snip_facts(path)
+        if facts is not None and facts[0]:
+            width, height, count, editable = facts
+            lines.append(f"{width} \u00d7 {height} px, {size_text(count)}")
+            if editable:
+                lines.append("Marks still editable")
         if filed:
             caption = row.get("caption", "")
             lines.append(f"Caption: {html.escape(caption)}" if caption else "No caption")

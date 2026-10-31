@@ -547,6 +547,14 @@ Delete) takes the selected snips off the list; the images go to
 and the report belong to labs, so they appear once a lab starts and the list
 switches to that lab's snips.
 
+Each row shows the snip's number, when it was taken (the clock for today,
+then "Yesterday 16:41", then "29 Oct 09:14"), its **Dimensions** in pixels,
+its file **Size**, and a ✎ under **Marks** when its marks are still editable
+(see "Coming back to a snip later"). The columns fill the width of the list,
+each wide enough for what is in it, with faint lines between them. Hover a
+row for a larger preview with the same details. In a lab, the list shows
+Section, Caption and Notes instead, and the times read the same way.
+
 The list needs history, which is on by default from 0.8.0 (an existing
 config has it switched on once). Turn off **Keep a timestamped copy** in
 Settings and the list stays empty outside a lab.
