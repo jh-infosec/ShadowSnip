@@ -80,7 +80,11 @@ def prune_history(cfg: dict) -> None:
         try:
             stale.unlink()
         except OSError:
-            pass
+            continue
+        # Its kept marks (edits.py) hold the original capture: they go too.
+        import edits
+
+        edits.forget(stale)
 
 
 REMOVED_DIRNAME = "removed"
@@ -138,6 +142,9 @@ def remove_from_history(cfg: dict, name: str) -> Path | None:
         target = target_dir / f"{source.stem}_{n}{source.suffix}"
         n += 1
     os.replace(source, target)
+    import edits
+
+    edits.move(source, target)  # its kept marks go with it
     return target
 
 

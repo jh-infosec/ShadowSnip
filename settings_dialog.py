@@ -135,6 +135,29 @@ class SettingsDialog(QDialog):
         self.history_check.toggled.connect(self.history_limit.setEnabled)
         self.history_limit.setEnabled(cfg["keep_history"])
 
+        # Marks stay editable after you leave a snip (edits.py, 0.10.0).
+        self.keep_edits_check = QCheckBox("Keep marks editable")
+        self.keep_edits_check.setChecked(cfg["keep_edits"])
+        self.keep_edits_check.setToolTip(
+            "Each edited snip keeps its marks and its original capture in a hidden "
+            ".edits folder beside it, so you can erase or undo them later, "
+            "redactions included. The original is unredacted: a copy of the whole "
+            "folder, hidden folders included, carries it too."
+        )
+        self.btn_forget_edits = QPushButton("Delete edit history...")
+        self.btn_forget_edits.setToolTip(
+            "Remove every kept original and mark list, in the history folder and "
+            "every lab. The snips themselves stay as they are; their marks stop "
+            "being editable."
+        )
+        self.btn_forget_edits.clicked.connect(self._delete_edit_history)
+        # Stacked, not side by side: the tab has to fit a narrow screen at 300%.
+        edits_row = QWidget()
+        edits_layout = QVBoxLayout(edits_row)
+        edits_layout.setContentsMargins(0, 0, 0, 0)
+        edits_layout.addWidget(self.keep_edits_check)
+        edits_layout.addWidget(self.btn_forget_edits, 0, Qt.AlignmentFlag.AlignLeft)
+
         self.format_combo = QComboBox()
         self.format_combo.addItem("PNG (lossless)", "png")
         self.format_combo.addItem("WebP (smaller, lossy)", "webp")
@@ -337,6 +360,7 @@ class SettingsDialog(QDialog):
         snipping.addRow("Replaced file name", self.name_edit)
         snipping.addRow(self.history_check)
         snipping.addRow("Keep at most", self.history_limit)
+        snipping.addRow(edits_row)
 
         image = self._tab("Image")
         image.addRow("File format", self.format_combo)
@@ -507,11 +531,39 @@ class SettingsDialog(QDialog):
         if folder:
             self.folder_edit.setText(folder)
 
+    def _delete_edit_history(self) -> None:
+        """Remove every kept original and mark list (edits.py), after asking."""
+        from PySide6.QtWidgets import QMessageBox
+
+        import edits
+        import lab
+        import storage
+
+        answer = QMessageBox.question(
+            self, "Delete edit history",
+            "Delete the kept originals and mark lists for every snip, in the "
+            "history folder and in every lab?\n\nThe snips stay exactly as they "
+            "look now. Their marks, redactions included, can no longer be erased "
+            "or undone. This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        cfg = dict(self._cfg)
+        removed = edits.delete_all([storage.history_folder(cfg), lab.root(cfg)])
+        QMessageBox.information(
+            self, "Delete edit history",
+            f"Deleted {removed} file{'s' if removed != 1 else ''} of edit history."
+            if removed else "There was no edit history to delete.",
+        )
+
     def values(self) -> dict:
         cfg = dict(self._cfg)
         cfg["hotkey"] = self.hotkey_edit.spec
         cfg["note_hotkey"] = self.note_hotkey_edit.spec
         cfg["output_hotkey"] = self.output_hotkey_edit.spec
+        cfg["keep_edits"] = self.keep_edits_check.isChecked()
         cfg["save_dir"] = self.folder_edit.text().strip()
         cfg["latest_name"] = self.name_edit.text().strip()
         cfg["keep_history"] = self.history_check.isChecked()

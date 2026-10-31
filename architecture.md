@@ -32,7 +32,13 @@ autocopy_linux.py    Linux copy on select: the X11 primary selection
 toast.py             the one-second clip confirmation near the cursor
 preview.py           post-snip window
 annotate.py          marking up the snip: pen, highlighter, eraser, crop,
-                     redaction, undo; the tool strip and its popups
+                     redaction, the Text tool, undo; the tool strip and its
+                     popups
+edits.py             keeping marks editable after leaving a snip: the
+                     hidden .edits sidecars (marks and the original)
+ocr.py               reading text from a snip (Windows OCR or Tesseract) and
+                     finding what Quick redact offers to hide
+quickredact.py       the Quick redact window: kinds found, tick boxes
 labsnips.py          lab panel: snip list, report outline, rendered preview,
                      full-size viewer with the mark-up tools; the
                      click-to-edit caption field
@@ -82,6 +88,44 @@ a fresh snip and rewrites every copy the snip was saved to: the clipboard,
 flushed before a new snip starts and when the window closes, so an edit is
 never lost or saved onto the next snip. A lab snip removed while on screen is
 dropped from `_snip_paths`, so an edit cannot recreate it.
+
+### Marks that outlive the window (0.10.0)
+
+The operation list is plain data, so `edits.py` writes it out: after each save
+of a lab or history snip, `.edits/<name>.json` holds the operations and
+`.edits/<name>.orig.png` the original capture (written once per place, not on
+every edit). The record carries the SHA-256 of the snip file as written, and
+`edits.load()` returns nothing unless the file still matches, so a snip changed
+by another program is never reverted to ShadowSnip's idea of it. The full-size
+view loads a snip through `edits.load()` first, and saving from it hands the
+same doc back to the preview window when it is the snip on screen. Lab removal
+and history pruning move or delete the sidecars with their snips; Settings can
+switch the whole thing off (`edits.enabled`) and delete what is kept. The cost
+is the one the README spells out: the original under every redaction sits on
+disk next to the snip.
+
+### Reading text (0.10.0)
+
+`ocr.recognise()` takes a PNG and returns words with boxes in the image's
+pixels and a line number each. On Windows it uses `Windows.Media.Ocr` through
+the `winrt` packages; elsewhere, or when that is missing, the `tesseract`
+program (its TSV output, the image greyed, inverted when dark, and enlarged
+for small text first). Low-confidence words are kept on purpose: long hashes
+are exactly what OCR is least sure of.
+
+The canvas reads the snip as it looks now (`render_full`, before the crop)
+on a background thread and posts the words back through a queued signal. The
+result is keyed on the doc and its operation ids, so a mark made meanwhile
+makes the read stale and it is read again. Picking and copying work on the
+words inside the crop.
+
+`ocr.find_sensitive()` joins each line's words, runs the patterns (in priority
+order, so a span claimed as a secret is not also an email), and maps each
+match's character range back to a share of each word's box: `password=hunter2`
+covers `hunter2` only. Quick redact adds the boxes as ordinary `Redact`
+operations sharing one `batch` number, which `AnnotationDoc.undo()` removes
+together. They are erasable one by one and saved in the sidecar like any other
+redaction.
 
 ## The snip pipeline
 
@@ -291,4 +335,5 @@ combination, needs no elevation, and fails loudly if the combination is taken.
 ## What is not here yet
 
 Run at login, upload targets, freeform and window-mode capture, delayed
-capture, annotation, and encryption at rest for lab folders. See `ROADMAP.md`.
+capture, shapes and text labels, and encryption at rest for lab folders. See
+`ROADMAP.md`.

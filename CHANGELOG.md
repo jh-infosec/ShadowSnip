@@ -1,31 +1,61 @@
 # Changelog
 
-## Latest: 0.9.2
+## Latest: 0.10.0
+
+Text and editable marks: three features that came out of comparing ShadowSnip
+with Windows Snipping Tool, and one asked for directly.
+
+**Added**: marks stay editable after you leave a snip. Draw on a snip, take
+more snips, come back to it later in the full-size view (or the preview
+window, while it is still the snip on screen), and every mark is still
+separate: erase a line, undo a crop, or take a redaction off again. Before,
+leaving a snip fixed its marks into the picture. Works in labs and in the
+history folder. Each edited snip gets a hidden `.edits` folder beside it with
+the list of marks and the original capture. That original is from before any
+redaction, so read the README's "Coming back to a snip later" before zipping a
+whole lab folder for someone else. **Keep marks editable** (Settings, Snipping
+tab) turns it off, and **Delete edit history...** removes what is kept. A snip
+edited in another program opens as it is, never reverted; removing a snip
+moves its edit history to `removed` with it, and history pruning deletes it.
+
+**Added**: copy text from a snip. The new **Text** tool reads the snip and
+outlines every word; click, drag or Shift+click to pick words, Ctrl+A for all,
+and Ctrl+C or the right-click menu to copy them as text, one line per line.
+Windows uses its own OCR engine; Linux uses Tesseract
+(`sudo apt install tesseract-ocr`), and the tool says so when it is missing.
+Reading happens in the background and on your machine only.
+
+**Added**: **Quick redact**, the button after the tools. It reads the snip and
+offers to cover what looks sensitive, grouped by kind with tick boxes:
+passwords, keys and tokens (including `-p 'secret'`, CrackMapExec's
+`[+] DOMAIN\user:password` and Impacket's `user:password@host`), hashes (NTLM,
+`LM:NT` and secretsdump lines, NetNTLMv2, MD5 and SHA, crypt), email
+addresses, phone numbers, and IP addresses (unticked by default). Only the
+value is covered, not its label. The matches are ordinary redactions in your
+usual style: erase any one, or undo them all with one Ctrl+Z. The kinds you
+pick are remembered.
+
+**Changed**: Ctrl+C in the preview window and the full-size view copies the
+picked words when the Text tool is in hand with words picked; otherwise it
+copies the snip, as before. The Copy buttons always copy the snip.
+
+**Requirements**: on Windows, from source, `pip install -r requirements.txt`
+adds the `winrt` packages the OCR engine is reached through. The release build
+includes them. On Linux, `install.sh` mentions `tesseract-ocr` if it is
+missing; everything else works without it.
+
+**Roadmap**: shapes and text labels are next (0.11). Window and freeform
+snips, a colour picker, and Print Screen / Alt+N are on the roadmap.
+
+### 0.9.2 in brief
 
 **Security** (Linux): copy on select could copy text selected in a password
-manager. It waited 300 ms for the selection to stop changing, then asked which
-program was in front, so switching to another window within that time made
-the block list check the new window instead of the password manager the text
-came from. Found in an external review of 0.9.1. The program in front is now
-read when the selection changes, and the copy is made only if every change
-came from the same allowed program and it is still the one in front. A
-selection made while focus moved is dropped; the next one is copied as usual.
-Windows was not affected: there the copy is a Ctrl+C sent to the window in
-front at that moment, so it can never reach a password manager left behind.
-
-**Fixed**: with a mark-up tool in hand (pen, highlighter, eraser, crop or
-redact) the right-click menu on the snip offered nothing, so copying or saving
-the marked-up snip meant putting the tool down first. **Save as...** and
-**Copy** are now always there, and the tool stays in hand.
-
-**Added**: **Save as...** in the full-size view (button, Ctrl+S and the
-right-click menu), saving a copy of the snip with its mark-up anywhere you
-choose.
-
-**Fixed** (tests): run without python-docx installed, the test suite opened a
-real "The Word export needs python-docx" message box and waited for it to be
-clicked. The Word export tests now skip when python-docx is missing, and no
-test can open a real message box any more: they are answered automatically.
+manager if focus moved within 300 ms of the selection. The program in front is
+now read when the selection changes, and the copy is made only if it came from
+the same allowed program, still in front. **Fixed**: Save as and Copy are
+always in the snip's right-click menu, even with a tool in hand. **Added**: Save
+as in the full-size view. **Fixed** (tests): no test can open a real message
+box any more.
 
 ### 0.9.1 in brief
 

@@ -69,3 +69,13 @@ def _no_real_message_boxes(monkeypatch):
         monkeypatch.setattr(QMessageBox, kind, box(kind, QMessageBox.StandardButton.Ok))
     monkeypatch.setattr(QMessageBox, "question", box("question", QMessageBox.StandardButton.No))
     return shown
+
+
+@pytest.fixture(autouse=True)
+def _edits_on():
+    """Keep marks editable is on unless a test turns it off; it is module state."""
+    import edits
+
+    edits.enabled = True
+    yield
+    edits.enabled = True

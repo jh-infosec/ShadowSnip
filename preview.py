@@ -193,11 +193,14 @@ class PreviewWindow(QWidget):
         self.tools.set_available(False)
         self.tools.tool_changed.connect(self.canvas.set_tool)
         self.tools.undo_requested.connect(self.canvas.undo)
+        self.tools.quick_redact_requested.connect(self.canvas.quick_redact)
+        self.tools.copy_all_text_requested.connect(lambda: self.canvas.copy_text(selected=False))
+        self.canvas.notice.connect(lambda text: self.status.setText(text))
         self.tools.prefs_changed.connect(self._on_annotation_prefs)
         self.canvas.undo_changed.connect(self.tools.set_undo_enabled)
         self.canvas.edited.connect(self._on_canvas_edited)
         self.canvas.save_as_requested.connect(self.save_as)
-        self.canvas.copy_requested.connect(self.copy_again)
+        self.canvas.copy_requested.connect(self.copy_image)
         # Edits are saved a moment after the last one, not on every stroke:
         # each save re-encodes the snip and rewrites up to four files.
         self._edit_timer = QTimer(self)
@@ -295,7 +298,7 @@ class PreviewWindow(QWidget):
         self.btn_snips.toggled.connect(self._on_snips_toggled)
         self.btn_auto.clicked.connect(self.auto_copy_toggled.emit)
         self.btn_save.clicked.connect(self.save_as)
-        self.btn_copy.clicked.connect(self.copy_again)
+        self.btn_copy.clicked.connect(self.copy_image)
         self.btn_folder.clicked.connect(self.open_folder)
         self.btn_settings.clicked.connect(self.settings_requested.emit)
         self.btn_close.clicked.connect(self.close)
@@ -348,6 +351,7 @@ class PreviewWindow(QWidget):
 
         QShortcut(QKeySequence.StandardKey.Save, self, self.save_as)
         QShortcut(QKeySequence.StandardKey.Copy, self, self.copy_again)
+        QShortcut(QKeySequence.StandardKey.SelectAll, self, self._pick_all_text)
         # Esc puts a tool down first; with nothing in hand it closes the window.
         QShortcut(QKeySequence("Esc"), self, self._on_escape)
         QShortcut(QKeySequence("Ctrl+Q"), self, self.quit_requested.emit)
@@ -535,12 +539,14 @@ class PreviewWindow(QWidget):
         self.canvas.prefs = dict(self.tools.prefs)
         self.annotation_prefs_changed.emit(dict(prefs))
 
-    def rebase_snip(self, image: QImage) -> None:
-        """The snip on screen was edited in the viewer: show that, as the new start.
+    def rebase_snip(self, image: QImage, doc=None) -> None:
+        """The snip on screen was edited in the viewer: show that here too.
 
-        Undo here then starts from the edited snip. Re-rendering from the
-        original capture instead would quietly undo a redaction made in the
-        viewer the next time anything was drawn here.
+        With `doc` (the viewer's marks, 0.10.0) the window takes the marks
+        themselves, so each stays erasable and undo reaches back to the
+        original capture. Without it, the edited picture becomes the new
+        start, as before: re-rendering from the original capture instead would
+        quietly undo a redaction made in the viewer.
         """
         if self._image is None or image is None or image.isNull():
             return
@@ -548,7 +554,10 @@ class PreviewWindow(QWidget):
         self._edit_pending = False
         self._image = image
         tool = self.tools.tool
-        self.canvas.load(image)
+        if doc is not None:
+            self.canvas.load_doc(doc)
+        else:
+            self.canvas.load(image)
         self.canvas.set_tool(tool)
 
     def set_disk_bytes(self, data: bytes, ext: str) -> None:
@@ -832,6 +841,17 @@ class PreviewWindow(QWidget):
         self.status.setText(f"Saved to {path}")
 
     def copy_again(self) -> None:
+        """Ctrl+C: the words picked with the Text tool, when there are some; else the snip."""
+        if self.canvas.tool == "text" and self.canvas.has_picked_text():
+            self.canvas.copy_text(selected=True)
+            return
+        self.copy_image()
+
+    def _pick_all_text(self) -> None:
+        if self.canvas.tool == "text":
+            self.canvas.pick_all_text()
+
+    def copy_image(self) -> None:
         self.flush_edits()
         if self._copy_again is None:
             return

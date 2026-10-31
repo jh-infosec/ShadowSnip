@@ -18,7 +18,17 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    # Windows' OCR engine (Copy text, Quick redact) is imported lazily, inside
+    # a function, so PyInstaller would not see it without being told.
+    hiddenimports=[
+        "winrt.windows.media.ocr",
+        "winrt.windows.graphics.imaging",
+        "winrt.windows.security.cryptography",
+        "winrt.windows.storage.streams",
+        "winrt.windows.foundation",
+        "winrt.windows.foundation.collections",
+        "winrt.windows.globalization",
+    ] if sys.platform == "win32" else [],
     hookspath=[],
     runtime_hooks=[],
     excludes=[

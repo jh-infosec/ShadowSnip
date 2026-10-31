@@ -37,11 +37,13 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      # tesseract-ocr: so the test that reads real text runs (Copy text and
+      # Quick redact use it on Linux); without it that one test skips.
       - name: Qt's system libraries (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxcb-cursor0 libfontconfig1 libdbus-1-3
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxcb-cursor0 libfontconfig1 libdbus-1-3 tesseract-ocr
       - name: Install
         run: pip install -r requirements-dev.txt
       - name: Run the tests

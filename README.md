@@ -108,6 +108,7 @@ ShadowSnip opens its window and puts an icon in the notification area. Press
 | Copy on select | A mouse hook and a synthetic Ctrl+C | X11 already puts highlighted text in the *primary selection* (what middle-click pastes); ShadowSnip copies it to the clipboard. No hook and no keystroke, so a terminal can never receive a stray Ctrl+C. Each selection is copied once it stops changing, and only if the program it was made in is the one still in front, so switching away from a password manager straight after selecting never copies from it. |
 | Settings file | `%APPDATA%\ShadowSnip\config.json` | `~/.config/shadowsnip/config.json` |
 | Start at login | A shortcut in `shell:startup`; it starts in the tray with or without `--tray` | `bash install.sh --autostart` |
+| Reading text (Text tool, Quick redact) | Windows' own OCR engine | Tesseract: `sudo apt install tesseract-ocr` |
 
 Everything else (snipping, labs, sections, notes, the outline and preview,
 removal, the viewer) is the same code on both.
@@ -149,6 +150,8 @@ above it has:
 | **Eraser** | Drag across a pen line, highlight or redaction to remove the whole mark |
 | **Crop** | Drag the area to keep |
 | **Redact** | Drag over something to hide it, with **Black out** (solid black, nothing of the original survives) or **Blur** (smeared; hides text, but the layout can still show) |
+| **Text** | Reads the words in the snip and outlines them. Click a word, drag across several, Shift+click to add, `Ctrl+A` for all, then `Ctrl+C` or right-click to copy them as text |
+| **Quick redact** | The button beside the tools: finds passwords, keys and tokens, hashes, email addresses and phone numbers (and IP addresses, if you tick them) and covers them in one go |
 | **Undo** | The round arrow, or `Ctrl+Z`: takes back the last mark, erase or crop, one at a time |
 
 **Left-click** a tool to pick it up, and left-click it again (or press Esc) to
@@ -190,6 +193,76 @@ For passwords, hashes and client details, use **Black out**: a blur can still
 show how long a line was. A redaction protects the files ShadowSnip writes; a
 copy pasted somewhere before you redacted, or held in Windows clipboard history
 (`Win+V`), is outside its reach, so redact before pasting.
+
+### Copying text out of a snip
+
+Pick up **Text** and ShadowSnip reads the snip (in the background, a second or
+two) and outlines every word it found. Click, drag or Shift+click to pick
+words, then **Ctrl+C**, or right-click for **Copy selected text** and **Copy
+all text**. The text comes out one line per line, in reading order. Right-click
+the Text tool itself for **Copy all text** without picking anything. With no
+words picked, Ctrl+C and the Copy button copy the picture as before.
+
+Reading the text needs an OCR engine:
+
+- **Windows** uses its own (Windows.Media.Ocr), in the languages installed for
+  your account. The release build carries everything; from source,
+  `pip install -r requirements.txt` adds the small `winrt` packages it needs.
+- **Linux** uses Tesseract: `sudo apt install tesseract-ocr`. Without it, the
+  Text tool says what to install. Windows falls back to Tesseract too, if it
+  is installed and the Windows engine is not available.
+
+Nothing leaves your machine: both engines run locally.
+
+### Quick redact
+
+**Quick redact** (the button after the tools, or right-click the Text tool)
+reads the snip and lists what it found, grouped: **Passwords, keys and
+tokens**, **Hashes**, **Email addresses**, **Phone numbers** and **IP
+addresses**. Each kind has a tick box and a few of its matches, partly masked
+so the window is not one more place a password is shown. **Hide them** covers
+each ticked match with a redaction in your usual style (black out or blur).
+
+What it recognises, in the places a pentest puts them:
+
+- `password: hunter2`, `token=...`, `-p 'secret'`, `/p:secret`, CrackMapExec
+  and NetExec `[+] DOMAIN\user:password`, Impacket `user:password@host`
+- JWTs, AWS, GitHub, Slack, Google and OpenAI style keys, private key headers
+- MD5, SHA and NTLM hashes, `LM:NT` pairs and secretsdump lines, NetNTLMv2,
+  and `$...$` crypt hashes
+- Only the value is covered, not its label: `password:` stays readable
+
+The redactions are ordinary ones: erase any you want back, and one **Ctrl+Z**
+takes back the whole Quick redact. Your choice of kinds is remembered. IP
+addresses start unticked, since a report usually needs them.
+
+It reads the picture, so it can miss things: an unusual font, very small text,
+or low contrast. Check the result, and cover anything it missed by hand.
+
+### Coming back to a snip later
+
+Marks stay editable after you leave a snip. Draw on a snip, take ten more,
+then open the first one again (in the full-size view, or in the preview window
+while it is still the one on screen) and every mark is still separate: erase a
+line, undo a crop, or remove a redaction to see what was under it.
+
+This works for snips in a lab and in the history folder. ShadowSnip keeps,
+next to each edited snip, a hidden `.edits` folder holding the list of marks
+and the **original capture, before any mark**. So a password you blacked out
+can still be read there. The snip file, the clipboard, `latest.png`, `lab.md`
+and the exported reports never use it, but copying or zipping a whole lab
+folder, hidden folders included, copies the originals too.
+
+- **Keep marks editable** (Settings, Snipping tab, on by default) turns this
+  off: nothing is kept, and marks are fixed when you leave a snip, as before
+  0.10.0.
+- **Delete edit history...** beside it removes every `.edits` folder in the
+  history folder and the labs folder, leaving the snips themselves as they
+  are.
+- A snip changed outside ShadowSnip opens as it is now: the kept marks are
+  only used while the file is exactly what ShadowSnip last wrote.
+- Removing a snip moves its edit history into the `removed` folder with it,
+  and history pruning deletes the edit history of the snips it deletes.
 
 Selections can cross monitors, including monitors on different scale factors.
 The snip finishes when you let go of the button, and only then: Windows can
@@ -569,6 +642,7 @@ window is never taller than the screen it opens on.
 | Command output hotkey | The same, for filing command output as a code block |
 | Save folder / replaced file name | Where the standing snip lives |
 | Keep a timestamped copy | The `history` folder, pruned to a fixed count. Outside a lab it is the Recent snips list. On by default |
+| Keep marks editable | Keep each edited snip's marks, and its original, in a hidden `.edits` folder so they can be erased or undone later. On by default; see "Coming back to a snip later". **Delete edit history...** removes what is kept |
 | File format | What goes to disk: PNG, WebP or JPEG. The clipboard always gets PNG |
 | Longest edge | Downscale anything larger, in pixels. `Full size` disables it |
 | Reduce the colour palette | Palette-quantise when it produces a much smaller PNG; the truecolour version wins if it does not |

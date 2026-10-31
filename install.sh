@@ -53,12 +53,14 @@ if [[ -x "$LDCONFIG" ]]; then
   [[ "$libs" == *libxcb-cursor.so.0* ]] || missing+=("libxcb-cursor0")
 fi
 command -v xprop >/dev/null 2>&1 || missing+=("x11-utils")
+command -v tesseract >/dev/null 2>&1 || missing+=("tesseract-ocr")
 if [[ ${#missing[@]} -gt 0 ]]; then
   echo "Missing system packages: ${missing[*]}"
   for pkg in "${missing[@]}"; do
     case "$pkg" in
       libxcb-cursor0) echo "  libxcb-cursor0  Qt needs it to open any window on X11" ;;
       x11-utils)      echo "  x11-utils       provides xprop, used to skip password managers in copy on select" ;;
+      tesseract-ocr)  echo "  tesseract-ocr   optional: reads the text in a snip, for Copy text and Quick redact" ;;
     esac
   done
   echo "Install them with:"

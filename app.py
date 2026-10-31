@@ -31,6 +31,7 @@ import autocopy as autocopy_mod
 import capture
 import clipboard
 import config
+import edits
 import hotkey as hotkey_mod
 import imageops
 import lab
@@ -63,6 +64,7 @@ class ShadowSnipApp(QObject):
         self._last_history_file: str = ""
 
         skins.set_current(self.cfg.get("skin"))
+        edits.enabled = bool(self.cfg.get("keep_edits", True))
         self.preview = PreviewWindow(icon=build_icon())
         self.preview.new_snip_requested.connect(self.request_snip)
         self.preview.lab_toggle_requested.connect(self.toggle_lab)
@@ -411,7 +413,7 @@ class ShadowSnipApp(QObject):
         self._refresh_menu_text()
 
     # -- marking up the snip on screen -------------------------------------
-    def apply_snip_edit(self, image, from_viewer: bool = False) -> None:
+    def apply_snip_edit(self, image, from_viewer: bool = False, doc=None) -> None:
         """Save the marked-up snip everywhere the original went.
 
         The clipboard, the standing latest file, the lab copy and the history
@@ -421,6 +423,11 @@ class ShadowSnipApp(QObject):
         """
         if image is None or image.isNull():
             return
+        # The marks that made this image, kept beside the lab and history
+        # copies so they stay editable later (edits.py). From the viewer when
+        # the edit was made there, else the preview window's own.
+        if doc is None:
+            doc = self.preview.canvas.doc
         result = imageops.process(image, self.cfg)
         self._last_png = result.png
         self._last_image = result.image
@@ -451,6 +458,9 @@ class ShadowSnipApp(QObject):
                              "history": "history"}[key])
             except OSError as exc:
                 problems.append(f"could not update {path.name} ({exc})")
+                continue
+            if key in ("lab", "history"):
+                edits.save(path, doc, result.disk.data)
 
         width, height = result.image.size
         line = f"Edit saved ({width} x {height}): " + ", ".join(done)
@@ -484,9 +494,13 @@ class ShadowSnipApp(QObject):
         in_lab = lab.is_active(self.cfg)
         listed = self._snip_paths.get("lab" if in_lab else "history")
         on_screen = self._last_lab_file if in_lab else self._last_history_file
+        viewer = self.preview.snips_panel.viewer
+        viewer_doc = viewer.canvas.doc if viewer is not None else None
         if filename == on_screen and listed is not None and listed.name == filename:
-            self.apply_snip_edit(image, from_viewer=True)
-            self.preview.rebase_snip(image)
+            self.apply_snip_edit(image, from_viewer=True, doc=viewer_doc)
+            # The preview window takes the viewer's marks as they are, each
+            # still editable, rather than the flattened picture.
+            self.preview.rebase_snip(image, viewer_doc.clone() if viewer_doc is not None else None)
             label = filename.split("_", 1)[0] if in_lab else "on screen"
             self.preview.viewer_message(f"Edit saved to snip {label} and its copies")
             return
@@ -501,6 +515,7 @@ class ShadowSnipApp(QObject):
         else:
             try:
                 storage.write_atomic(path, result.disk.data)
+                edits.save(path, viewer_doc, result.disk.data)
                 width, height = result.image.size
                 message = f"Edit saved to snip {label} ({width} x {height})"
             except OSError as exc:
@@ -1432,6 +1447,7 @@ class ShadowSnipApp(QObject):
         except OSError as exc:
             self._warn(f"Settings could not be written: {exc}")
         self._apply_skin(self.cfg.get("skin"))
+        edits.enabled = bool(self.cfg.get("keep_edits", True))
         self.autocopy.configure(self.cfg)
         if self.cfg["auto_copy"] and not self.autocopy.engaged:
             self._engage_auto_copy(announce=False)

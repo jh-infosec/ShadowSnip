@@ -39,7 +39,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
+import threading
+
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QCursor,
@@ -115,6 +117,9 @@ ACCENT = QColor("#2f8cff")  # the original look; painting asks accent() for the 
 
 def accent() -> QColor:
     return QColor(skins.accent())
+# The Text tool (0.10.0): word boxes, and the words picked out.
+WORD_EDGE = QColor(47, 140, 255, 110)
+WORD_FILL = QColor(47, 140, 255, 95)
 # Tools whose cursor carries an icon badge beside the pointer.
 BADGED_TOOLS = ("crop", "redact")
 
@@ -143,6 +148,9 @@ class Redact:
     id: int
     rect: QRect  # image pixels
     mode: str  # "blur" or "black"
+    # Redactions added together by Quick redact share a batch number, so one
+    # undo takes them all back. 0: drawn by hand, undone on its own.
+    batch: int = 0
 
 
 @dataclass
@@ -186,10 +194,21 @@ class AnnotationDoc:
     def add(self, op) -> None:
         self.ops.append(op)
 
+    def clone(self) -> "AnnotationDoc":
+        """A separate doc with the same original and marks (the image is shared, not copied)."""
+        twin = AnnotationDoc.__new__(AnnotationDoc)
+        twin.base = self.base
+        twin.ops = list(self.ops)
+        twin._next = self._next
+        return twin
+
     def undo(self) -> bool:
         if not self.ops:
             return False
-        self.ops.pop()
+        last = self.ops.pop()
+        batch = getattr(last, "batch", 0)
+        while batch and self.ops and getattr(self.ops[-1], "batch", 0) == batch:
+            self.ops.pop()
         return True
 
     @property
@@ -343,6 +362,23 @@ def _segment_distance(p: QPointF, a: QPointF, b: QPointF) -> float:
     return math.hypot(p.x() - (a.x() + t * dx), p.y() - (a.y() + t * dy))
 
 
+class _OcrBridge(QObject):
+    """Carries words read in the background back to the canvas, on its own thread."""
+
+    done = Signal(object, object, object)  # key, words or None, error
+
+
+def _png_of(image: QImage) -> bytes:
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    image.save(buffer, "PNG")
+    buffer.close()
+    return bytes(data.data())
+
+
 # -- the canvas -----------------------------------------------------------------------
 class AnnotCanvas(QWidget):
     """The snip on screen, and the place it is marked up.
@@ -358,6 +394,8 @@ class AnnotCanvas(QWidget):
     # From the right-click menu with no tool in hand.
     save_as_requested = Signal()
     copy_requested = Signal()
+    # A short message for the status line: text copied, Quick redact done.
+    notice = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -386,17 +424,34 @@ class AnnotCanvas(QWidget):
         self._pan = QPointF(0, 0)
         self._panning_from: QPointF | None = None
         self._full_pixmap: QPixmap | None = None
+        # The Text tool and Quick redact (0.10.0): the words read from the
+        # snip as it looks now, which of them are picked, and what to do once
+        # reading finishes. Reading runs in the background (see _read_text).
+        self._words: list | None = None
+        self._words_key = None
+        self._reading_key = None
+        self._text_error = ""
+        self._picked: set[int] = set()
+        self._pick_from: QPointF | None = None
+        self._pick_to: QPointF | None = None
+        self._after_reading: list = []
+        self._ocr_bridge = _OcrBridge(self)
+        self._ocr_bridge.done.connect(self._on_text_read)
 
     # -- content ----------------------------------------------------------------
     def load(self, image: QImage | None) -> None:
-        self.doc = AnnotationDoc(image) if image is not None else None
+        self.load_doc(AnnotationDoc(image) if image is not None else None)
+
+    def load_doc(self, doc: "AnnotationDoc | None") -> None:
+        """Show `doc`. One opened from edits.py keeps every earlier mark erasable and undoable."""
+        self.doc = doc
         self._zoom = 1.0
         self._pan = QPointF(0, 0)
         self._panning_from = None
         self._message = ""
         self._cancel_gesture()
         self._refresh()
-        self.undo_changed.emit(False)
+        self.undo_changed.emit(bool(doc is not None and doc.can_undo))
 
     def set_message(self, text: str) -> None:
         """Text shown when there is no snip to show."""
@@ -410,7 +465,11 @@ class AnnotCanvas(QWidget):
 
     def set_tool(self, tool: str | None) -> None:
         self._cancel_gesture()
+        if tool != "text":
+            self._picked = set()
         self.tool = tool
+        if tool == "text":
+            self.read_text()
         self._sync_cursor()
         self.update()
 
@@ -431,6 +490,9 @@ class AnnotCanvas(QWidget):
         """
         if self._panning_from is not None:
             shape = Qt.CursorShape.ClosedHandCursor
+        elif (self.tool == "text" and self._pointer is not None and self._rendered is not None
+              and self._visible().contains(self._pointer)):
+            shape = Qt.CursorShape.IBeamCursor
         elif self._pointer_on_image():
             shape = Qt.CursorShape.BlankCursor
         elif (self.tool is None and self._pointer is not None and self.can_pan()
@@ -617,6 +679,10 @@ class AnnotCanvas(QWidget):
             return super().mousePressEvent(event)
         pos = event.position()
         point = self.to_image(pos)
+        if self.tool == "text":
+            self._pick_from = self._pick_to = point
+            self.update()
+            return
         if self.tool in ("pen", "highlighter"):
             width_px = float(self.prefs[f"{self.tool}_width"])
             self._live = Stroke(
@@ -644,7 +710,9 @@ class AnnotCanvas(QWidget):
             self.update()
             return
         self._sync_cursor()
-        if self._live is not None:
+        if self._pick_from is not None:
+            self._pick_to = self.to_image(pos)
+        elif self._live is not None:
             self._live.points.append(self.to_image(pos))
         elif self.tool == "eraser" and event.buttons() & Qt.MouseButton.LeftButton:
             self._erase_at(pos)
@@ -661,6 +729,9 @@ class AnnotCanvas(QWidget):
             return
         if event.button() != Qt.MouseButton.LeftButton or self.doc is None:
             return super().mouseReleaseEvent(event)
+        if self._pick_from is not None:
+            self._finish_pick(event.modifiers())
+            return
         changed = False
         if self._live is not None:
             self.doc.add(self._live)
@@ -707,6 +778,13 @@ class AnnotCanvas(QWidget):
             mode = self.doc.redact_mode(redaction)
             rows.append(("Black out this redaction", lambda r=redaction: self.restyle(r, "black"), mode == "black"))
             rows.append(("Blur this redaction", lambda r=redaction: self.restyle(r, "blur"), mode == "blur"))
+        if self.tool == "text":
+            if rows:
+                rows.append(None)
+            if self._picked:
+                rows.append(("Copy selected text", lambda: self.copy_text(selected=True), None))
+            rows.append(("Copy all text", lambda: self.copy_text(selected=False), None))
+            rows.append(("Quick redact...", self.quick_redact, None))
         if rows:
             rows.append(None)  # a separator
         if self.offer_save_as:
@@ -760,12 +838,230 @@ class AnnotCanvas(QWidget):
                        min(max(point.y(), crop.top()), crop.bottom() + 1))
 
     def _cancel_gesture(self) -> None:
+        self._pick_from = self._pick_to = None
         self._live = None
         self._drag_from = self._drag_to = None
         if self._erasing:
             self._erasing = set()
             if self.doc is not None:
                 self._rendered = self.doc.render()
+
+    # -- the Text tool and Quick redact (0.10.0) ----------------------------------------
+    def _text_key(self):
+        """What the words read belong to: this doc, with exactly these marks."""
+        if self.doc is None:
+            return None
+        return (id(self.doc), tuple(op.id for op in self.doc.ops))
+
+    def read_text(self, then=None) -> None:
+        """Read the words in the snip as it looks now, in the background.
+
+        `then` runs once they are ready (straight away when they already are).
+        Nothing is read while the snip is unchanged since the last time.
+        """
+        key = self._text_key()
+        if key is None:
+            return
+        if then is not None:
+            self._after_reading.append(then)
+        if self._words is not None and self._words_key == key:
+            self._run_after_reading()
+            return
+        if self._reading_key == key:
+            return  # already on it
+        self._reading_key = key
+        self._text_error = ""
+        png = _png_of(self.doc.render_full())
+        bridge = self._ocr_bridge
+
+        def work():
+            import ocr
+
+            try:
+                words, error = ocr.recognise(png), ""
+            except Exception as exc:  # noqa: BLE001 - shown to the user, never raised
+                words, error = None, str(exc)
+            try:
+                bridge.done.emit(key, words, error)
+            except RuntimeError:
+                pass  # the window closed while reading
+
+        threading.Thread(target=work, name="shadowsnip-ocr", daemon=True).start()
+        self.update()
+
+    def _on_text_read(self, key, words, error) -> None:
+        if key != self._reading_key:
+            return  # the snip changed while it was being read; that read is stale
+        self._reading_key = None
+        if words is None:
+            self._text_error = error or "No text could be read."
+            self._after_reading.clear()
+            self.notice.emit(self._text_error)
+        else:
+            self._words, self._words_key = words, key
+            self._picked = set()
+        self.update()
+        if self._text_key() != key:
+            self.read_text()  # changed meanwhile: read the new state
+            return
+        self._run_after_reading()
+
+    def _run_after_reading(self) -> None:
+        pending, self._after_reading = self._after_reading, []
+        for callback in pending:
+            callback()
+
+    @property
+    def reading_text(self) -> bool:
+        return self._reading_key is not None
+
+    def visible_words(self) -> list:
+        """The words read, inside the crop (what is on the saved snip)."""
+        if self._words is None or self.doc is None or self._words_key != self._text_key():
+            return []
+        crop = QRectF(self.doc.crop_rect())
+        return [w for w in self._words if crop.contains(QPointF(w.x + w.w / 2, w.y + w.h / 2))]
+
+    def _finish_pick(self, modifiers) -> None:
+        start, end = self._pick_from, self._pick_to
+        self._pick_from = self._pick_to = None
+        words = self.visible_words()
+        adding = bool(modifiers & (Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.ControlModifier))
+        picked = set(self._picked) if adding else set()
+        rect = QRectF(start, end).normalized()
+        if rect.width() * self.scale() < MIN_DRAG and rect.height() * self.scale() < MIN_DRAG:
+            # A click: the word under it, or nothing.
+            for word in words:
+                if QRectF(word.x, word.y, word.w, word.h).adjusted(-2, -2, 2, 2).contains(start):
+                    picked ^= {id(word)} if adding else {id(word)}
+                    break
+        else:
+            for word in words:
+                if rect.intersects(QRectF(word.x, word.y, word.w, word.h)):
+                    picked.add(id(word))
+        self._picked = picked
+        self.update()
+
+    def pick_all_text(self) -> None:
+        self._picked = {id(w) for w in self.visible_words()}
+        self.update()
+
+    def has_picked_text(self) -> bool:
+        return bool(self._picked)
+
+    def picked_text(self) -> str:
+        import ocr
+
+        return ocr.text_of([w for w in self.visible_words() if id(w) in self._picked])
+
+    def copy_text(self, selected: bool = True) -> None:
+        """Put the picked words (or all of them) on the clipboard as text."""
+        def go():
+            import ocr
+
+            words = self.visible_words()
+            if selected and self._picked:
+                words = [w for w in words if id(w) in self._picked]
+            text = ocr.text_of(words)
+            if not text.strip():
+                self.notice.emit("No text found in this snip")
+                return
+            from PySide6.QtWidgets import QApplication
+
+            QApplication.clipboard().setText(text)
+            lines = text.count("\n") + 1
+            self.notice.emit(
+                f"Copied {len(words)} word{'s' if len(words) != 1 else ''} "
+                f"({lines} line{'s' if lines != 1 else ''}) as text"
+            )
+
+        self.read_text(then=go)
+
+    def quick_redact(self) -> None:
+        """Find emails, phone numbers, hashes, passwords and keys, and offer to hide them."""
+        if self.doc is None:
+            return
+        self.notice.emit("Reading the text to find what to hide...")
+        self.read_text(then=self._offer_quick_redact)
+
+    def _offer_quick_redact(self) -> None:
+        import ocr
+        from quickredact import QuickRedactDialog
+
+        found = ocr.find_sensitive(self.visible_words())
+        if not found:
+            self.notice.emit("Quick redact found nothing to hide in this snip")
+            return
+        dialog = QuickRedactDialog(found, self.prefs.get("quick_redact"), self.window())
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            self.notice.emit("Quick redact cancelled; nothing was hidden")
+            return
+        kinds = dialog.chosen_kinds()
+        self.prefs["quick_redact"] = sorted(kinds)
+        chosen = [f for f in found if f.kind in kinds]
+        self.add_redactions([box for f in chosen for box in f.boxes])
+        self.notice.emit(
+            f"Quick redact hid {len(chosen)} item{'s' if len(chosen) != 1 else ''}. "
+            "Erase any you want back, or undo them all at once (Ctrl+Z)."
+        )
+
+    def add_redactions(self, boxes) -> int:
+        """Cover each (x, y, w, h) box; all of them undo together. Returns how many."""
+        if self.doc is None or not boxes:
+            return 0
+        crop = self.doc.crop_rect()
+        batch = self.doc.new_id()
+        added = 0
+        for x, y, w, h in boxes:
+            rect = QRect(int(x), int(y), int(w), int(h)).intersected(self.doc.base.rect())
+            if rect.isEmpty() or not rect.intersects(crop):
+                continue
+            self.doc.add(Redact(self.doc.new_id(), rect, self.prefs.get("redact_mode", "black"), batch))
+            added += 1
+        if added:
+            self._refresh()
+            self.undo_changed.emit(self.doc.can_undo)
+            self.edited.emit()
+        return added
+
+    def _paint_words(self, painter: QPainter) -> None:
+        """The Text tool: every word read, outlined; the picked ones filled."""
+        painter.save()
+        painter.setClipRect(self._visible())
+        message = ""
+        if self.reading_text:
+            message = "Reading the text..."
+        elif self._text_error:
+            message = self._text_error
+        else:
+            words = self.visible_words()
+            if self._words is not None and not words:
+                message = "No text found in this snip"
+            for word in words:
+                top_left = self.to_widget(QPointF(word.x, word.y))
+                bottom_right = self.to_widget(QPointF(word.x + word.w, word.y + word.h))
+                box = QRectF(top_left, bottom_right).adjusted(-1, -1, 1, 1)
+                if id(word) in self._picked:
+                    painter.fillRect(box, WORD_FILL)
+                painter.setPen(QPen(WORD_EDGE, 1))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRect(box)
+        if self._pick_from is not None and self._pick_to is not None:
+            rect = QRectF(self.to_widget(self._pick_from), self.to_widget(self._pick_to)).normalized()
+            painter.setPen(QPen(accent(), 1, Qt.PenStyle.DashLine))
+            painter.drawRect(rect)
+        if message:
+            metrics = painter.fontMetrics()
+            box = QRectF(0, 0, min(self.width() - 40, metrics.horizontalAdvance(message) + 24),
+                         metrics.height() + 12)
+            box.moveCenter(QPointF(self._visible().center().x(), self._visible().top() + 30))
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(16, 16, 19, 220))
+            painter.drawRoundedRect(box, 5, 5)
+            painter.setPen(QColor("#e6e6ec"))
+            painter.drawText(box, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, message)
+        painter.restore()
 
     # -- painting -----------------------------------------------------------------------
     def paintEvent(self, event):
@@ -836,7 +1132,9 @@ class AnnotCanvas(QWidget):
                 painter.setPen(QPen(accent(), 1))
             painter.drawRect(rect)
 
-        if self._pointer_on_image():
+        if self.tool == "text":
+            self._paint_words(painter)
+        elif self._pointer_on_image():
             self._paint_tool_cursor(painter, target)
 
     def _paint_zoom_label(self, painter: QPainter, scale: float) -> None:
@@ -991,6 +1289,29 @@ def tool_icon(kind: str, color: str | None = None, size: int = 22) -> QIcon:
         p.drawLine(QPointF(s * 0.28, s * 0.72), QPointF(s * 0.92, s * 0.72))
         p.drawLine(QPointF(s * 0.08, s * 0.28), QPointF(s * 0.72, s * 0.28))
         p.drawLine(QPointF(s * 0.72, s * 0.28), QPointF(s * 0.72, s * 0.92))
+    elif kind == "text":
+        # A T inside a selection frame: read the words.
+        p.drawLine(QPointF(s * 0.30, s * 0.28), QPointF(s * 0.70, s * 0.28))
+        p.drawLine(QPointF(s * 0.50, s * 0.28), QPointF(s * 0.50, s * 0.74))
+        dash = QPen(ink, 1.1, Qt.PenStyle.DashLine)
+        p.setPen(dash)
+        p.drawRoundedRect(QRectF(s * 0.10, s * 0.12, s * 0.80, s * 0.76), 2, 2)
+    elif kind == "quick":
+        # A redaction bar with a spark: hide what was found.
+        p.drawRoundedRect(QRectF(s * 0.08, s * 0.40, s * 0.62, s * 0.30), 2, 2)
+        p.setBrush(ink)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawRect(QRectF(s * 0.16, s * 0.48, s * 0.46, s * 0.14))
+        spark = QPainterPath()
+        spark.moveTo(s * 0.80, s * 0.06)
+        spark.lineTo(s * 0.66, s * 0.30)
+        spark.lineTo(s * 0.78, s * 0.30)
+        spark.lineTo(s * 0.70, s * 0.52)
+        spark.lineTo(s * 0.92, s * 0.22)
+        spark.lineTo(s * 0.80, s * 0.22)
+        spark.closeSubpath()
+        p.setBrush(QColor("#ffc857"))
+        p.drawPath(spark)
     elif kind == "redact":
         p.drawRoundedRect(QRectF(s * 0.12, s * 0.20, s * 0.76, s * 0.60), 2, 2)
         p.setBrush(ink)
@@ -1257,6 +1578,8 @@ TOOL_INFO = {
     "eraser": ("Eraser", "Drag across a pen line, highlight or redaction to remove the whole mark.", ""),
     "crop": ("Crop", "Drag the area of the snip to keep; the rest is cut away.", ""),
     "redact": ("Redact", "Drag over passwords, hashes or client details to hide them.", "blur or black out"),
+    "text": ("Text", "Read the words in the snip: click a word or drag across several, then "
+             "Ctrl+C or right-click to copy them as text.", "copy all text, quick redact"),
 }
 HINTS = {
     None: "Left-click a tool to pick it up, right-click for its options. Changes save as you go.",
@@ -1265,6 +1588,7 @@ HINTS = {
     "eraser": "Eraser: drag across a mark to remove it. Esc to put it down.",
     "crop": "Crop: drag the area to keep. Esc to put it down.",
     "redact": "Redact: drag over what to hide. Esc or click it again to put it down.",
+    "text": "Text: click a word or drag across several, then Ctrl+C. Shift adds more. Right-click to copy all.",
 }
 NO_SNIP_HINT = "Take a snip to mark it up."
 
@@ -1296,6 +1620,9 @@ class AnnotToolbar(QWidget):
     tool_changed = Signal(object)  # str or None
     prefs_changed = Signal(dict)
     undo_requested = Signal()
+    # 0.10.0: the Quick redact button, and the Text tool's right-click menu.
+    quick_redact_requested = Signal()
+    copy_all_text_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1309,7 +1636,7 @@ class AnnotToolbar(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 4, 8, 4)
         layout.setSpacing(2)
-        for group_index, group in enumerate((("pen", "highlighter", "eraser"), ("crop", "redact"))):
+        for group_index, group in enumerate((("pen", "highlighter", "eraser"), ("crop", "redact", "text"))):
             if group_index:
                 rule = QFrame()
                 rule.setObjectName("StripRule")
@@ -1330,6 +1657,17 @@ class AnnotToolbar(QWidget):
                 button.installEventFilter(self)
                 self.buttons[kind] = button
                 layout.addWidget(button)
+
+        self.btn_quick = QToolButton()
+        self.btn_quick.setObjectName("QuickRedact")
+        self.btn_quick.setIconSize(QSize(22, 22))
+        self.btn_quick.setToolTip(
+            "<b>Quick redact</b><br>Find emails, phone numbers, hashes, passwords, keys "
+            "and tokens in the snip and black them out. You see what was found first; "
+            "each one can be erased afterwards, and one undo takes them all back."
+        )
+        self.btn_quick.clicked.connect(self.quick_redact_requested.emit)
+        layout.addWidget(self.btn_quick)
 
         layout.addSpacing(8)
         self.btn_undo = QToolButton()
@@ -1385,7 +1723,7 @@ class AnnotToolbar(QWidget):
     def set_available(self, available: bool) -> None:
         """Usable only with a snip on screen; shown greyed out before that."""
         self._available = bool(available)
-        for button in self.buttons.values():
+        for button in [*self.buttons.values(), self.btn_quick]:
             button.setEnabled(self._available)
             # The icons are drawn, so Qt's own disabled look barely shows;
             # fade them, so a strip that cannot be used looks it.
@@ -1417,7 +1755,14 @@ class AnnotToolbar(QWidget):
         if self.tool != kind:
             self.select(kind)
         popup = self._popup_for(kind)
-        if popup is not None:
+        if kind == "text":
+            menu = QMenu(self)
+            menu.setStyleSheet(skins.style(MENU_STYLE))
+            menu.addAction("Copy all text", self.copy_all_text_requested.emit)
+            menu.addAction("Quick redact...", self.quick_redact_requested.emit)
+            button = self.buttons[kind]
+            menu.exec(button.mapToGlobal(QPoint(0, button.height() + 6)))
+        elif popup is not None:
             self._open(popup, kind)
         else:
             # No options to show: say so, rather than doing nothing.
@@ -1473,6 +1818,8 @@ class AnnotToolbar(QWidget):
         self.buttons["eraser"].setIcon(tool_icon("eraser"))
         self.buttons["crop"].setIcon(tool_icon("crop"))
         self.buttons["redact"].setIcon(tool_icon("redact"))
+        self.buttons["text"].setIcon(tool_icon("text"))
+        self.btn_quick.setIcon(tool_icon("quick"))
 
 
 def _fade(button, faded: bool) -> None:
@@ -1498,4 +1845,10 @@ def sanitise_prefs(prefs) -> dict:
             pass
     if prefs.get("redact_mode") in ("blur", "black"):
         out["redact_mode"] = prefs["redact_mode"]
+    # The kinds Quick redact was last told to hide (0.10.0); absent: its defaults.
+    kinds = prefs.get("quick_redact")
+    if isinstance(kinds, (list, tuple)):
+        from ocr import KINDS
+
+        out["quick_redact"] = sorted({str(k) for k in kinds if str(k) in KINDS})
     return out

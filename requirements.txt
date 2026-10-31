@@ -2,3 +2,14 @@ PySide6>=6.6
 Pillow>=10.0
 python-docx>=1.1
 pywin32>=306; sys_platform == "win32"
+# Copy text and Quick redact (0.10.0) read text with Windows' own OCR engine,
+# reached through these. Linux uses the tesseract program instead
+# (sudo apt install tesseract-ocr), so nothing here is needed there.
+winrt-runtime>=2.0; sys_platform == "win32"
+winrt-Windows.Foundation>=2.0; sys_platform == "win32"
+winrt-Windows.Foundation.Collections>=2.0; sys_platform == "win32"
+winrt-Windows.Globalization>=2.0; sys_platform == "win32"
+winrt-Windows.Graphics.Imaging>=2.0; sys_platform == "win32"
+winrt-Windows.Media.Ocr>=2.0; sys_platform == "win32"
+winrt-Windows.Security.Cryptography>=2.0; sys_platform == "win32"
+winrt-Windows.Storage.Streams>=2.0; sys_platform == "win32"

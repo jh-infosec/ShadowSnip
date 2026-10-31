@@ -590,8 +590,17 @@ def remove_snip(cfg: dict, filename: str) -> dict | None:
                         f"it is in {REMOVED_DIR}/{destination.name}"
                     ) from exc
                 raise LabError(f"{exc}. Nothing was removed.") from exc
+            _move_edits(source, destination)
             raise
+    _move_edits(source, destination)
     return removed
+
+
+def _move_edits(source: Path, destination: Path) -> None:
+    """A removed snip's kept marks (edits.py) go with it into removed/."""
+    import edits
+
+    edits.move(source, destination)
 
 
 def _record_lists(target: Path, filename: str) -> bool:

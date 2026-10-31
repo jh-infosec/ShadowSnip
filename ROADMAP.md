@@ -24,11 +24,29 @@ Pen, highlighter, eraser, crop, redaction (blur or black out) and undo, on the
 snip in the preview window, saved to every copy as you go. Since v0.7.7 the
 same tools work on any lab snip, in the full-size view.
 
-## Marking up, still open
+## Done in v0.10.0 - text and editable marks
 
-- Arrows, boxes and text labels, the rest of what annotation usually means.
+- Copy text from a snip: the Text tool reads it (Windows OCR, or Tesseract on
+  Linux) and copies picked words or all of it.
+- Quick redact: finds passwords, keys, hashes, emails and phone numbers (and
+  IP addresses on request) and covers them in one undoable step.
+- Marks stay editable after you leave a snip, redactions included, through
+  the hidden `.edits` sidecars.
+
+## Next: v0.11 - shapes and text
+
+- Arrows, rectangles and ellipses, in the pen's colours and widths.
+- Text labels typed onto the snip.
 - Redo, beside undo.
 - Moving or resizing a mark after it is drawn.
+
+## Marking up, still open
+
+- Quick redact could learn the lab's own targets (hostnames, the client's
+  domain) and offer them as a kind of their own.
+- OCR in more languages on Linux depends on the Tesseract language packs
+  installed; a hint in the Text tool when the result looks like the wrong
+  language would help.
 
 ## Done in v0.9.0 - the pentest report
 
@@ -42,7 +60,7 @@ filed as code blocks, and the methodology phases laid out in one click.
 - Exporting into a client's own Word template (styles and cover page).
 - CVSS scores on findings, and a findings-only export.
 
-## v0.10 - integration
+## Later - integration
 
 - Run at login toggle in Settings, writing the shortcut itself and reading
   back the real state rather than a stored flag.
@@ -54,16 +72,23 @@ filed as code blocks, and the methodology phases laid out in one click.
   route to different projects.
 - Signed release binaries so SmartScreen stops warning on first run.
 
-## v0.11 - capture modes
+## Capture modes
 
-- Window mode: highlight and grab the window under the cursor.
+- Window mode: highlight and grab the window under the cursor (as Windows
+  Snipping Tool's window snip).
 - Freeform (lasso) selection, matching Snipping Tool's freeform mode.
+- Print Screen as the snip key, and Alt+N for a new snip while ShadowSnip's
+  window has focus, matching Snipping Tool. Print Screen means taking it over
+  from Windows' own setting ("Use the Print screen key to open screen
+  capture"), so ShadowSnip would need to say so rather than silently lose it.
 - Delayed capture (3s / 5s / 10s) so menus and tooltips can be caught.
 - Snap the selection to detected UI element edges while dragging.
 - Magnifier loupe near the cursor for pixel-exact edges.
 
-## v0.12 - after the snip
+## After the snip
 
+- Colour picker: hover a pixel in the snip to read its hex and RGB value, and
+  click to copy it.
 - Clipboard history strip: the last N snips, one click to re-copy. (0.8.0's Recent snips list already re-copies any recent snip from the window; the strip would do it without opening it.)
 - "Copy as" menu: PNG, JPEG, WebP, or a data URI.
 

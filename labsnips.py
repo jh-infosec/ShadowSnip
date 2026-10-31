@@ -73,6 +73,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import edits
 import skins
 import storage
 from annotate import AnnotCanvas, AnnotToolbar
@@ -333,10 +334,13 @@ class SnipViewer(QWidget):
         self.tools.set_available(False)
         self.tools.tool_changed.connect(self.canvas.set_tool)
         self.tools.undo_requested.connect(self.canvas.undo)
+        self.tools.quick_redact_requested.connect(self.canvas.quick_redact)
+        self.tools.copy_all_text_requested.connect(lambda: self.canvas.copy_text(selected=False))
+        self.canvas.notice.connect(self.flash)
         self.tools.prefs_changed.connect(self._on_prefs)
         self.canvas.undo_changed.connect(self.tools.set_undo_enabled)
         self.canvas.edited.connect(self._on_edited)
-        self.canvas.copy_requested.connect(self.copy_current)
+        self.canvas.copy_requested.connect(self.copy_image)
         self._edit_timer = QTimer(self)
         self._edit_timer.setSingleShot(True)
         self._edit_timer.setInterval(VIEWER_EDIT_SAVE_MS)
@@ -373,7 +377,7 @@ class SnipViewer(QWidget):
         self.btn_close = QPushButton("Close")
         self.btn_prev.clicked.connect(lambda: self.step(-1))
         self.btn_next.clicked.connect(lambda: self.step(1))
-        self.btn_copy.clicked.connect(self.copy_current)
+        self.btn_copy.clicked.connect(self.copy_image)
         self.btn_save.clicked.connect(self.save_current_as)
         self.btn_remove.clicked.connect(self.remove_current)
         self.btn_close.clicked.connect(self.close)
@@ -408,6 +412,8 @@ class SnipViewer(QWidget):
 
         QShortcut(QKeySequence("Esc"), self, self._on_escape)
         QShortcut(QKeySequence.StandardKey.Copy, self, self.copy_current)
+        QShortcut(QKeySequence.StandardKey.SelectAll, self,
+                  lambda: self.canvas.pick_all_text() if self.canvas.tool == "text" else None)
         QShortcut(QKeySequence.StandardKey.Save, self, self.save_current_as)
         QShortcut(QKeySequence.StandardKey.Delete, self, self.remove_current)
         QShortcut(QKeySequence.StandardKey.Undo, self, self.canvas.undo)
@@ -527,6 +533,13 @@ class SnipViewer(QWidget):
         self._hint_timer.start(ms)
 
     def copy_current(self) -> None:
+        """Ctrl+C: the words picked with the Text tool, when there are some; else the snip."""
+        if self.canvas.tool == "text" and self.canvas.has_picked_text():
+            self.canvas.copy_text(selected=True)
+            return
+        self.copy_image()
+
+    def copy_image(self) -> None:
         filename = self.current_file()
         if filename:
             # The copy is read from the file, so mark-up still waiting has to
@@ -583,10 +596,16 @@ class SnipViewer(QWidget):
         item = self._items[self._index]
         if reload or item["file"] != self._loaded_file:
             self.about_to_load.emit(item["file"])
-            image = QImage(item["path"]) if item.get("path") else QImage()
+            path = item.get("path") or ""
+            # The marks kept from last time, each still erasable (edits.py),
+            # or else the picture as it is on disk.
+            doc = edits.load(Path(path)) if path else None
+            image = doc.base if doc is not None else (QImage(path) if path else QImage())
             if image.isNull():
                 self.canvas.load(None)
                 self.canvas.set_message("This image could not be loaded.")
+            elif doc is not None:
+                self.canvas.load_doc(doc)
             else:
                 self.canvas.load(image)
             self._loaded_file = item["file"]

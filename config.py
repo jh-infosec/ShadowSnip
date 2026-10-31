@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.9.2"
+APP_VERSION = "0.10.0"
 
 
 def config_dir() -> Path:
@@ -52,6 +52,9 @@ DEFAULTS = {
     # Recent snips list in the window when no lab is running (0.8.0), so on
     # by default.
     "keep_history": True,
+    # Keep each edited snip's marks (and its original capture) in a hidden
+    # .edits folder beside it, so they can be erased or undone later (0.10.0).
+    "keep_edits": True,
     "history_limit": 50,
     # Set once a config has had history switched on for the Recent list (0.8.0).
     "history_reviewed": True,
@@ -258,6 +261,7 @@ def _sanitise(cfg: dict) -> dict:
         "auto_copy_toast",
         "png_effort_reviewed",
         "history_reviewed",
+        "keep_edits",
         "close_hint_shown",
         "lab_methodology",
     ):
