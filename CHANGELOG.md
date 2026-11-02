@@ -1,22 +1,56 @@
 # Changelog
 
-## Latest: 0.10.1
+## Latest: 0.11.0
 
-**Changed**: the Recent snips list uses its width. Each row now shows the
-snip's **Dimensions** (1920 × 1080) and file **Size** (245 KB) beside the
-number and time, and a ✎ under **Marks** when its marks are still editable.
-The columns fill the list, each at least as wide as its contents with the
-spare room shared out, so nothing is cut short in a narrow window and there is
-no empty band on the right in a wide one. Every column and its heading are
-centred, the number and time included, which were slightly off to the left
-before, and faint lines separate the columns, lined up with the header's.
+The mark-up release: the rest of what annotating a screenshot for a report
+usually needs.
 
-**Changed**: times older than today say which day. "18:20:10" for today,
-"Yesterday 16:41", "29 Oct 09:14", and the year once it is not this year. In
-labs too, where a lab that runs over several days showed only the clock.
+**Added**, on the tool strip:
 
-**Added**: hovering a snip in either list shows its dimensions and file size,
-and says when its marks are still editable.
+- **Shapes**: arrow, line, box and ellipse (right-click the tool to choose),
+  with a line width. Shift keeps lines at 45° steps and boxes square.
+- **Label**: click, type, Enter. Words on a coloured tag, readable on any
+  screenshot.
+- **Numbered steps**: click to drop ①, ②, ③... in order, for the steps of an
+  attack path.
+- **Callout**: one drag from the thing to where the words go, then type. An
+  arrow and a label in one.
+- **Spotlight**: drag over what matters and the rest is dimmed. Several
+  spotlights keep each area bright; marks drawn afterwards stay bright too.
+- **Magnify**: drag over something small and a 2x, 3x or 4x copy is placed
+  beside it, inside the snip, joined to it by faint lines.
+- **Evidence stamp**: a button that adds the time the snip was taken and this
+  machine's name, bottom right.
+- **Select**: click any of these marks to move it, drag its handles to resize
+  it, double-click a label or callout to change its words, Delete to remove
+  it. Right-click a mark for Edit text and Delete.
+- **Redo**: a button beside undo, Ctrl+Y or Ctrl+Shift+Z. A Quick redact
+  undone in one step is redone in one step.
+
+Shapes, labels, steps, callouts and magnify share one colour, so a report's
+marks match. **Shift** with the pen now draws a straight line.
+
+Every new mark, and every move, resize and retype, is an operation like the
+pen's: undoable, erasable with the eraser, drawn fresh from the original, and
+kept in the `.edits` sidecar, so it can still be moved or erased after you
+leave the snip. Sidecars written by 0.10 open unchanged.
+
+**Changed**: the tool strip is grouped (select and freehand, shapes and
+words, spotlight and magnify, crop and hiding) and slightly tighter, so the
+extra tools fit the window at its usual size.
+
+### 0.10.2 in brief
+
+**Added**: right-click a snip in the snip list, or the picture under it, for
+Expand, Copy, Save as..., Open, Show in folder and Remove... **Changed**: with
+the list in focus, Ctrl+C copies the snip selected in it.
+
+### 0.10.1 in brief
+
+**Changed**: Recent snips shows Dimensions, file Size and a ✎ for editable
+marks beside the number and time, centred under their headings, with faint
+lines between the columns and the width shared out. Times older than today
+say which day ("Yesterday 16:41", "29 Oct 09:14"), in labs too.
 
 ### 0.10.0 in brief
 

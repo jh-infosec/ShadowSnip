@@ -193,6 +193,9 @@ class PreviewWindow(QWidget):
         self.tools.set_available(False)
         self.tools.tool_changed.connect(self.canvas.set_tool)
         self.tools.undo_requested.connect(self.canvas.undo)
+        self.tools.redo_requested.connect(self.canvas.redo)
+        self.tools.stamp_requested.connect(self.canvas.add_stamp)
+        self.canvas.redo_changed.connect(self.tools.set_redo_enabled)
         self.tools.quick_redact_requested.connect(self.canvas.quick_redact)
         self.tools.copy_all_text_requested.connect(lambda: self.canvas.copy_text(selected=False))
         self.canvas.notice.connect(lambda text: self.status.setText(text))
@@ -231,6 +234,7 @@ class PreviewWindow(QWidget):
         self.snips_panel.setVisible(False)
         self.snips_panel.remove_requested.connect(self.snip_remove_requested.emit)
         self.snips_panel.copy_requested.connect(self.snip_copy_requested.emit)
+        self.snips_panel.status_message.connect(self.set_status)
         self.snips_panel.viewer_loading.connect(self.lab_snip_loading.emit)
         self.snips_panel.edit_saved.connect(self.lab_snip_edited.emit)
         self.snips_panel.annotation_prefs_changed.connect(self._on_viewer_prefs)
@@ -363,6 +367,13 @@ class PreviewWindow(QWidget):
         # Ctrl+Z undoes the last mark on the snip. A text box with focus keeps
         # its own Ctrl+Z, because Qt lets the focused editor claim the key.
         QShortcut(QKeySequence.StandardKey.Undo, self, self.canvas.undo)
+        for keys in ("Ctrl+Y", "Ctrl+Shift+Z"):
+            QShortcut(QKeySequence(keys), self, self.canvas.redo)
+        # Delete on the snip removes the selected mark. Scoped to the canvas:
+        # the snip list below has its own Delete, and two shortcuts on one
+        # key in one window cancel each other out.
+        mark_delete = QShortcut(QKeySequence.StandardKey.Delete, self.canvas, self.canvas.delete_selected)
+        mark_delete.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         # Zoom, as the mouse wheel does over the snip.
         QShortcut(QKeySequence("Ctrl+0"), self, self.canvas.reset_zoom)
         for keys in ("Ctrl+=", "Ctrl++"):
@@ -841,7 +852,14 @@ class PreviewWindow(QWidget):
         self.status.setText(f"Saved to {path}")
 
     def copy_again(self) -> None:
-        """Ctrl+C: the words picked with the Text tool, when there are some; else the snip."""
+        """Ctrl+C: the words picked with the Text tool, when there are some; else the snip.
+
+        With the snip list in focus, the snip selected in it instead.
+        """
+        panel = self.snips_panel
+        if panel.list.hasFocus() and panel.selected():
+            panel.copy_selected()
+            return
         if self.canvas.tool == "text" and self.canvas.has_picked_text():
             self.canvas.copy_text(selected=True)
             return

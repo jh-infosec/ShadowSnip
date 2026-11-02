@@ -46,7 +46,7 @@ from PySide6.QtCore import QPointF, QRect
 from PySide6.QtGui import QImage
 
 import storage
-from annotate import AnnotationDoc, Crop, Erase, Redact, Restyle, Stroke
+from annotate import MARK_KINDS, AnnotationDoc, Change, Crop, Erase, Mark, Redact, Restyle, Stroke
 
 DIR_NAME = ".edits"
 # Settings' Keep marks editable. Off: nothing is written or read here.
@@ -71,6 +71,15 @@ def _rect(r: QRect) -> list[int]:
     return [r.x(), r.y(), r.width(), r.height()]
 
 
+def _pt(p: QPointF) -> list[float]:
+    return [round(p.x(), 2), round(p.y(), 2)]
+
+
+def _point(value) -> QPointF:
+    x, y = (float(v) for v in value)
+    return QPointF(x, y)
+
+
 def op_to_dict(op) -> dict:
     if isinstance(op, Stroke):
         return {"t": "stroke", "id": op.id, "kind": op.kind, "color": op.color,
@@ -87,6 +96,20 @@ def op_to_dict(op) -> dict:
         return {"t": "erase", "id": op.id, "targets": sorted(op.targets)}
     if isinstance(op, Restyle):
         return {"t": "restyle", "id": op.id, "target": op.target, "mode": op.mode}
+    if isinstance(op, Mark):
+        out = {"t": "mark", "id": op.id, "kind": op.kind, "color": op.color,
+               "a": _pt(op.a), "b": _pt(op.b), "width": op.width, "size": op.size}
+        if op.text:
+            out["text"] = op.text
+        if op.number:
+            out["number"] = op.number
+        if op.c is not None:
+            out["c"] = _pt(op.c)
+            out["factor"] = op.factor
+        return out
+    if isinstance(op, Change):
+        fields = {k: (_pt(v) if isinstance(v, QPointF) else str(v)) for k, v in op.fields.items()}
+        return {"t": "change", "id": op.id, "target": op.target, "fields": fields}
     raise TypeError(f"not an annotation operation: {op!r}")
 
 
@@ -123,6 +146,27 @@ def op_from_dict(data: dict):
         if data.get("mode") not in ("black", "blur"):
             raise ValueError("unknown redaction mode")
         return Restyle(ident, int(data["target"]), data["mode"])
+    if kind == "mark":
+        if data.get("kind") not in MARK_KINDS:
+            raise ValueError("unknown mark kind")
+        c = _point(data["c"]) if "c" in data else None
+        return Mark(ident, data["kind"], str(data["color"]), _point(data["a"]), _point(data["b"]),
+                    width=float(data.get("width", 4.0)), size=float(data.get("size", 18.0)),
+                    text=str(data.get("text", "")), number=int(data.get("number", 0)),
+                    c=c, factor=float(data.get("factor", 2.0)))
+    if kind == "change":
+        raw = data["fields"]
+        if not isinstance(raw, dict):
+            raise ValueError("change fields are not an object")
+        fields = {}
+        for key, value in raw.items():
+            if key in ("a", "b", "c"):
+                fields[key] = _point(value)
+            elif key == "text":
+                fields[key] = str(value)
+            else:
+                raise ValueError(f"unknown change field {key!r}")
+        return Change(ident, int(data["target"]), fields)
     raise ValueError(f"unknown operation {kind!r}")
 
 

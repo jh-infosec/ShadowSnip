@@ -77,6 +77,7 @@ from PySide6.QtWidgets import (
 import edits
 import skins
 import storage
+import annotate
 from annotate import AnnotCanvas, AnnotToolbar
 
 # The glow around the selected row, the same blue as the thumbnail's hover.
@@ -188,6 +189,23 @@ def fit_size(path: str, box: QSize) -> QSize:
 def label_of(row: dict) -> str:
     number = row.get("number", 0)
     return f"{number:03d}" if isinstance(number, int) else str(number)
+
+
+def show_in_folder(path: Path) -> None:
+    """Open the folder holding `path`: selected in Explorer on Windows."""
+    import subprocess
+    import sys
+
+    if sys.platform == "win32":
+        try:
+            # One argument, as Explorer wants it: /select,"C:\path\file.png"
+            subprocess.Popen(f'explorer /select,"{path}"')
+            return
+        except OSError:
+            pass
+    from PySide6.QtGui import QDesktopServices
+
+    QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
 
 
 # -- the list's columns (0.10.1) ---------------------------------------------------------------
@@ -447,6 +465,9 @@ class SnipViewer(QWidget):
         self.tools.set_available(False)
         self.tools.tool_changed.connect(self.canvas.set_tool)
         self.tools.undo_requested.connect(self.canvas.undo)
+        self.tools.redo_requested.connect(self.canvas.redo)
+        self.tools.stamp_requested.connect(self.canvas.add_stamp)
+        self.canvas.redo_changed.connect(self.tools.set_redo_enabled)
         self.tools.quick_redact_requested.connect(self.canvas.quick_redact)
         self.tools.copy_all_text_requested.connect(lambda: self.canvas.copy_text(selected=False))
         self.canvas.notice.connect(self.flash)
@@ -467,7 +488,7 @@ class SnipViewer(QWidget):
         self.caption.setTextFormat(Qt.TextFormat.PlainText)
         self.hint = QLabel(
             "Left / Right: previous and next snip   |   Scroll: zoom, drag to move, "
-            "Ctrl+0 to fit   |   Ctrl+Z: undo   |   Ctrl+C: copy   |   Ctrl+S: save as   |   Delete: remove   |   Esc: close"
+            "Ctrl+0 to fit   |   Ctrl+Z / Ctrl+Y: undo, redo   |   Ctrl+C: copy   |   Ctrl+S: save as   |   Delete: remove   |   Esc: close"
         )
         self.hint.setObjectName("ViewerHint")
         self._hint_text = self.hint.text()
@@ -528,8 +549,12 @@ class SnipViewer(QWidget):
         QShortcut(QKeySequence.StandardKey.SelectAll, self,
                   lambda: self.canvas.pick_all_text() if self.canvas.tool == "text" else None)
         QShortcut(QKeySequence.StandardKey.Save, self, self.save_current_as)
-        QShortcut(QKeySequence.StandardKey.Delete, self, self.remove_current)
+        # Delete: the selected mark when the Select tool has one, else the snip.
+        QShortcut(QKeySequence.StandardKey.Delete, self,
+                  lambda: self.canvas.delete_selected() or self.remove_current())
         QShortcut(QKeySequence.StandardKey.Undo, self, self.canvas.undo)
+        for keys in ("Ctrl+Y", "Ctrl+Shift+Z"):
+            QShortcut(QKeySequence(keys), self, self.canvas.redo)
         QShortcut(QKeySequence("Ctrl+0"), self, self.canvas.reset_zoom)
         for keys in ("Ctrl+=", "Ctrl++"):
             QShortcut(QKeySequence(keys), self, lambda: self.canvas.set_zoom(self.canvas.zoom() * 1.2))
@@ -722,6 +747,8 @@ class SnipViewer(QWidget):
             else:
                 self.canvas.load(image)
             self._loaded_file = item["file"]
+            # The evidence stamp says when this snip was taken, not when it was stamped.
+            self.canvas.stamp_time = item.get("time") or None
             self._edit_pending = False
             self._edit_timer.stop()
             self.tools.set_available(not image.isNull())
@@ -1196,6 +1223,8 @@ class LabSnipsPanel(QWidget):
     remove_requested = Signal(list)
     open_requested = Signal(str)
     copy_requested = Signal(str)
+    # A line for the window's status bar (Save as, Show in folder).
+    status_message = Signal(str)
     # From the viewer: a lab snip about to be shown, and an edited one.
     viewer_loading = Signal(str)
     edit_saved = Signal(str, QImage)
@@ -1252,6 +1281,9 @@ class LabSnipsPanel(QWidget):
         self._apply_columns()
         self.list.itemSelectionChanged.connect(self._on_selection_changed)
         self.list.itemDoubleClicked.connect(lambda _item, _column: self.expand())
+        # Right-click a snip: copy, save, open, show in folder, remove (0.10.2).
+        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._list_menu)
 
         # Scoped to the list, so these keys still edit text in the boxes below.
         for sequence, slot in (
@@ -1349,6 +1381,8 @@ class LabSnipsPanel(QWidget):
         self.thumb.setCursor(Qt.CursorShape.PointingHandCursor)
         self.thumb.setToolTip("Click to expand. Left and Right then cycle through the lab.")
         self.thumb.clicked.connect(self.expand)
+        self.thumb.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.thumb.customContextMenuRequested.connect(self._thumb_menu)
 
         self.where = QLabel()
         self.where.setObjectName("SnipWhere")
@@ -1736,6 +1770,7 @@ class LabSnipsPanel(QWidget):
                     "label": label_of(row),
                     "caption": row.get("caption", ""),
                     "section": row.get("section", ""),
+                    "time": str(row.get("time", "")),
                 }
             )
         return items
@@ -1794,6 +1829,97 @@ class LabSnipsPanel(QWidget):
         files = self.selected_files()
         if files:
             self.remove_requested.emit(files)
+
+    # -- the right-click menu (0.10.2) --------------------------------------------
+    def _list_menu(self, pos) -> None:
+        item = self.list.itemAt(pos)
+        if item is None:
+            return
+        # Right-clicking outside the selection selects that one snip, as a
+        # file manager does; inside it, the selection stays, so Remove can
+        # still take several.
+        if not item.isSelected():
+            self.list.setCurrentItem(item)
+        self.list.setFocus()
+        self._popup(self.snip_menu(), self.list.viewport().mapToGlobal(pos))
+
+    def _thumb_menu(self, pos) -> None:
+        if self._shown_file:
+            self._popup(self.snip_menu(), self.thumb.mapToGlobal(pos))
+
+    def _popup(self, menu: QMenu, where) -> None:
+        """Show the menu and wait for a choice (one place, so tests can stand in)."""
+        menu.exec(where)
+
+    def snip_menu(self) -> QMenu:
+        """The menu for the selected snip(s), the same from the list and the picture."""
+        menu = QMenu(self)
+        menu.setStyleSheet(skins.style(annotate.MENU_STYLE))
+        filename = self.selected()
+        count = len(self.selected_files())
+        one = bool(filename)
+        for text, slot, keys, enabled in (
+            ("Expand", self.expand, "Space", one),
+            ("Copy", self.copy_selected, "Ctrl+C", one),
+            ("Save as...", self.save_selected_as, "", one),
+            ("Open", self._emit_open, "", one),
+            ("Show in folder", self.show_selected_in_folder, "", one),
+        ):
+            action = menu.addAction(text, slot)
+            if keys:
+                action.setShortcut(QKeySequence(keys))
+                action.setShortcutVisibleInContextMenu(True)
+            action.setEnabled(enabled)
+        menu.addSeparator()
+        label = self.btn_remove.text() if count else "Remove"
+        remove = menu.addAction(label + "...", self._emit_remove)
+        remove.setShortcut(QKeySequence("Delete"))
+        remove.setShortcutVisibleInContextMenu(True)
+        remove.setEnabled(count > 0)
+        return menu
+
+    def _selected_path(self) -> Path | None:
+        row = self._rows.get(self.selected())
+        if row is None:
+            return None
+        path = Path(row.get("path") or "")
+        return path if path.is_file() else None
+
+    def copy_selected(self) -> None:
+        """Put the selected snip on the clipboard (the app does the copying)."""
+        filename = self.selected()
+        if filename:
+            self.flush_viewer_edits()
+            self.copy_requested.emit(filename)
+
+    def save_selected_as(self) -> None:
+        """Save a copy of the selected snip, mark-up included, wherever you choose."""
+        self.flush_viewer_edits()
+        source = self._selected_path()
+        if source is None:
+            self.status_message.emit("This snip's file is no longer there")
+            return
+        suffix = source.suffix.lower().lstrip(".") or "png"
+        filters = f"{suffix.upper()} image (*.{suffix});;All files (*)"
+        target, _ = QFileDialog.getSaveFileName(
+            self, "Save snip", str(Path.home() / source.name), filters
+        )
+        if not target:
+            return
+        try:
+            storage.write_atomic(Path(target), source.read_bytes())
+        except OSError as exc:
+            self.status_message.emit(f"Could not save: {exc}")
+            return
+        self.status_message.emit(f"Saved to {target}")
+
+    def show_selected_in_folder(self) -> None:
+        """Open the snip's folder, with the snip picked out where the system allows."""
+        source = self._selected_path()
+        if source is None:
+            self.status_message.emit("This snip's file is no longer there")
+            return
+        show_in_folder(source)
 
     def _emit_open(self) -> None:
         filename = self.selected()

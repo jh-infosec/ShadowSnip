@@ -89,6 +89,28 @@ flushed before a new snip starts and when the window closes, so an edit is
 never lost or saved onto the next snip. A lab snip removed while on screen is
 dropped from `_snip_paths`, so an edit cannot recreate it.
 
+### Shapes, words and moving marks (0.11.0)
+
+Every mark added in 0.11 is one operation type, `Mark`, whose `kind` says
+what it is (arrow, line, rect, ellipse, label, step, callout, spotlight,
+magnify, stamp) and whose points mean what that kind needs. Moving, resizing
+or retyping one adds a `Change` naming the mark and its new values;
+`AnnotationDoc.effective()` applies the changes in order, so undo is still
+just dropping the last operation, and a move is erasable history like
+anything else. Strokes and redactions do not move: a redaction dragged off
+what it covers is a leak waiting to happen.
+
+Rendering stays a single pass over the operations. Marks paint with the same
+painter as strokes. Spotlight and magnify read pixels, so like a blur they
+end the painter first. All spotlights are applied together at the first one,
+so several keep each other bright and later marks stay undimmed. The same
+`paint_mark()` draws a mark being dragged, scaled to the screen with a
+transform, so what you see while drawing is what gets saved.
+
+Redo is a stack of the groups undo removed (a Quick redact batch is one
+group); any new operation clears it. `edits.py` stores `Mark` and `Change`
+like the rest, and rejects unknown kinds and fields.
+
 ### Marks that outlive the window (0.10.0)
 
 The operation list is plain data, so `edits.py` writes it out: after each save
@@ -114,7 +136,9 @@ for small text first). Low-confidence words are kept on purpose: long hashes
 are exactly what OCR is least sure of.
 
 The canvas reads the snip as it looks now (`render_full`, before the crop)
-on a background thread and posts the words back through a queued signal. The
+on a background thread. The thread makes no Qt calls: it leaves the words in a
+plain dict, and a timer on the canvas collects them (0.11.0; a signal emitted
+from a Python thread could crash PySide6 when the canvas closed mid-read). The
 result is keyed on the doc and its operation ids, so a mark made meanwhile
 makes the read stale and it is read again. Picking and copying work on the
 words inside the crop.
@@ -335,5 +359,5 @@ combination, needs no elevation, and fails loudly if the combination is taken.
 ## What is not here yet
 
 Run at login, upload targets, freeform and window-mode capture, delayed
-capture, shapes and text labels, and encryption at rest for lab folders. See
+capture, and encryption at rest for lab folders. See
 `ROADMAP.md`.

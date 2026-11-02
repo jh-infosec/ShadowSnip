@@ -134,6 +134,8 @@ removal, the viewer) is the same code on both.
 | Save a permanent copy (preview window) | `Ctrl+S` |
 | Copy again (preview window) | `Ctrl+C` |
 | Undo the last mark on the snip | `Ctrl+Z`, or the round undo button |
+| Redo what undo took back | `Ctrl+Y` or `Ctrl+Shift+Z`, or the button beside undo |
+| Remove the selected mark (Select tool) | `Delete` on the snip |
 | Zoom the snip (preview window and full-size view) | Mouse wheel over the snip, or `Ctrl+=` / `Ctrl+-`; `Ctrl+0` or a double-click to fit again |
 | Move around a zoomed snip | Drag it with no tool in hand, or middle-drag any time |
 | File the note typed under the snip | `Ctrl+Enter`, or **Add note** |
@@ -152,7 +154,16 @@ above it has:
 | **Redact** | Drag over something to hide it, with **Black out** (solid black, nothing of the original survives) or **Blur** (smeared; hides text, but the layout can still show) |
 | **Text** | Reads the words in the snip and outlines them. Click a word, drag across several, Shift+click to add, `Ctrl+A` for all, then `Ctrl+C` or right-click to copy them as text |
 | **Quick redact** | The button beside the tools: finds passwords, keys and tokens, hashes, email addresses and phone numbers (and IP addresses, if you tick them) and covers them in one go |
+| **Select** | Click a shape, label, step, callout, spotlight or magnifier to move it; drag its square handles to resize; double-click words to change them; `Delete` removes it |
+| **Shapes** | Drag to draw an arrow, line, box or ellipse (right-click the tool to choose). Hold Shift for straight lines at 45° steps and for squares and circles |
+| **Label** | Click where the words go, type, Enter. Esc drops it |
+| **Numbered steps** | Click to drop ①, ②, ③... in order, to show the steps of an attack |
+| **Callout** | Drag from what to point at to where the words go, then type: an arrow and a label in one |
+| **Spotlight** | Drag over what matters; everything else is dimmed. Several spotlights keep each area bright |
+| **Magnify** | Drag over something small (a hash, a version number); a 2x, 3x or 4x copy is placed beside it, joined by faint lines |
+| **Evidence stamp** | The button after Quick redact: adds when the snip was taken and the machine's name, bottom right |
 | **Undo** | The round arrow, or `Ctrl+Z`: takes back the last mark, erase or crop, one at a time |
+| **Redo** | The arrow beside it, `Ctrl+Y` or `Ctrl+Shift+Z`: puts back what undo took |
 
 **Left-click** a tool to pick it up, and left-click it again (or press Esc) to
 put it down. **Right-click** a tool for its options: width and colour for the
@@ -193,6 +204,32 @@ For passwords, hashes and client details, use **Black out**: a blur can still
 show how long a line was. A redaction protects the files ShadowSnip writes; a
 copy pasted somewhere before you redacted, or held in Windows clipboard history
 (`Win+V`), is outside its reach, so redact before pasting.
+
+### Shapes, labels, steps and callouts
+
+Shapes, labels, numbered steps, callouts and magnify share one colour, set
+from any of their right-click options, so a report's marks match. Shapes have
+a line width; labels, steps and callouts a text size. Sizes are what you see
+on screen when you draw, like the pen's.
+
+Every one of them can be moved after it is drawn: pick up **Select**, click
+the mark, and drag it. Arrows, lines, boxes, ellipses, spotlights and the
+magnified area have square handles at their ends to resize them; a callout's
+handle is its arrow's point, and dragging its box moves only the words. A
+magnifier's enlarged copy moves on its own; dragging the area it shows moves
+both. Double-click a label or callout to change its words (empty them to
+remove it). Right-click any mark for **Edit text...** and **Delete this
+mark**. Moves, resizes and new words are all undoable, and like every other
+mark they stay editable after you leave the snip.
+
+Numbered steps count on from the highest number showing: erase the last step
+and the next one reuses its number. **Shift** with the pen draws a straight
+line from where the stroke started.
+
+The **evidence stamp** uses the time the snip was taken (in the full-size
+view, the time on the snip's row) and this machine's name, so a screenshot in
+a report says when and where it came from. It is a mark like the others: move
+it, or erase it.
 
 ### Copying text out of a snip
 
@@ -546,6 +583,13 @@ Delete) takes the selected snips off the list; the images go to
 `history\removed`, nothing is deleted. Sections, captions, notes, the outline
 and the report belong to labs, so they appear once a lab starts and the list
 switches to that lab's snips.
+
+**Right-click** a snip in the list, or the picture under it, for **Expand**,
+**Copy**, **Save as...**, **Open**, **Show in folder** and **Remove...**.
+Right-clicking a snip that is not selected selects it; right-clicking inside a
+shift-click selection keeps it, so **Remove** takes them all. With the list in
+focus, `Ctrl+C` copies the selected snip rather than the one on screen. The
+same menu works in a lab, where Remove says **Remove from lab...**.
 
 Each row shows the snip's number, when it was taken (the clock for today,
 then "Yesterday 16:41", then "29 Oct 09:14"), its **Dimensions** in pixels,

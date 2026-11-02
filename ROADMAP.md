@@ -33,14 +33,21 @@ same tools work on any lab snip, in the full-size view.
 - Marks stay editable after you leave a snip, redactions included, through
   the hidden `.edits` sidecars.
 
-## Next: v0.11 - shapes and text
+## Done in v0.11.0 - the rest of mark-up
 
-- Arrows, rectangles and ellipses, in the pen's colours and widths.
-- Text labels typed onto the snip.
-- Redo, beside undo.
-- Moving or resizing a mark after it is drawn.
+Arrows, lines, boxes and ellipses; labels; numbered steps; callouts;
+spotlight; magnify; the evidence stamp; Select to move, resize and retype any
+of them; redo; Shift for straight lines.
 
 ## Marking up, still open
+
+- Moving a pen line, highlight or redaction. Deliberately left out of 0.11:
+  a redaction that can be dragged off what it hides is a way to leak a
+  password by accident, and freehand lines are rarely worth moving.
+- Text size and colour changed on a mark after it is drawn (today: the
+  options apply to new marks; erase and redraw to change one).
+- Blur as a shape option (a blurred box that is not a redaction), for faces
+  and logos rather than secrets.
 
 - Quick redact could learn the lab's own targets (hostnames, the client's
   domain) and offer them as a kind of their own.
