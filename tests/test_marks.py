@@ -275,11 +275,14 @@ def test_esc_drops_the_label(canvas):
 def test_a_label_near_the_edge_is_kept_on_the_snip(canvas):
     canvas.set_tool("label")
     QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, W(canvas, 390, 190))
-    QTest.keyClicks(canvas._editor, "a long label that would not fit")
+    # Short enough to fit the 400 px snip in any font, wide enough that,
+    # left where it was clicked, it would run off the right edge.
+    QTest.keyClicks(canvas._editor, "port 445")
     QTest.keyClick(canvas._editor, Qt.Key.Key_Return)
     (mark,) = _marks(canvas)
     box = an.text_box(mark)
-    assert box.right() <= 400.5 and box.bottom() <= 200.5
+    assert box.width() < 380  # the precondition: it can fit
+    assert box.left() >= 0 and box.right() <= 400.5 and box.bottom() <= 200.5
 
 
 def test_callout_is_an_arrow_and_words(canvas):
@@ -386,7 +389,8 @@ def test_stamp_goes_bottom_right_with_the_snips_time(canvas, monkeypatch):
     (mark,) = _marks(canvas)
     box = an.text_box(mark)
     assert mark.text == "2026-10-31 18:20:10  |  KALI"
-    assert box.right() <= 400 and box.bottom() <= 200 and box.left() > 200
+    # Tucked into the bottom right corner, 8 px in, whatever the font's width.
+    assert abs(box.right() - (400 - 8)) < 1 and abs(box.bottom() - (200 - 8)) < 1
 
 
 def test_a_long_machine_name_still_keeps_the_stamp_on_the_snip(canvas, monkeypatch):
