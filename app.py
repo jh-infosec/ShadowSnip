@@ -1153,8 +1153,54 @@ class ShadowSnipApp(QObject):
                     QSystemTrayIcon.MessageIcon.Warning,
                     6000,
                 )
+        self._sync_print_screen(announce=True)
         if not startup:
             self._refresh_menu_text()
+
+    def _sync_print_screen(self, announce: bool = False) -> None:
+        """Print Screen as a second snip key (0.12.0), when Settings asks for it.
+
+        On Windows 11 the key belongs to Windows' own screen capture unless
+        that is switched off, and a hotkey registered over it never fires. So
+        that is checked first, and ShadowSnip says where the switch is rather
+        than changing a Windows setting itself.
+        """
+        self.prtsc_problem = ""
+        wanted = bool(self.cfg.get("prtsc_snip")) and self.cfg["hotkey"].lower() not in ("prtsc", "printscreen", "print")
+        if not wanted:
+            self.hotkeys.unregister("snip_prtsc")
+            if getattr(self, "_prtsc_timer", None) is not None:
+                self._prtsc_timer.stop()
+            return
+        if self.hotkeys.registered("snip_prtsc"):
+            return
+        if hotkey_mod.windows_owns_print_screen():
+            self.prtsc_problem = hotkey_mod.PRTSC_TAKEN
+            # Look again every few seconds (one registry read), so turning the
+            # Windows switch off is enough: no restart, no trip to Settings.
+            self._prtsc_watch().start()
+        else:
+            try:
+                self.hotkeys.register(self.qapp, "prtsc", "snip_prtsc")
+            except hotkey_mod.HotkeyError as exc:
+                self.prtsc_problem = f"Print Screen is not snipping: {exc}."
+            else:
+                if getattr(self, "_prtsc_timer", None) is not None and self._prtsc_timer.isActive():
+                    self._prtsc_timer.stop()
+                    self.tray.showMessage("ShadowSnip", "Print Screen now snips with ShadowSnip.",
+                                          QSystemTrayIcon.MessageIcon.Information, 5000)
+        if self.prtsc_problem and announce:
+            self.tray.showMessage("ShadowSnip", self.prtsc_problem,
+                                  QSystemTrayIcon.MessageIcon.Information, 10000)
+
+    PRTSC_RECHECK_MS = 4000
+
+    def _prtsc_watch(self) -> QTimer:
+        if getattr(self, "_prtsc_timer", None) is None:
+            self._prtsc_timer = QTimer(self)
+            self._prtsc_timer.setInterval(self.PRTSC_RECHECK_MS)
+            self._prtsc_timer.timeout.connect(self._sync_print_screen)
+        return self._prtsc_timer
 
     # -- snipping ----------------------------------------------------------
     def request_snip(self) -> None:
@@ -1245,7 +1291,14 @@ class ShadowSnipApp(QObject):
             self._warn("No screen could be captured.")
             return
         self._grabs = grabs
-        self.controller = SelectionController(grabs, self.cfg["dim_opacity"], self)
+        import winlist
+
+        self.controller = SelectionController(
+            grabs, self.cfg["dim_opacity"], self,
+            mode=self.cfg.get("snip_mode", "rect"),
+            window_source=winlist.visible_windows if winlist.supported() else None,
+        )
+        self.controller.mode_changed.connect(self._remember_snip_mode)
         self.controller.selected.connect(self._on_selected)
         self.controller.cancelled.connect(self._on_cancelled)
         self.controller.start()
@@ -1261,11 +1314,18 @@ class ShadowSnipApp(QObject):
             self._reshow_preview = False
             self.preview.open_window()
 
+    def _remember_snip_mode(self, mode: str) -> None:
+        self.cfg["snip_mode"] = mode
+        self._persist()
+
     def _on_selected(self, rect: QRect) -> None:
+        shape = self.controller.shape if self.controller is not None else None
         self.controller = None
         grabs, self._grabs = self._grabs, []
         try:
             image = capture.compose_selection(grabs, rect)
+            if image is not None and shape is not None:
+                image = capture.mask_outside(image, shape, rect)
             if image is None:
                 if self._reshow_preview:
                     self.preview.open_window()
@@ -1440,6 +1500,7 @@ class ShadowSnipApp(QObject):
         )
         if hotkeys_changed and not self._replace_hotkeys(new_cfg):
             return
+        prtsc_changed = bool(new_cfg.get("prtsc_snip")) != bool(self.cfg.get("prtsc_snip"))
         self.cfg = new_cfg
         try:
             config.save(self.cfg)
@@ -1447,6 +1508,7 @@ class ShadowSnipApp(QObject):
         except OSError as exc:
             self._warn(f"Settings could not be written: {exc}")
         self._apply_skin(self.cfg.get("skin"))
+        self._sync_print_screen(announce=prtsc_changed or hotkeys_changed)
         edits.enabled = bool(self.cfg.get("keep_edits", True))
         self.autocopy.configure(self.cfg)
         if self.cfg["auto_copy"] and not self.autocopy.engaged:

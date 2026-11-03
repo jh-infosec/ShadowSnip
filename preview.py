@@ -234,6 +234,7 @@ class PreviewWindow(QWidget):
         self.snips_panel.setVisible(False)
         self.snips_panel.remove_requested.connect(self.snip_remove_requested.emit)
         self.snips_panel.copy_requested.connect(self.snip_copy_requested.emit)
+        self.snips_panel.new_snip_requested.connect(self.new_snip_requested.emit)
         self.snips_panel.status_message.connect(self.set_status)
         self.snips_panel.viewer_loading.connect(self.lab_snip_loading.emit)
         self.snips_panel.edit_saved.connect(self.lab_snip_edited.emit)
@@ -266,6 +267,7 @@ class PreviewWindow(QWidget):
 
         self.btn_new = QPushButton("New snip")
         self.btn_new.setObjectName("Primary")
+        self.btn_new.setToolTip("Take a new snip (Alt+N here, or the snip hotkey anywhere)")
         self.btn_lab = QPushButton("Start lab")
         # Only shown while a lab runs, since that is the only time there is a
         # list to show. Checked means the list is showing.
@@ -359,6 +361,8 @@ class PreviewWindow(QWidget):
         # Esc puts a tool down first; with nothing in hand it closes the window.
         QShortcut(QKeySequence("Esc"), self, self._on_escape)
         QShortcut(QKeySequence("Ctrl+Q"), self, self.quit_requested.emit)
+        # Alt+N: a new snip, as in Windows Snipping Tool (0.12.0).
+        QShortcut(QKeySequence("Alt+N"), self, self.new_snip_requested.emit)
         # Ctrl+Enter files the note without reaching for the mouse. Scoped to
         # the window rather than the box, so it works wherever focus happens
         # to be after a snip.

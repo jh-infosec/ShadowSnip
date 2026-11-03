@@ -47,7 +47,9 @@ XFCE_CHANNEL = "xfce4-keyboard-shortcuts"
 XFCE_PREFIX = "/commands/custom/"
 
 # The command-line flag each action is reached by.
-ACTION_FLAGS = {"snip": "--snip", "note": "--note", "output": "--output"}
+ACTION_FLAGS = {"snip": "--snip", "note": "--note", "output": "--output",
+                # 0.12.0: Print Screen as a second snip key.
+                "snip_prtsc": "--snip"}
 
 _XFCE_MODIFIERS = {
     "ctrl": "<Primary>",

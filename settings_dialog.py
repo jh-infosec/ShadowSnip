@@ -116,6 +116,31 @@ class SettingsDialog(QDialog):
         self.note_hotkey_edit = HotkeyEdit(cfg["note_hotkey"])
         self.output_hotkey_edit = HotkeyEdit(cfg["output_hotkey"])
 
+        # Print Screen as a second snip key (0.12.0).
+        self.prtsc_check = QCheckBox("Also snip with the Print Screen key")
+        self.prtsc_check.setChecked(bool(cfg.get("prtsc_snip")))
+        self.prtsc_check.setToolTip(
+            "Print Screen starts a snip, as well as the snip hotkey above."
+        )
+        self.prtsc_note = QLabel()
+        self.prtsc_note.setObjectName("FieldLabel")
+        self.prtsc_note.setWordWrap(True)
+        self.btn_prtsc_windows = QPushButton("Open Windows keyboard settings")
+        self.btn_prtsc_windows.setToolTip(
+            "Where Windows' own use of Print Screen is switched off: "
+            "Use the Print screen key to open screen capture"
+        )
+        self.btn_prtsc_windows.clicked.connect(self._open_windows_keyboard_settings)
+        self.prtsc_check.toggled.connect(self._sync_prtsc_note)
+        prtsc_row = QWidget()
+        prtsc_layout = QVBoxLayout(prtsc_row)
+        prtsc_layout.setContentsMargins(0, 0, 0, 0)
+        prtsc_layout.addWidget(self.prtsc_check)
+        prtsc_layout.addWidget(self.prtsc_note)
+        prtsc_layout.addWidget(self.btn_prtsc_windows, 0, Qt.AlignmentFlag.AlignLeft)
+        self._prtsc_row = prtsc_row
+        self._sync_prtsc_note()
+
         self.folder_edit = QLineEdit(cfg["save_dir"])
         browse = QPushButton("Browse...")
         browse.clicked.connect(self._pick_folder)
@@ -356,6 +381,7 @@ class SettingsDialog(QDialog):
         snipping.addRow("Snip hotkey", self.hotkey_edit)
         snipping.addRow("Quick note hotkey", self.note_hotkey_edit)
         snipping.addRow("Command output hotkey", self.output_hotkey_edit)
+        snipping.addRow(self._prtsc_row)
         snipping.addRow("Save folder", folder_row)
         snipping.addRow("Replaced file name", self.name_edit)
         snipping.addRow(self.history_check)
@@ -558,11 +584,36 @@ class SettingsDialog(QDialog):
             if removed else "There was no edit history to delete.",
         )
 
+    def _sync_prtsc_note(self, *_args) -> None:
+        """Say whether Print Screen will snip, and what is in the way if not."""
+        windows_has_it = hotkey_mod.windows_owns_print_screen()
+        on = self.prtsc_check.isChecked()
+        if not on:
+            text = "Off: Print Screen does whatever it did before."
+        elif windows_has_it:
+            text = ("Windows is using Print Screen for its own screen capture. Turn off "
+                    "\"Use the Print screen key to open screen capture\" (button below); "
+                    "ShadowSnip notices within a few seconds.")
+        elif platforms.IS_LINUX:
+            text = ("Xfce: added to your keyboard shortcuts. If Print Screen already runs the "
+                    "screenshot tool, remove that shortcut first in Settings > Keyboard.")
+        else:
+            text = "Print Screen will start a snip."
+        self.prtsc_note.setText(text)
+        self.btn_prtsc_windows.setVisible(bool(on and windows_has_it))
+
+    def _open_windows_keyboard_settings(self) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        QDesktopServices.openUrl(QUrl(hotkey_mod.PRTSC_SETTINGS_URI))
+
     def values(self) -> dict:
         cfg = dict(self._cfg)
         cfg["hotkey"] = self.hotkey_edit.spec
         cfg["note_hotkey"] = self.note_hotkey_edit.spec
         cfg["output_hotkey"] = self.output_hotkey_edit.spec
+        cfg["prtsc_snip"] = self.prtsc_check.isChecked()
         cfg["keep_edits"] = self.keep_edits_check.isChecked()
         cfg["save_dir"] = self.folder_edit.text().strip()
         cfg["latest_name"] = self.name_edit.text().strip()

@@ -35,6 +35,16 @@ drawn in the wrong place.
   moved across is repainted, on the screens it touches, instead of every pixel
   of every screen on every mouse move. At 4K that is the difference between
   repainting 8 million pixels per move and a few thousand.
+
+## Modes (0.12.0)
+
+A bar at the top of each screen picks how to snip, as in Windows Snipping
+Tool: **Rectangle** (R, drag a box), **Window** (W, hover a window and
+click), **Freeform** (L, draw any shape; what is outside it is filled white),
+and **Full screen** (F or Space, the screen the pointer is on). The mode is
+remembered between snips; full screen is an action, not a mode. Window mode
+gets its list of windows from winlist.py the first time it is needed, so a
+snip in another mode never pays for it.
 """
 
 from __future__ import annotations
@@ -42,14 +52,16 @@ from __future__ import annotations
 import ctypes
 import sys
 
-from PySide6.QtCore import QObject, QPoint, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QCursor,
     QFont,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
+    QPolygon,
 )
 from PySide6.QtWidgets import QWidget
 
@@ -63,6 +75,13 @@ POLL_MS = 10
 # How many polls in a row the button must read "up" before a drag whose
 # release event was lost is finished. Guards against a single odd read.
 RELEASE_CONFIRM_POLLS = 3
+
+# The snip modes, in the order the bar shows them, with their keys.
+MODES = ("rect", "window", "freeform")
+MODE_NAMES = {"rect": "Rectangle", "window": "Window", "freeform": "Freeform"}
+MODE_KEYS = {Qt.Key.Key_R: "rect", Qt.Key.Key_W: "window", Qt.Key.Key_L: "freeform"}
+# Freeform: a new point only once the pointer has moved this far (logical px).
+FREEFORM_STEP = 2
 
 _VK_LBUTTON = 0x01
 _VK_RBUTTON = 0x02
@@ -93,10 +112,22 @@ class SelectionController(QObject):
 
     selected = Signal(QRect)
     cancelled = Signal()
+    # The mode was changed on the bar or with a key (0.12.0), to remember it.
+    mode_changed = Signal(str)
 
     def __init__(self, grabs, dim_opacity: int = 110, parent=None,
-                 button_down=left_button_down, cursor_pos=QCursor.pos):
+                 button_down=left_button_down, cursor_pos=QCursor.pos,
+                 mode: str = "rect", window_source=None):
         super().__init__(parent)
+        self.mode = mode if mode in MODES else "rect"
+        # Window mode: where the windows are (topmost first), asked once.
+        self._window_source = window_source
+        self._windows_on_screen: list[QRect] | None = None
+        self.hover_window: QRect | None = None
+        # Freeform: the points drawn so far, global logical coordinates.
+        self.path: list[QPoint] = []
+        # A short line the bar shows (no windows found, and so on).
+        self.notice = ""
         self._grabs = grabs
         self._dim = dim_opacity
         self._windows: list[OverlayWindow] = []
@@ -155,12 +186,73 @@ class SelectionController(QObject):
         return self._current
 
     @property
+    def shape(self) -> QPolygon | None:
+        """Freeform: the outline drawn, once it is one. None for other modes."""
+        if self.mode != "freeform" or len(self.path) < 3:
+            return None
+        return QPolygon(self.path)
+
+    @property
+    def dragging(self) -> bool:
+        return self._origin is not None and not self._finished
+
+    # -- modes (0.12.0) ----------------------------------------------------
+    def set_mode(self, mode: str) -> None:
+        if mode not in MODES or self.dragging:
+            return
+        self.notice = ""
+        if mode == "window" and not self.windows():
+            self.notice = "No windows found to snip here; drag a rectangle instead."
+            mode = "rect"
+        changed = mode != self.mode
+        self.mode = mode
+        self.hover_window = None
+        if mode == "window":
+            self.hover(self._cursor_pos())
+        self._repaint()
+        if changed:
+            self.mode_changed.emit(mode)
+
+    def windows(self) -> list[QRect]:
+        if self._windows_on_screen is None:
+            try:
+                self._windows_on_screen = list(self._window_source() if self._window_source else [])
+            except Exception:  # noqa: BLE001 - window snips are an extra
+                self._windows_on_screen = []
+        return self._windows_on_screen
+
+    def hover(self, global_pos: QPoint) -> None:
+        """Window mode: light up the window under the pointer."""
+        if self.mode != "window" or self._finished:
+            return
+        from winlist import window_at
+
+        found = window_at(self.windows(), global_pos)
+        if found != self.hover_window:
+            before = self.hover_window or QRect()
+            self.hover_window = found
+            self._repaint_between(before, found or QRect())
+
+    def click_window(self) -> None:
+        """Window mode: take the window under the pointer."""
+        if self._finished:
+            return
+        self.hover(self._cursor_pos())
+        if self.hover_window is None:
+            return
+        self._finished = True
+        rect = QRect(self.hover_window)
+        self.close_all()
+        self.selected.emit(rect)
+
+    @property
     def release_lost(self) -> bool:
         return self._release_lost
 
     def begin(self, global_pos: QPoint) -> None:
         self._origin = global_pos
         self._current = QRect(global_pos, global_pos)
+        self.path = [QPoint(global_pos)]
         self._release_lost = False
         self._up_polls = 0
         self._last_polled = None
@@ -208,7 +300,14 @@ class SelectionController(QObject):
         if self._origin is None:
             return
         before = self._current
-        self._current = QRect(self._origin, global_pos).normalized()
+        if self.mode == "freeform":
+            last = self.path[-1]
+            if abs(global_pos.x() - last.x()) + abs(global_pos.y() - last.y()) < FREEFORM_STEP:
+                return
+            self.path.append(QPoint(global_pos))
+            self._current = QPolygon(self.path).boundingRect()
+        else:
+            self._current = QRect(self._origin, global_pos).normalized()
         if self._current != before:
             self._repaint_between(before, self._current)
 
@@ -216,6 +315,8 @@ class SelectionController(QObject):
         if self._finished:
             return
         rect = self._current
+        if self.mode == "freeform" and self.shape is None:
+            rect = QRect()
         if self._origin is None or rect.width() < 3 or rect.height() < 3:
             self.cancel()
             return
@@ -318,6 +419,48 @@ def prewarm() -> int:
     return len(_POOL)
 
 
+# -- the mode bar (0.12.0) -----------------------------------------------------------------------
+BAR_TOP = 14
+BAR_HEIGHT = 34
+BAR_ITEMS = (
+    ("rect", "Rectangle", "R"),
+    ("window", "Window", "W"),
+    ("freeform", "Freeform", "L"),
+    ("screen", "Full screen", "F"),
+    ("close", "Esc", ""),
+)
+
+
+def _bar_font() -> QFont:
+    font = QFont()
+    font.setPointSizeF(9.5)
+    return font
+
+
+def bar_layout(screen_width: int) -> list[tuple[str, QRect]]:
+    """Each bar button's rectangle, in a screen's local coordinates, centred at the top."""
+    from PySide6.QtGui import QFontMetrics
+
+    metrics = QFontMetrics(_bar_font())
+    widths = []
+    for _key, label, letter in BAR_ITEMS:
+        text = f"{label}  {letter}" if letter else label
+        widths.append(metrics.horizontalAdvance(text) + 26)
+    total = sum(widths) + 4 * (len(widths) - 1) + 12
+    x = int((screen_width - total) / 2) + 6
+    out = []
+    for (key, _label, _letter), width in zip(BAR_ITEMS, widths):
+        out.append((key, QRect(x, BAR_TOP + 4, width, BAR_HEIGHT - 8)))
+        x += width + 4
+    return out
+
+
+def bar_rect(screen_width: int) -> QRect:
+    items = bar_layout(screen_width)
+    left, right = items[0][1].left() - 6, items[-1][1].right() + 6
+    return QRect(left, BAR_TOP, right - left + 1, BAR_HEIGHT)
+
+
 class OverlayWindow(QWidget):
     def __init__(self, grab, controller: SelectionController | None, dim: int, screen=None):
         super().__init__(None)
@@ -374,18 +517,45 @@ class OverlayWindow(QWidget):
         geom = self.grab_info.screen.geometry()
         return QPoint(geom.x() + pos.x(), geom.y() + pos.y())
 
+    def _bar_item_at(self, pos: QPoint) -> str | None:
+        if self.controller is None or self.controller.dragging:
+            return None
+        for key, rect in bar_layout(self.width()):
+            if rect.contains(pos):
+                return key
+        return None
+
     def mousePressEvent(self, event):
         if self.controller is None:
             return
         if event.button() == Qt.MouseButton.RightButton:
             self.controller.cancel()
             return
-        if event.button() == Qt.MouseButton.LeftButton:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        pos = event.position().toPoint()
+        item = self._bar_item_at(pos)
+        if item == "close":
+            self.controller.cancel()
+        elif item == "screen":
+            self.controller.take_screen(self.grab_info.screen.geometry())
+        elif item is not None:
+            self.controller.set_mode(item)
+        elif self.controller.mode == "window":
+            self.controller.click_window()
+        else:
             self._show_hint = False
-            self.controller.begin(self._to_global(event.position().toPoint()))
+            self.controller.begin(self._to_global(pos))
 
     def mouseMoveEvent(self, event):
         if self.controller is None:
+            return
+        hot = self._bar_item_at(event.position().toPoint())
+        if hot != getattr(self, "_bar_hot", None):
+            self._bar_hot = hot
+            self.update(bar_rect(self.width()))
+        if self.controller.mode == "window" and not self.controller.dragging:
+            self.controller.hover(QCursor.pos())
             return
         if event.buttons() & Qt.MouseButton.LeftButton or self.controller.release_lost:
             # The global cursor position, not this window's local coordinates:
@@ -396,14 +566,20 @@ class OverlayWindow(QWidget):
     def mouseReleaseEvent(self, event):
         if self.controller is None:
             return
-        if event.button() == Qt.MouseButton.LeftButton:
+        # Only a drag ends on release. A click on the mode bar or on a window
+        # (0.12.0) has already done its work on the press, and a release
+        # with no drag behind it would otherwise read as an empty snip and
+        # cancel the whole thing.
+        if event.button() == Qt.MouseButton.LeftButton and self.controller.dragging:
             self.controller.release()
 
     def keyPressEvent(self, event):
         if self.controller is None:
             return super().keyPressEvent(event)
         key = event.key()
-        if key == Qt.Key.Key_Escape:
+        if key in MODE_KEYS:
+            self.controller.set_mode(MODE_KEYS[key])
+        elif key == Qt.Key.Key_Escape:
             self.controller.cancel()
         elif key in (Qt.Key.Key_F, Qt.Key.Key_Space):
             self.controller.take_screen(self.grab_info.screen.geometry())
@@ -428,20 +604,95 @@ class OverlayWindow(QWidget):
         painter.drawPixmap(QRectF(area), pixmap, _device_rect(area, scale))
         painter.fillRect(area, QColor(0, 0, 0, self.dim))
 
-        selection = self.controller.selection
-        local = selection.translated(-geom.x(), -geom.y()).intersected(self.rect())
-        if not local.isEmpty():
-            bright = local.intersected(area)
-            if not bright.isEmpty():
-                painter.drawPixmap(QRectF(bright), pixmap, _device_rect(bright, scale))
-            pen = QPen(ACCENT)
-            pen.setWidth(1)
-            painter.setPen(pen)
-            painter.drawRect(local.adjusted(0, 0, -1, -1))
-            self._draw_size_badge(painter, local, selection)
-        elif self._show_hint:
-            self._draw_hint(painter)
+        controller = self.controller
+        if controller.mode == "window":
+            self._paint_window(painter, area, pixmap, scale, geom)
+        elif controller.mode == "freeform" and controller.dragging and len(controller.path) > 1:
+            self._paint_freeform(painter, area, pixmap, scale, geom)
+        else:
+            selection = controller.selection
+            local = selection.translated(-geom.x(), -geom.y()).intersected(self.rect())
+            if not local.isEmpty():
+                bright = local.intersected(area)
+                if not bright.isEmpty():
+                    painter.drawPixmap(QRectF(bright), pixmap, _device_rect(bright, scale))
+                pen = QPen(ACCENT)
+                pen.setWidth(1)
+                painter.setPen(pen)
+                painter.drawRect(local.adjusted(0, 0, -1, -1))
+                self._draw_size_badge(painter, local, selection)
+        if not controller.dragging and area.intersects(bar_rect(self.width()).adjusted(0, 0, 0, 40)):
+            self._draw_bar(painter)
         painter.end()
+
+    def _paint_window(self, painter, area, pixmap, scale, geom) -> None:
+        """The window under the pointer, bright and outlined, with its size."""
+        window = self.controller.hover_window
+        if window is None:
+            return
+        local = window.translated(-geom.x(), -geom.y()).intersected(self.rect())
+        if local.isEmpty():
+            return
+        bright = local.intersected(area)
+        if not bright.isEmpty():
+            painter.drawPixmap(QRectF(bright), pixmap, _device_rect(bright, scale))
+        painter.setPen(QPen(ACCENT, 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(local.adjusted(1, 1, -1, -1))
+        self._draw_size_badge(painter, local, window)
+
+    def _paint_freeform(self, painter, area, pixmap, scale, geom) -> None:
+        """Inside the shape drawn so far bright, the outline in the accent colour."""
+        local = QPolygon([QPoint(p.x() - geom.x(), p.y() - geom.y()) for p in self.controller.path])
+        path = QPainterPath()
+        path.addPolygon(_polygon_f(local))
+        path.closeSubpath()
+        painter.save()
+        painter.setClipPath(path)
+        painter.drawPixmap(QRectF(area), pixmap, _device_rect(area, scale))
+        painter.restore()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(ACCENT, 1.5))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPolyline(local)
+        bounds = self.controller.selection
+        self._draw_size_badge(painter, bounds.translated(-geom.x(), -geom.y()), bounds)
+
+    def _draw_bar(self, painter: QPainter) -> None:
+        """The mode bar: the current mode lit, the one under the pointer outlined."""
+        controller = self.controller
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setFont(_bar_font())
+        frame = bar_rect(self.width())
+        painter.setPen(QPen(QColor(255, 255, 255, 40), 1))
+        painter.setBrush(HINT_BG)
+        painter.drawRoundedRect(QRectF(frame), 8, 8)
+        hot = getattr(self, "_bar_hot", None)
+        for (key, label, letter), (_key, rect) in zip(BAR_ITEMS, bar_layout(self.width())):
+            current = key == controller.mode
+            if current:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 200))
+                painter.drawRoundedRect(QRectF(rect), 5, 5)
+            elif key == hot:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(255, 255, 255, 28))
+                painter.drawRoundedRect(QRectF(rect), 5, 5)
+            painter.setPen(HINT_FG)
+            text = f"{label}  {letter}" if letter else label
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
+        if controller.notice or controller.mode == "window":
+            line = controller.notice or "Click a window to snip it"
+            metrics = painter.fontMetrics()
+            width = metrics.horizontalAdvance(line) + 20
+            box = QRect(int((self.width() - width) / 2), frame.bottom() + 6, width, metrics.height() + 8)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(HINT_BG)
+            painter.drawRoundedRect(QRectF(box), 5, 5)
+            painter.setPen(HINT_FG)
+            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, line)
+        painter.restore()
 
     def _draw_size_badge(self, painter: QPainter, local: QRect, selection: QRect):
         text = f"{selection.width()} x {selection.height()}"
@@ -464,25 +715,11 @@ class OverlayWindow(QWidget):
         painter.setPen(HINT_FG)
         painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, text)
 
-    def _draw_hint(self, painter: QPainter):
-        text = "Drag to snip     F for this whole screen     Esc to cancel"
-        font = QFont()
-        font.setPointSizeF(10.5)
-        painter.setFont(font)
-        metrics = painter.fontMetrics()
-        width = metrics.horizontalAdvance(text) + 28
-        height = metrics.height() + 16
-        box = QRect(
-            int((self.width() - width) / 2),
-            int(self.height() * 0.08),
-            int(width),
-            int(height),
-        )
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(HINT_BG)
-        painter.drawRoundedRect(box, 6, 6)
-        painter.setPen(HINT_FG)
-        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
+
+def _polygon_f(polygon: QPolygon):
+    from PySide6.QtGui import QPolygonF
+
+    return QPolygonF([QPointF(p) for p in polygon])
 
 
 def _device_rect(local: QRect, scale: float) -> QRectF:

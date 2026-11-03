@@ -36,6 +36,8 @@ annotate.py          marking up the snip: pen, highlighter, eraser, crop,
                      popups
 edits.py             keeping marks editable after leaving a snip: the
                      hidden .edits sidecars (marks and the original)
+winlist.py           the windows on screen, for window snips (Windows: EnumWindows
+                     and DWM frame bounds; X11: xprop and xwininfo)
 ocr.py               reading text from a snip (Windows OCR or Tesseract) and
                      finding what Quick redact offers to hide
 quickredact.py       the Quick redact window: kinds found, tick boxes
@@ -150,6 +152,26 @@ covers `hunter2` only. Quick redact adds the boxes as ordinary `Redact`
 operations sharing one `batch` number, which `AnnotationDoc.undo()` removes
 together. They are erasable one by one and saved in the sidecar like any other
 redaction.
+
+## Snip modes (0.12.0)
+
+The selection overlay's controller has a `mode`: rect, window or freeform.
+Full screen stays an action (`take_screen`). The mode bar is painted by each
+overlay window rather than built from widgets, so it costs nothing to show
+and is never in the snip: the snip is cut from the frozen frames, not from
+the screen.
+
+Window mode asks `winlist.visible_windows()` the first time it is needed and
+keeps the answer for that snip. Windows come back topmost first, in Qt's
+logical coordinates: on Windows they are physical pixels from Win32,
+converted per monitor (the one the window mostly sits on decides the scale),
+which is what makes a 150% monitor beside a 100% one land exactly. ShadowSnip's
+own windows are left out by process id on both platforms.
+
+Freeform keeps the points drawn and finishes with their bounding box; the app
+cuts that box as usual and `capture.mask_outside()` fills what lies outside
+the outline. A release only ends a snip that a drag started: a click on the
+bar or on a window has already done its work on the press.
 
 ## The snip pipeline
 

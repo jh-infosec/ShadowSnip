@@ -10,8 +10,8 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 
-from PySide6.QtCore import QRect, QRectF
-from PySide6.QtGui import QGuiApplication, QImage, QPainter, QPixmap
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt
+from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPainterPath, QPixmap, QPolygonF
 from PySide6.QtGui import QScreen
 
 
@@ -129,3 +129,34 @@ def compose_selection(grabs: list[ScreenGrab], rect: QRect) -> QImage | None:
         painter.drawImage(target, grab.pixmap.copy(source).toImage())
     painter.end()
     return out
+
+
+# What a freeform snip has outside its shape (0.12.0). White, as in Windows
+# Snipping Tool: transparency would not survive the clipboard's bitmap, JPEG,
+# or the palette reduction, so it would come out black in some places and
+# clear in others.
+FREEFORM_FILL = QColor("#ffffff")
+
+
+def mask_outside(image: QImage, shape, rect: QRect) -> QImage:
+    """`image` (a snip of `rect`) with everything outside `shape` filled in.
+
+    `shape` is the freeform outline in the same global logical coordinates as
+    `rect`; the image may be at a higher scale, which is worked out from it.
+    """
+    if image is None or shape is None or rect.isEmpty():
+        return image
+    sx = image.width() / rect.width()
+    sy = image.height() / rect.height()
+    outline = QPolygonF([QPointF((p.x() - rect.x()) * sx, (p.y() - rect.y()) * sy) for p in shape])
+    keep = QPainterPath()
+    keep.addPolygon(outline)
+    keep.closeSubpath()
+    keep.setFillRule(Qt.FillRule.WindingFill)
+    everything = QPainterPath()
+    everything.addRect(QRectF(image.rect()))
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.fillPath(everything.subtracted(keep), FREEFORM_FILL)
+    painter.end()
+    return image

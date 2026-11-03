@@ -1,43 +1,43 @@
 # Changelog
 
-## Latest: 0.11.0
+## Latest: 0.12.0
 
-The mark-up release: the rest of what annotating a screenshot for a report
-usually needs.
+Capture modes, the colour picker, and the Snipping Tool keys.
 
-**Added**, on the tool strip:
+**Added**: a bar at the top of the snipping screen to pick how to snip:
+**Rectangle** (R), **Window** (W), **Freeform** (L) and **Full screen** (F or
+Space). The mode you used last is remembered.
 
-- **Shapes**: arrow, line, box and ellipse (right-click the tool to choose),
-  with a line width. Shift keeps lines at 45° steps and boxes square.
-- **Label**: click, type, Enter. Words on a coloured tag, readable on any
-  screenshot.
-- **Numbered steps**: click to drop ①, ②, ③... in order, for the steps of an
-  attack path.
-- **Callout**: one drag from the thing to where the words go, then type. An
-  arrow and a label in one.
-- **Spotlight**: drag over what matters and the rest is dimmed. Several
-  spotlights keep each area bright; marks drawn afterwards stay bright too.
-- **Magnify**: drag over something small and a 2x, 3x or 4x copy is placed
-  beside it, inside the snip, joined to it by faint lines.
-- **Evidence stamp**: a button that adds the time the snip was taken and this
-  machine's name, bottom right.
-- **Select**: click any of these marks to move it, drag its handles to resize
-  it, double-click a label or callout to change its words, Delete to remove
-  it. Right-click a mark for Edit text and Delete.
-- **Redo**: a button beside undo, Ctrl+Y or Ctrl+Shift+Z. A Quick redact
-  undone in one step is redone in one step.
+- **Window**: hover a window to light it up with its size, click to snip it.
+  On Windows the frame as drawn, without the invisible resize border and
+  shadow; on Linux (X11) the title bar is included. Windows on other monitors
+  at other scales land exactly, and ShadowSnip never offers its own windows.
+- **Freeform**: draw any shape; everything outside it is filled white, as in
+  Windows Snipping Tool.
 
-Shapes, labels, steps, callouts and magnify share one colour, so a report's
-marks match. **Shift** with the pen now draws a straight line.
+**Added**: the **Colour picker** on the mark-up strip. Hover the snip for a
+magnifier over the pixels and the colour's hex code; click copies `#rrggbb`,
+Shift+click copies `rgb(r, g, b)`. It reads the snip as it looks, marks and
+redactions included.
 
-Every new mark, and every move, resize and retype, is an operation like the
-pen's: undoable, erasable with the eraser, drawn fresh from the original, and
-kept in the `.edits` sidecar, so it can still be moved or erased after you
-leave the snip. Sidecars written by 0.10 open unchanged.
+**Added**: **Alt+N** for a new snip in the preview window and the full-size
+view, and **Also snip with the Print Screen key** in Settings. On Windows 11,
+Windows keeps Print Screen for its own screen capture unless that is switched
+off; Settings says so and opens the right page, and ShadowSnip takes the key
+over within a few seconds of it being freed, no restart needed. ShadowSnip
+never changes the Windows setting itself.
 
-**Changed**: the tool strip is grouped (select and freehand, shapes and
-words, spotlight and magnify, crop and hiding) and slightly tighter, so the
-extra tools fit the window at its usual size.
+**Fixed**: closing a snip's window while its text was being read in the
+background (Text tool, Quick redact) could crash ShadowSnip. The reader no
+longer touches Qt from its own thread.
+
+### 0.11.0 in brief
+
+The mark-up release. **Added**: shapes (arrow, line, box, ellipse), labels,
+numbered steps, callouts, spotlight, magnify, the evidence stamp, Select to
+move, resize and retype marks, redo, and Shift for straight pen lines, all
+undoable, erasable and kept in the `.edits` sidecar. The tests were later
+made independent of the build machine's name and fonts.
 
 ### 0.10.2 in brief
 

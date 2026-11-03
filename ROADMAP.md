@@ -79,23 +79,23 @@ filed as code blocks, and the methodology phases laid out in one click.
   route to different projects.
 - Signed release binaries so SmartScreen stops warning on first run.
 
-## Capture modes
+## Done in v0.12.0 - capture modes
 
-- Window mode: highlight and grab the window under the cursor (as Windows
-  Snipping Tool's window snip).
-- Freeform (lasso) selection, matching Snipping Tool's freeform mode.
-- Print Screen as the snip key, and Alt+N for a new snip while ShadowSnip's
-  window has focus, matching Snipping Tool. Print Screen means taking it over
-  from Windows' own setting ("Use the Print screen key to open screen
-  capture"), so ShadowSnip would need to say so rather than silently lose it.
+Window and freeform snips from a mode bar on the snipping screen, the colour
+picker, Alt+N for a new snip, and Print Screen as a snip key.
+
+## Capture modes, still open
+
 - Delayed capture (3s / 5s / 10s) so menus and tooltips can be caught.
 - Snap the selection to detected UI element edges while dragging.
 - Magnifier loupe near the cursor for pixel-exact edges.
+- Window snips on Wayland, which does not let one program list another's
+  windows; the screenshot portal's own window picker is the likely route.
+- Window snips of a window hidden behind another, captured from the window
+  itself (Windows' PrintWindow) rather than the screen.
 
 ## After the snip
 
-- Colour picker: hover a pixel in the snip to read its hex and RGB value, and
-  click to copy it.
 - Clipboard history strip: the last N snips, one click to re-copy. (0.8.0's Recent snips list already re-copies any recent snip from the window; the strip would do it without opening it.)
 - "Copy as" menu: PNG, JPEG, WebP, or a data URI.
 

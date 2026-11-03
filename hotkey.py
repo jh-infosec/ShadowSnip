@@ -61,6 +61,47 @@ class HotkeyError(RuntimeError):
     pass
 
 
+# -- Print Screen (0.12.0) ----------------------------------------------------------------------
+PRTSC_SETTINGS_URI = "ms-settings:easeofaccess-keyboard"
+PRTSC_TAKEN = (
+    "Windows is using Print Screen to open its own screen capture. To snip with "
+    "ShadowSnip instead, turn off \"Use the Print screen key to open screen capture\" "
+    "in Windows Settings > Accessibility > Keyboard, then press Print Screen again."
+)
+
+
+def windows_owns_print_screen(read=None) -> bool:
+    """Whether Windows sends Print Screen to its own Snipping Tool.
+
+    Windows 11 turned this on by default; Windows 10 had it off. The choice
+    lives in HKCU\\Control Panel\\Keyboard, PrintScreenKeyForSnippingEnabled.
+    Not set: the Windows default for this build. `read` stands in for the
+    registry in tests: a callable returning the value or None.
+    """
+    if sys.platform != "win32" and read is None:
+        return False
+    if read is None:
+        read = _read_prtsc_setting
+    value = read()
+    if value is None:
+        try:
+            return sys.getwindowsversion().build >= 22000
+        except AttributeError:
+            return False
+    return bool(value)
+
+
+def _read_prtsc_setting():
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Keyboard") as key:
+            value, _kind = winreg.QueryValueEx(key, "PrintScreenKeyForSnippingEnabled")
+            return int(value)
+    except (OSError, ValueError, ImportError):
+        return None
+
+
 def parse(spec: str) -> tuple[int, int]:
     """Turn "ctrl+shift+s" into (modifier mask, virtual key code)."""
     parts = [p.strip().lower() for p in str(spec).split("+") if p.strip()]

@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.12.0"
 
 
 def config_dir() -> Path:
@@ -39,6 +39,12 @@ SKIN_NAMES = ("original", "steel", "split", "console")
 DEFAULTS = {
     # Global hotkey that starts a snip. Modifiers: ctrl, alt, shift, win.
     "hotkey": "ctrl+shift+s",
+    # How the overlay snips (0.12.0): "rect", "window" or "freeform". The last
+    # one used is remembered.
+    "snip_mode": "rect",
+    # Also snip with the Print Screen key (0.12.0). Off by default: Windows 11
+    # gives that key to its own Snipping Tool unless told otherwise.
+    "prtsc_snip": False,
     # Global hotkey that files a one-line note into the engaged lab.
     "note_hotkey": "ctrl+shift+n",
     # Global hotkey that files copied or highlighted command output into the
@@ -264,6 +270,7 @@ def _sanitise(cfg: dict) -> dict:
         "keep_edits",
         "close_hint_shown",
         "lab_methodology",
+        "prtsc_snip",
     ):
         cfg[flag] = bool(cfg.get(flag))
     cfg["auto_copy_extra_blocked"] = normalise_names(cfg.get("auto_copy_extra_blocked"))
@@ -287,4 +294,7 @@ def _sanitise(cfg: dict) -> dict:
     # stays free of Qt. skins.NAMES is the same list; a test keeps them equal.
     skin = str(cfg.get("skin") or "").strip().lower()
     cfg["skin"] = skin if skin in SKIN_NAMES else "original"
+    # The overlay's modes are named here, not imported, for the same reason.
+    if cfg.get("snip_mode") not in ("rect", "window", "freeform"):
+        cfg["snip_mode"] = "rect"
     return cfg

@@ -153,7 +153,10 @@ WORD_FILL = QColor(47, 140, 255, 95)
 # Tools whose cursor carries an icon badge beside the pointer.
 BADGED_TOOLS = ("crop", "redact")
 # Tools drawn in place of the pointer; the others use a system cursor.
-DRAWN_CURSOR_TOOLS = ("pen", "highlighter", "eraser", "crop", "redact")
+DRAWN_CURSOR_TOOLS = ("pen", "highlighter", "eraser", "crop", "redact", "picker")
+# The colour picker's loupe: this many image pixels across, each drawn this big.
+LOUPE_PIXELS = 11
+LOUPE_CELL = 10
 # Tools that draw a mark by dragging (0.11.0).
 DRAG_MARK_TOOLS = ("shape", "callout", "spotlight", "magnify")
 
@@ -510,6 +513,13 @@ def _segment_distance(p: QPointF, a: QPointF, b: QPointF) -> float:
         return math.hypot(p.x() - a.x(), p.y() - a.y())
     t = max(0.0, min(1.0, ((p.x() - a.x()) * dx + (p.y() - a.y()) * dy) / length))
     return math.hypot(p.x() - (a.x() + t * dx), p.y() - (a.y() + t * dy))
+
+
+def colour_text(colour: QColor, as_rgb: bool = False) -> str:
+    """#1e1e24, or rgb(30, 30, 36)."""
+    if as_rgb:
+        return f"rgb({colour.red()}, {colour.green()}, {colour.blue()})"
+    return colour.name(QColor.NameFormat.HexRgb)
 
 
 def _constrain(start: QPointF, end: QPointF, kind: str) -> QPointF:
@@ -1170,6 +1180,10 @@ class AnnotCanvas(QWidget):
         if self.tool == "step":
             self._add_step(self._clamp(point))
             return
+        if self.tool == "picker":
+            as_rgb = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            self.copy_colour(point, as_rgb=as_rgb)
+            return
         if self.tool in DRAG_MARK_TOOLS:
             start = self._clamp(point)
             self._mark_live = self._new_mark(start, start)
@@ -1366,6 +1380,83 @@ class AnnotCanvas(QWidget):
             self._erasing = set()
             if self.doc is not None:
                 self._rendered = self.doc.render()
+
+    # -- the colour picker (0.12.0) -------------------------------------------------------
+    def colour_at(self, point: QPointF) -> QColor | None:
+        """The colour of the snip, as it looks now, at `point` (image pixels)."""
+        if self._rendered is None or self.doc is None:
+            return None
+        crop = self.doc.crop_rect()
+        x, y = int(math.floor(point.x())) - crop.x(), int(math.floor(point.y())) - crop.y()
+        if not (0 <= x < self._rendered.width() and 0 <= y < self._rendered.height()):
+            return None
+        return QColor(self._rendered.pixel(x, y))
+
+    def copy_colour(self, point: QPointF, as_rgb: bool = False) -> str:
+        """Put a pixel's colour on the clipboard: #rrggbb, or rgb(r, g, b) with Shift."""
+        colour = self.colour_at(point)
+        if colour is None:
+            return ""
+        text = colour_text(colour, as_rgb)
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.clipboard().setText(text)
+        other = colour_text(colour, not as_rgb)
+        self.notice.emit(f"Copied {text}  ({other})")
+        return text
+
+    def _paint_loupe(self, painter: QPainter, target: QRectF) -> None:
+        """A magnified square of pixels around the pointer, with the colour under it."""
+        pos = self._pointer
+        point = self.to_image(pos)
+        colour = self.colour_at(point)
+        if colour is None:
+            return
+        crop = self.doc.crop_rect()
+        cx, cy = int(math.floor(point.x())) - crop.x(), int(math.floor(point.y())) - crop.y()
+        half = LOUPE_PIXELS // 2
+        side = LOUPE_PIXELS * LOUPE_CELL
+        label_h = 22
+        box = QRectF(pos.x() + 18, pos.y() + 18, side, side + label_h)
+        # Keep the loupe on the canvas: flip to the other side of the pointer near an edge.
+        if box.right() > self.width() - 2:
+            box.moveRight(pos.x() - 18)
+        if box.bottom() > self.height() - 2:
+            box.moveBottom(pos.y() - 18)
+        painter.save()
+        painter.setClipping(False)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.fillRect(box.adjusted(-2, -2, 2, 2), QColor(16, 16, 19, 235))
+        for row in range(LOUPE_PIXELS):
+            for col in range(LOUPE_PIXELS):
+                x, y = cx - half + col, cy - half + row
+                inside = 0 <= x < self._rendered.width() and 0 <= y < self._rendered.height()
+                fill = QColor(self._rendered.pixel(x, y)) if inside else QColor(40, 40, 46)
+                painter.fillRect(QRectF(box.x() + col * LOUPE_CELL, box.y() + row * LOUPE_CELL,
+                                        LOUPE_CELL, LOUPE_CELL), fill)
+        middle = QRectF(box.x() + half * LOUPE_CELL, box.y() + half * LOUPE_CELL, LOUPE_CELL, LOUPE_CELL)
+        painter.setPen(QPen(QColor(0, 0, 0), 1))
+        painter.drawRect(middle.adjusted(-1, -1, 0, 0))
+        painter.setPen(QPen(QColor(255, 255, 255), 1))
+        painter.drawRect(middle)
+        painter.setPen(QPen(QColor(255, 255, 255, 110), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(box.adjusted(-2, -2, 2, 2))
+        label = QRectF(box.x(), box.y() + side, side, label_h)
+        swatch = QRectF(label.x() + 5, label.y() + 5, label_h - 10, label_h - 10)
+        painter.fillRect(swatch, colour)
+        painter.setPen(QColor("#ffffff"))
+        painter.drawText(label.adjusted(label_h - 2, 0, 0, 0),
+                         int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                         colour_text(colour, False).upper())
+        # A small crosshair where the pointer is.
+        painter.setPen(QPen(QColor(0, 0, 0, 200), 3))
+        painter.drawLine(QPointF(pos.x() - 7, pos.y()), QPointF(pos.x() + 7, pos.y()))
+        painter.drawLine(QPointF(pos.x(), pos.y() - 7), QPointF(pos.x(), pos.y() + 7))
+        painter.setPen(QPen(QColor(255, 255, 255), 1))
+        painter.drawLine(QPointF(pos.x() - 7, pos.y()), QPointF(pos.x() + 7, pos.y()))
+        painter.drawLine(QPointF(pos.x(), pos.y() - 7), QPointF(pos.x(), pos.y() + 7))
+        painter.restore()
 
     # -- marks: drawing (0.11.0) ----------------------------------------------------------
     def _image_size(self, screen_px: float) -> float:
@@ -2047,6 +2138,10 @@ class AnnotCanvas(QWidget):
                 painter.setPen(pen)
                 painter.drawEllipse(pos, ERASER_RADIUS, ERASER_RADIUS)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
+        elif self.tool == "picker":
+            painter.restore()
+            self._paint_loupe(painter, target)
+            return
         elif self.tool in ("crop", "redact") and self._drag_from is None:
             # Guides across the whole screenshot, for lining up the first corner.
             for pen in (QPen(QColor(0, 0, 0, 120), 1), QPen(QColor(255, 255, 255, 170), 1, Qt.PenStyle.DashLine)):
@@ -2239,6 +2334,21 @@ def tool_icon(kind: str, color: str | None = None, size: int = 22) -> QIcon:
         p.setPen(pen)
         p.drawLine(QPointF(s * 0.39, s * 0.26), QPointF(s * 0.39, s * 0.48))
         p.drawLine(QPointF(s * 0.28, s * 0.37), QPointF(s * 0.50, s * 0.37))
+    elif kind == "picker":
+        # An eyedropper.
+        p.save()
+        p.translate(s * 0.5, s * 0.5)
+        p.rotate(45)
+        p.drawRoundedRect(QRectF(-s * 0.10, -s * 0.46, s * 0.20, s * 0.22), 2, 2)
+        p.drawLine(QPointF(-s * 0.18, -s * 0.22), QPointF(s * 0.18, -s * 0.22))
+        body = QPainterPath()
+        body.moveTo(-s * 0.07, -s * 0.22)
+        body.lineTo(-s * 0.07, s * 0.26)
+        body.lineTo(0, s * 0.40)
+        body.lineTo(s * 0.07, s * 0.26)
+        body.lineTo(s * 0.07, -s * 0.22)
+        p.drawPath(body)
+        p.restore()
     elif kind == "stamp":
         # A clock beside a line of text: when, and where.
         p.drawEllipse(QRectF(s * 0.06, s * 0.26, s * 0.44, s * 0.44))
@@ -2608,7 +2718,7 @@ TOOL_GROUPS = (
     ("select", "pen", "highlighter", "eraser"),
     ("shape", "label", "step", "callout"),
     ("spotlight", "magnify"),
-    ("crop", "redact", "text"),
+    ("crop", "redact", "text", "picker"),
 )
 
 # Name, what it does, and whether it has options, for the hover box and the
@@ -2627,6 +2737,7 @@ TOOL_INFO = {
                   "spotlights keep each area bright.", ""),
     "magnify": ("Magnify", "Drag over something small (a hash, a version); a larger copy is placed "
                 "beside it. Select it to move the copy.", "how much larger, and the frame colour"),
+    "picker": ("Colour picker", "Hover the snip to read any pixel's colour; click to copy its hex code.", ""),
     "pen": ("Pen", "Draw freehand lines on the snip.", "colour and width"),
     "highlighter": ("Highlighter", "A see-through marker for picking out text; what is under it stays readable.", "colour and width"),
     "eraser": ("Eraser", "Drag across a pen line, highlight or redaction to remove the whole mark.", ""),
@@ -2644,6 +2755,7 @@ HINTS = {
     "callout": "Callout: drag from the thing to where the words go, type, Enter.",
     "spotlight": "Spotlight: drag over what matters; the rest is dimmed.",
     "magnify": "Magnify: drag over something small; a larger copy goes beside it.",
+    "picker": "Colour picker: hover to read a colour, click to copy its hex code. Shift+click copies rgb().",
     "pen": "Pen: draw on the snip. Esc or click the pen again to put it down.",
     "highlighter": "Highlighter: drag over what matters. Esc or click it again to put it down.",
     "eraser": "Eraser: drag across a mark to remove it. Esc to put it down.",
@@ -2921,6 +3033,7 @@ class AnnotToolbar(QWidget):
         for kind in ("label", "step", "callout", "magnify"):
             self.buttons[kind].setIcon(tool_icon(kind, color))
         self.buttons["spotlight"].setIcon(tool_icon("spotlight"))
+        self.buttons["picker"].setIcon(tool_icon("picker"))
         self.btn_stamp.setIcon(tool_icon("stamp"))
 
 

@@ -117,7 +117,7 @@ removal, the viewer) is the same code on both.
 
 | Action | Key |
 | --- | --- |
-| Start a snip | `Ctrl+Shift+S`, the tray menu, or `python main.py --snip` |
+| Start a snip | `Ctrl+Shift+S`, the tray menu, or `python main.py --snip`; `Alt+N` in any ShadowSnip window; `Print Screen` if you turn it on in Settings |
 | Jot a note into the lab | `Ctrl+Shift+N`, or **Add note...** in the tray menu |
 | File command output into the lab | `Ctrl+Alt+O`, **Add output** in the window, or **File command output...** in the tray menu |
 | Mark a section as a finding | **Finding...** beside the Section box, or right-click it in the Outline |
@@ -128,8 +128,11 @@ removal, the viewer) is the same code on both.
 | Start hidden in the tray | `ShadowSnip.exe --tray` on Windows, `shadowsnip --tray` on Linux (for the login shortcut) |
 | Always open the window | `ShadowSnip.exe --show` |
 | Start or stop a lab | **Start lab** in the preview window, or the tray menu |
-| Drag a region | left mouse button |
-| Grab the whole screen under the cursor | `F` or `Space` |
+| Pick how to snip | The bar at the top: **Rectangle** `R`, **Window** `W`, **Freeform** `L`, **Full screen** `F` or `Space`. The last one used is remembered |
+| Drag a region (Rectangle) | left mouse button |
+| Snip a window (Window) | hover it, then click |
+| Draw any shape (Freeform) | drag around it; what is outside is filled white |
+| Grab the whole screen under the cursor | `F` or `Space`, or **Full screen** on the bar |
 | Cancel | `Esc` or right mouse button |
 | Save a permanent copy (preview window) | `Ctrl+S` |
 | Copy again (preview window) | `Ctrl+C` |
@@ -152,6 +155,7 @@ above it has:
 | **Eraser** | Drag across a pen line, highlight or redaction to remove the whole mark |
 | **Crop** | Drag the area to keep |
 | **Redact** | Drag over something to hide it, with **Black out** (solid black, nothing of the original survives) or **Blur** (smeared; hides text, but the layout can still show) |
+| **Colour picker** | Hover the snip for a magnified view of the pixels with the colour's hex code; click to copy it (`#2f8cff`), Shift+click for `rgb(47, 140, 255)` |
 | **Text** | Reads the words in the snip and outlines them. Click a word, drag across several, Shift+click to add, `Ctrl+A` for all, then `Ctrl+C` or right-click to copy them as text |
 | **Quick redact** | The button beside the tools: finds passwords, keys and tokens, hashes, email addresses and phone numbers (and IP addresses, if you tick them) and covers them in one go |
 | **Select** | Click a shape, label, step, callout, spotlight or magnifier to move it; drag its square handles to resize; double-click words to change them; `Delete` removes it |
@@ -204,6 +208,19 @@ For passwords, hashes and client details, use **Black out**: a blur can still
 show how long a line was. A redaction protects the files ShadowSnip writes; a
 copy pasted somewhere before you redacted, or held in Windows clipboard history
 (`Win+V`), is outside its reach, so redact before pasting.
+
+### Window and freeform snips
+
+The bar at the top of the snipping screen picks the kind of snip, as in
+Windows Snipping Tool. **Window** lights up the window under the pointer,
+with its size, and a click takes exactly that window: on Windows its frame as
+drawn, without the invisible border and shadow; on Linux including the title
+bar. A window covered by another is snipped as it appears on screen, since the
+snip is taken from the frozen picture. **Freeform** follows the pointer while
+the button is held and fills everything outside the shape with white, as
+Snipping Tool does; the clipboard's bitmap and JPEG have no transparency, so
+white is the one fill that comes out the same everywhere. Window snips need
+X11 on Linux (`xprop` and `xwininfo`, from x11-utils).
 
 ### Shapes, labels, steps and callouts
 
@@ -690,6 +707,7 @@ window is never taller than the screen it opens on.
 | --- | --- |
 | Skin | How ShadowSnip looks: **Original**, **Steel**, **Split** or **Console**. **Next** steps through them. Each one shows straight away, in a picture of the window under the list and on the window itself; **Save** keeps it, **Cancel** puts the old one back |
 | Snip hotkey | Click the field and press the combination you want |
+| Also snip with the Print Screen key | Print Screen starts a snip too. On Windows 11, Windows keeps that key for its own screen capture until **Use the Print screen key to open screen capture** is turned off (Settings > Accessibility > Keyboard); the button under the checkbox opens that page, and ShadowSnip takes the key over within a few seconds of it being freed. On Xfce, remove the screenshot tool's Print shortcut first |
 | Quick note hotkey | The same, for the one-line note box |
 | Command output hotkey | The same, for filing command output as a code block |
 | Save folder / replaced file name | Where the standing snip lives |

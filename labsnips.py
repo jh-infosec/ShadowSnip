@@ -440,6 +440,8 @@ class SnipViewer(QWidget):
     # The file shown, to put on the clipboard or take out of the lab.
     copy_requested = Signal(str)
     remove_requested = Signal(str)
+    # Alt+N in the full-size view: a new snip (0.12.0).
+    new_snip_requested = Signal()
     # A file about to be loaded for viewing and editing, so mark-up still
     # waiting in the preview window can be saved into it first.
     about_to_load = Signal(str)
@@ -556,6 +558,7 @@ class SnipViewer(QWidget):
         for keys in ("Ctrl+Y", "Ctrl+Shift+Z"):
             QShortcut(QKeySequence(keys), self, self.canvas.redo)
         QShortcut(QKeySequence("Ctrl+0"), self, self.canvas.reset_zoom)
+        QShortcut(QKeySequence("Alt+N"), self, self.new_snip_requested.emit)
         for keys in ("Ctrl+=", "Ctrl++"):
             QShortcut(QKeySequence(keys), self, lambda: self.canvas.set_zoom(self.canvas.zoom() * 1.2))
         QShortcut(QKeySequence("Ctrl+-"), self, lambda: self.canvas.set_zoom(self.canvas.zoom() / 1.2))
@@ -1223,6 +1226,7 @@ class LabSnipsPanel(QWidget):
     remove_requested = Signal(list)
     open_requested = Signal(str)
     copy_requested = Signal(str)
+    new_snip_requested = Signal()
     # A line for the window's status bar (Save as, Show in folder).
     status_message = Signal(str)
     # From the viewer: a lab snip about to be shown, and an edited one.
@@ -1783,6 +1787,7 @@ class LabSnipsPanel(QWidget):
             self.viewer = SnipViewer()
             self.viewer.current_changed.connect(self.select)
             self.viewer.copy_requested.connect(self.copy_requested.emit)
+            self.viewer.new_snip_requested.connect(self.new_snip_requested.emit)
             self.viewer.about_to_load.connect(self.viewer_loading.emit)
             self.viewer.edit_saved.connect(self.edit_saved.emit)
             self.viewer.prefs_changed.connect(self._on_viewer_prefs)
