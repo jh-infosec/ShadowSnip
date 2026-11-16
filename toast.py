@@ -85,6 +85,18 @@ class ClipToast(QLabel):
         self.raise_()
         self._hold.start(HOLD_MS)
 
+    def show_message(self, text: str) -> None:
+        """A short line of ShadowSnip's own (0.14.0): a clip saved, a clip refused."""
+        self._hold.stop()
+        self._fade_out.stop()
+        self.setWindowOpacity(1.0)
+        self.setText(text)
+        self.adjustSize()
+        self.move(_position(self.width(), self.height()))
+        self.show()
+        self.raise_()
+        self._hold.start(HOLD_MS)
+
     def _fade(self) -> None:
         if self.isVisible():
             self._fade_out.start()

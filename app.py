@@ -13,6 +13,8 @@ in capture order. Nothing else about the pipeline changes.
 
 from __future__ import annotations
 
+import os
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, QObject, QRect, QTimer, Qt
@@ -73,6 +75,7 @@ class ShadowSnipApp(QObject):
         self.preview = PreviewWindow(icon=build_icon())
         self.preview.new_snip_requested.connect(self.request_snip)
         self.preview.delayed_snip_requested.connect(self.request_snip_delayed)
+        self.preview.record_requested.connect(self.request_record)
         self.preview.lab_toggle_requested.connect(self.toggle_lab)
         self.preview.auto_copy_toggled.connect(self.toggle_auto_copy)
         self.preview.section_changed.connect(self.set_section)
@@ -167,6 +170,9 @@ class ShadowSnipApp(QObject):
         self.action_cancel_delay.triggered.connect(self.cancel_delayed_snip)
         self.action_cancel_delay.setEnabled(False)
         menu.addMenu(self.delay_menu)
+        self.action_record = QAction(self._record_label(), menu)
+        self.action_record.triggered.connect(self.request_record)
+        menu.addAction(self.action_record)
 
         self.action_folder = QAction("Open save folder", self)
         self.action_folder.triggered.connect(self._open_save_folder)
@@ -1129,6 +1135,7 @@ class ShadowSnipApp(QObject):
         ("snip", "hotkey", "Snip from the tray icon"),
         ("note", "note_hotkey", "Add notes from the tray menu"),
         ("output", "output_hotkey", "File command output from the tray menu"),
+        ("record", "record_hotkey", "Record a video clip from the tray menu"),
     )
 
     def _on_hotkey(self, name: str) -> None:
@@ -1136,6 +1143,8 @@ class ShadowSnipApp(QObject):
             self.quick_note()
         elif name == "output":
             self.file_output()
+        elif name == "record":
+            self.request_record()
         else:
             self.request_snip()
 
@@ -1221,6 +1230,10 @@ class ShadowSnipApp(QObject):
 
     # -- snipping ----------------------------------------------------------
     def request_snip(self) -> None:
+        if getattr(self, "recorder", None) is not None:
+            # A snip now would put its overlay into the clip.
+            self.toast.show_message("Recording a clip: stop it first (\u25a0 Stop, or the clip hotkey).")
+            return
         if self.busy:
             return
         # Mark-up still waiting to be saved belongs to the snip on screen, so
@@ -1394,6 +1407,7 @@ class ShadowSnipApp(QObject):
         self.controller.start()
 
     def _on_cancelled(self) -> None:
+        self._purpose = "snip"
         self.controller = None
         self._grabs = []
         self.busy = False
@@ -1404,11 +1418,145 @@ class ShadowSnipApp(QObject):
             self._reshow_preview = False
             self.preview.open_window()
 
+    # -- video clips (0.14.0) --------------------------------------------------
+    def request_record(self) -> None:
+        """The clip hotkey: pick an area and record it, or stop the clip running."""
+        if getattr(self, "recorder", None) is not None:
+            self.stop_recording()
+            return
+        if self.busy:
+            return
+        self.cancel_delayed_snip()
+        self._purpose = "record"
+        self.request_snip()
+        if not self.busy:  # refused (a dialog open): not waiting for an area any more
+            self._purpose = "snip"
+
+    def _start_recording(self, rect: QRect) -> None:
+        import recordbar
+        import recorder
+
+        temp = storage.save_dir(self.cfg) / ".recording"
+        try:
+            temp.mkdir(parents=True, exist_ok=True)
+            path = temp / f"clip_{datetime.now():%Y-%m-%d_%H-%M-%S}.mp4"
+            self.recorder = recorder.Recorder(
+                rect, path, fps=int(self.cfg.get("clip_fps", recorder.DEFAULT_FPS)),
+                microphone=bool(self.cfg.get("clip_microphone", False)),
+                max_seconds=int(self.cfg.get("clip_max_minutes", 10)) * 60, parent=self,
+            )
+            self.recorder.tick.connect(self._on_record_tick)
+            self.recorder.finished.connect(self._on_record_finished)
+            self.recorder.failed.connect(self._on_record_failed)
+            self.recorder.start()
+        except Exception as exc:  # noqa: BLE001 - reported, and nothing left running
+            self.recorder = None
+            self._end_recording_ui()
+            self._finish_busy()
+            self._warn(f"The clip could not start: {exc}")
+            return
+        area = self.recorder.rect
+        self.record_frame = recordbar.RecordingFrame(area)
+        self.record_bar = recordbar.RecordingBar(self.recorder.microphone)
+        self.record_bar.pause_clicked.connect(self.toggle_record_pause)
+        self.record_bar.stop_clicked.connect(self.stop_recording)
+        self.record_bar.place_beside(area, self.recorder.screen.geometry())
+        self.record_frame.show()
+        self.record_bar.show()
+        self.action_record.setText("Stop recording")
+
+    def toggle_record_pause(self) -> None:
+        rec = getattr(self, "recorder", None)
+        if rec is None:
+            return
+        if rec.paused:
+            rec.resume()
+        else:
+            rec.pause()
+        self.record_bar.set_paused(rec.paused)
+
+    def stop_recording(self) -> None:
+        rec = getattr(self, "recorder", None)
+        if rec is not None and rec.recording:
+            rec.stop()
+
+    def _on_record_tick(self, seconds: int) -> None:
+        bar = getattr(self, "record_bar", None)
+        if bar is not None:
+            bar.show_seconds(seconds)
+
+    def _end_recording_ui(self) -> None:
+        for name in ("record_bar", "record_frame"):
+            item = getattr(self, name, None)
+            if item is not None:
+                item.close()
+            setattr(self, name, None)
+        if hasattr(self, "action_record"):
+            self.action_record.setText(self._record_label())
+
+    def _finish_busy(self) -> None:
+        self.busy = False
+        self.autocopy.resume()
+        if getattr(self, "_reshow_preview", False):
+            self._reshow_preview = False
+            self.preview.open_window()
+
+    def _on_record_failed(self, message: str) -> None:
+        self.recorder = None
+        self._end_recording_ui()
+        self._finish_busy()
+        self._warn(f"The clip could not be saved: {message}")
+
+    def _on_record_finished(self, path: str) -> None:
+        rec, self.recorder = self.recorder, None
+        self._end_recording_ui()
+        try:
+            saved = self._save_clip(Path(path), rec.first_frame, rec.elapsed())
+        except Exception as exc:  # noqa: BLE001 - reported; the clip stays in .recording
+            self._finish_busy()
+            self._warn(f"The clip was recorded but could not be filed ({exc}). It is in {path}.")
+            return
+        import clips
+
+        clips.copy_file(saved)
+        size = saved.stat().st_size / (1024 * 1024)
+        self.toast.show_message(
+            f"Clip saved ({clips.format_length(rec.elapsed())}, {size:.1f} MB) and copied as a file.")
+        self._finish_busy()
+        self._refresh_snip_list()
+
+    def _save_clip(self, video: Path, first_frame, seconds: float) -> Path:
+        """File the clip like a snip: its poster in the lab or history, the MP4 beside it."""
+        import clips
+
+        poster = clips.make_poster(first_frame, seconds)
+        if lab.is_active(self.cfg):
+            image = lab.save(poster, "png", self.cfg, companion=video)
+        else:
+            image = storage.save_history(poster, "png", self.cfg, companion=video)
+        if image is None:
+            # No lab and no history kept: a clips folder of its own.
+            folder = storage.save_dir(self.cfg) / "clips"
+            image = storage.write_atomic(folder / f"clip_{datetime.now():%Y-%m-%d_%H-%M-%S}.png", poster)
+            os.replace(video, image.with_suffix(clips.SUFFIX))
+        return image.with_suffix(clips.SUFFIX)
+
+    def _record_label(self) -> str:
+        spec = self.cfg.get("record_hotkey", "")
+        return f"Record a video clip ({hotkey_mod.describe(spec)})" if spec else "Record a video clip"
+
     def _remember_snip_mode(self, mode: str) -> None:
         self.cfg["snip_mode"] = mode
         self._persist()
 
     def _on_selected(self, rect: QRect) -> None:
+        if getattr(self, "_purpose", "snip") == "record":
+            # 0.14.0: the area was picked for a clip, not a snip.
+            self._purpose = "snip"
+            self.controller = None
+            self._grabs = []
+            self._start_recording(rect)
+            return
         shape = self.controller.shape if self.controller is not None else None
         picked = getattr(self.controller, "picked_window", None) if self.controller is not None else None
         self.controller = None
@@ -1620,7 +1768,7 @@ class ShadowSnipApp(QObject):
         """Replace changed hotkeys atomically, restoring the old ones on error."""
         desired = {name: new_cfg[key] for name, key, _ in self.HOTKEYS}
         if len(set(desired.values())) != len(desired):
-            self._warn("The snip, quick-note and command-output hotkeys must all be different.")
+            self._warn("The snip, quick-note, command-output and video clip hotkeys must all be different.")
             return False
 
         changed = [

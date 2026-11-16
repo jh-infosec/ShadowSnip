@@ -37,6 +37,9 @@ annotate.py          marking up the snip: pen, highlighter, eraser, crop,
 edits.py             keeping marks editable after leaving a snip: the
                      hidden .edits sidecars (marks and the original)
 countdown.py         the countdown before a delayed snip (never takes focus)
+recorder.py          recording an area to MP4 (frames pushed into Qt Multimedia)
+recordbar.py         the red frame and the Pause/Stop bar while a clip records
+clips.py             a clip's poster, finding the video beside it, GIF export
 winlist.py           the windows on screen, for window snips (Windows: EnumWindows
                      and DWM frame bounds; X11: xprop and xwininfo)
 ocr.py               reading text from a snip (Windows OCR or Tesseract) and
@@ -195,6 +198,25 @@ an all-black result counts as a failure and the screen is used.
 
 **Mark styles**: a `Change` may also set `color`, `width` and `size`, so a
 recolour or resize is one undo and is kept in the sidecar like a move.
+
+### Video clips (0.14.0)
+
+`recorder.Recorder` grabs the chosen area of one screen on a timer and sends
+each picture, stamped with the time it was grabbed (pauses left out), into a
+`QVideoFrameInput` on a `QMediaCaptureSession` whose `QMediaRecorder` writes
+MP4. Grabbing only the area keeps 4K affordable; even frame sizes keep the
+encoders happy; the time stamps keep a slow grab from speeding the clip up.
+
+A finished clip is filed through the same functions as a snip, `lab.save()`
+and `storage.save_history()`, with the poster as the snip and the MP4 passed
+as a `companion` that is moved in beside it under the same name before
+lab.md is written. Everything that shows snips therefore shows clips with no
+special case; the few places that act differently (play, copy, Save as GIF,
+remove, history pruning) ask `clips.clip_for(path)` for the video beside an
+image. Copying a clip puts a file on the clipboard (CF_HDROP through pywin32
+on Windows, a uri-list through Qt elsewhere). GIF export plays the clip muted
+at 8x into a `QVideoSink` and keeps a frame every 100 ms of the clip's own
+clock.
 
 ## The snip pipeline
 

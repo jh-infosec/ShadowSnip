@@ -89,3 +89,16 @@ def _no_lab_targets():
     ocr.target_source = None
     yield
     ocr.target_source = None
+
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _empty_clipboard_at_the_end():
+    """Qt crashes tearing down if the clipboard still holds data it was given
+    (seen with file lists, 0.14.0). The app never quits that way in tests'
+    place, so the test run leaves the clipboard empty when it is done."""
+    yield
+    from PySide6.QtWidgets import QApplication
+
+    if QApplication.instance() is not None:
+        QApplication.clipboard().clear()

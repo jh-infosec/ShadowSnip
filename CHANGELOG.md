@@ -1,39 +1,35 @@
 # Changelog
 
-## Latest: 0.13.0
+## Latest: 0.14.0
 
-Catching what disappears, and the mark-up odds and ends.
+**Added**: **video clips**. Record an area of the screen as an MP4 with the
+clip hotkey (`Ctrl+Alt+R`), the record button beside New snip, the tray menu,
+or `--record`. The area is picked like a snip's (rectangle, window or full
+screen). A red frame marks it and a bar shows the time, Pause and Stop; on
+Windows both stay out of the recording even where they overlap it.
 
-**Added**: **delayed snips**, for right-click menus, tooltips and hover states
-that vanish the moment anything else is clicked. The clock button beside New
-snip, **Snip after a delay** in the tray menu, or `--snip --delay 5` on the
-command line, in 3, 5 or 10 seconds. The window steps out of the way at once
-and a countdown waits in the bottom right corner without ever taking focus,
-so a menu opened meanwhile stays open into the snip. The countdown is gone
-before the screen freezes. The snip hotkey during a countdown snips now;
-**Cancel the countdown** is in the tray menu.
+- Filed like a snip: in the running lab, numbered and linked from lab.md, or
+  in the history folder, as the MP4 and a **poster** (the first frame with a
+  play badge and the length) that the lists, the full-size view and the
+  reports show.
+- Copied to the clipboard **as a file** when it is saved, to paste into
+  Explorer, a chat or an email. On Windows this is the same file drop
+  Explorer itself uses.
+- In the snip list: ▶ and the length, **Play** in your video player, and
+  **Save as GIF...** for short clips in READMEs and chats.
+- Microphone off unless turned on in Settings ("mic on" shows while it
+  records); 10, 15 or 30 frames a second; a longest-clip limit (10 minutes
+  unless changed) so a forgotten recording cannot fill the disk.
+- Clips are never pruned from the history folder.
+- Nothing extra to install: the encoder comes with PySide6 (H.264 where the
+  system has it, MPEG-4 otherwise).
 
-**Added**: a **magnifier** beside the pointer while snipping, showing the
-pixels around it, undimmed and enlarged, with the position in screen pixels,
-for edges exact to the pixel. `M` hides it for one snip; Settings, Snipping
-tab, turns it off.
+### 0.13.0 in brief
 
-**Added**: **covered windows** in Window mode come from the window itself on
-Windows, not from the screen, so the window on top of it is not in the snip.
-One that will not draw itself that way falls back to the screen.
-
-**Added**: a **Blur** shape, a blurred box that moves and erases like any
-mark, for faces and logos. Secrets still belong under Redact, which cannot be
-dragged off what it hides.
-
-**Added**: a mark's **colour and size can change after it is drawn**:
-right-click it for Colour and Size (Larger, Smaller), or select it and
-right-click a mark tool, whose options then apply to it. One undo each, kept
-in the `.edits` sidecar.
-
-**Added**: Quick redact offers **This lab's targets**: the hosts in the
-running lab's findings and host-named sections, and their domains, matched as
-whole names.
+**Added**: delayed snips (3, 5, 10 s), a magnifier while snipping, covered
+windows captured from the window itself on Windows, a Blur shape, changing a
+mark's colour and size after drawing, and Quick redact offering the lab's own
+targets.
 
 ### 0.12.0 in brief
 

@@ -77,6 +77,29 @@ filed as code blocks, and the methodology phases laid out in one click.
 Window and freeform snips from a mode bar on the snipping screen, the colour
 picker, Alt+N for a new snip, and Print Screen as a snip key.
 
+## Done in v0.14.0 - video clips
+
+Recording an area to MP4 with pause, an optional microphone and a length
+limit; clips filed like snips with a poster; copy as a file; Save as GIF.
+
+## Next: v0.15 - the report
+
+- PDF export straight from ShadowSnip.
+- CVSS scores on findings.
+- A findings-only export.
+- Restoring a removed snip from inside ShadowSnip.
+
+## Then: v0.16 - encrypted labs
+
+Lab folders encrypted at rest, with the unlock and recovery choices still to
+be settled.
+
+## Video clips, still open
+
+- Trimming a clip's start and end inside ShadowSnip.
+- System sound (Windows' loopback capture), which Qt does not offer.
+- Marking up a clip (an arrow that stays on screen for a few seconds).
+
 ## Done in v0.13.0 - catching what disappears
 
 Delayed snips, the magnifier while snipping, covered windows from the window

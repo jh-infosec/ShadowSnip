@@ -138,6 +138,8 @@ class PreviewWindow(QWidget):
     new_snip_requested = Signal()
     # 0.13.0: the clock beside New snip, a snip after this many seconds.
     delayed_snip_requested = Signal(int)
+    # 0.14.0: the record button, a video clip of an area.
+    record_requested = Signal()
     lab_toggle_requested = Signal()
     auto_copy_toggled = Signal()
     # The breadcrumb the lab should file things under from now on.
@@ -291,6 +293,11 @@ class PreviewWindow(QWidget):
             action = delay_menu.addAction(f"Snip in {seconds} seconds")
             action.triggered.connect(lambda _c=False, s=seconds: self.delayed_snip_requested.emit(s))
         self.btn_delay.setMenu(delay_menu)
+        self.btn_record = QToolButton()
+        self.btn_record.setObjectName("Delay")
+        self.btn_record.setText("\u23fa")
+        self.btn_record.setToolTip("Record a video clip of an area (the clip hotkey stops it)")
+        self.btn_record.clicked.connect(self.record_requested.emit)
         self.btn_lab = QPushButton("Start lab")
         # Only shown while a lab runs, since that is the only time there is a
         # list to show. Checked means the list is showing.
@@ -345,6 +352,7 @@ class PreviewWindow(QWidget):
         bar.addWidget(self.brand)
         bar.addWidget(self.btn_new)
         bar.addWidget(self.btn_delay)
+        bar.addWidget(self.btn_record)
         bar.addWidget(self.btn_lab)
         bar.addWidget(self.btn_snips)
         bar.addWidget(self.btn_auto)

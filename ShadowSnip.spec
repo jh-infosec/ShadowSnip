@@ -20,7 +20,7 @@ a = Analysis(
     datas=[],
     # Windows' OCR engine (Copy text, Quick redact) is imported lazily, inside
     # a function, so PyInstaller would not see it without being told.
-    hiddenimports=[
+    hiddenimports=([
         "winrt.windows.media.ocr",
         "winrt.windows.graphics.imaging",
         "winrt.windows.security.cryptography",
@@ -28,7 +28,11 @@ a = Analysis(
         "winrt.windows.foundation",
         "winrt.windows.foundation.collections",
         "winrt.windows.globalization",
-    ] if sys.platform == "win32" else [],
+    ] if sys.platform == "win32" else []) + [
+        # Video clips (0.14.0): imported inside functions, and Qt's FFmpeg
+        # plugin comes with this module.
+        "PySide6.QtMultimedia",
+    ],
     hookspath=[],
     runtime_hooks=[],
     excludes=[

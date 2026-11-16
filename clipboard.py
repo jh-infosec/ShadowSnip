@@ -91,3 +91,54 @@ def _copy_qt(png_bytes: bytes, image) -> list[str]:
 
     QApplication.clipboard().setMimeData(mime)
     return ["PNG", "image/png"]
+
+
+# -- files (0.14.0) -------------------------------------------------------------------------------
+CF_HDROP = 15
+
+
+def drop_files_data(paths) -> bytes:
+    """A DROPFILES block naming `paths`: what Explorer puts on the clipboard for a copied file.
+
+    20-byte header (offset to the names, a point, two flags with "wide" set),
+    then each full path in UTF-16, each ending in a null, and one more null.
+    """
+    import struct
+
+    header = struct.pack("<IiiII", 20, 0, 0, 0, 1)
+    names = "".join(str(path) + "\0" for path in paths) + "\0"
+    return header + names.encode("utf-16-le")
+
+
+def copy_files(paths) -> str:
+    """Put files on the clipboard, to paste into Explorer, a chat or an email.
+
+    Windows: the same file-drop block Explorer writes (CF_HDROP), straight
+    through the Windows clipboard, so it stays there after ShadowSnip quits.
+    Elsewhere, or without pywin32: Qt's file list (text/uri-list).
+    Returns which way was used.
+    """
+    paths = [str(p) for p in paths]
+    if sys.platform == "win32":
+        try:
+            import win32clipboard as clip
+
+            _open_with_retry(clip)
+            try:
+                clip.EmptyClipboard()
+                clip.SetClipboardData(CF_HDROP, drop_files_data(paths))
+            finally:
+                try:
+                    clip.CloseClipboard()
+                except Exception:  # noqa: BLE001
+                    pass
+            return "CF_HDROP"
+        except ImportError:
+            pass
+    from PySide6.QtCore import QMimeData, QUrl
+    from PySide6.QtWidgets import QApplication
+
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(path) for path in paths])
+    QApplication.clipboard().setMimeData(mime)
+    return "text/uri-list"

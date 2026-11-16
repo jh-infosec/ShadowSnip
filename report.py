@@ -50,6 +50,22 @@ class ExportError(RuntimeError):
 
 
 # -- the shared reading of the lab ---------------------------------------------------------------
+
+def _clip_line(block: dict) -> str:
+    """For a clip's poster (0.14.0): which video it stands for, and how long it is.
+
+    The video itself is not put into the report (an HTML file with a video
+    inside would be enormous, and Word cannot play one); it stays beside the
+    poster in the lab folder, and the caption says so.
+    """
+    import clips
+
+    video = clips.clip_for(block.get("path"))
+    if video is None:
+        return ""
+    length = clips.format_length(clips.length_of(block.get("path")))
+    return f"Video clip {video.name}" + (f" ({length})" if length else "") + ", in the lab folder"
+
 def model(folder: Path) -> dict:
     """The report, in order, as plain data.
 
@@ -250,6 +266,9 @@ def to_html(data: dict) -> bytes:
             uri = _data_uri(block["path"]) if block["path"] else None
             label = f"<b>{_esc(block['label'])}</b>"
             bits = [label] + [_esc(x) for x in (block["time"], block["caption"]) if x]
+            video = _clip_line(block)
+            if video:
+                bits.append(_esc(video))
             if uri is None:
                 out.append(f'<p class="missing">Snip {_esc(block["label"])}: {MISSING}</p>')
             else:
@@ -396,7 +415,7 @@ def to_docx(data: dict) -> bytes:
             doc.add_picture(stream, width=width)
             caption = doc.add_paragraph()
             caption.add_run(block["label"]).bold = True
-            rest = " - ".join(x for x in (block["time"], block["caption"]) if x)
+            rest = " - ".join(x for x in (block["time"], block["caption"], _clip_line(block)) if x)
             if rest:
                 caption.add_run(f" - {rest}")
             caption.runs[-1].font.size = Pt(9)

@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.13.0"
+APP_VERSION = "0.14.0"
 
 
 def config_dir() -> Path:
@@ -52,6 +52,12 @@ DEFAULTS = {
     # Global hotkey that files copied or highlighted command output into the
     # engaged lab as a code block, after a look at it (0.9.0).
     "output_hotkey": "ctrl+alt+o",
+    # 0.14.0: video clips. Ctrl+Alt+R: Ctrl+Shift+R is a browser's hard
+    # reload, and Win+Shift+R is Windows 11's own screen recording.
+    "record_hotkey": "ctrl+alt+r",
+    "clip_fps": 15,
+    "clip_microphone": False,
+    "clip_max_minutes": 10,
     # Where the always-overwritten snip and any history land.
     "save_dir": str(default_save_dir()),
     # Base name of the file that gets replaced on every snip.
@@ -274,6 +280,7 @@ def _sanitise(cfg: dict) -> dict:
         "lab_methodology",
         "prtsc_snip",
         "snip_magnifier",
+        "clip_microphone",
     ):
         cfg[flag] = bool(cfg.get(flag))
     cfg["auto_copy_extra_blocked"] = normalise_names(cfg.get("auto_copy_extra_blocked"))
@@ -281,7 +288,7 @@ def _sanitise(cfg: dict) -> dict:
     # the string "None" and sail through as a real value. A null save_dir in
     # particular reaches Path() as None and raises TypeError on the first snip,
     # which is not an OSError and so is not caught where the writes happen.
-    for key in ("hotkey", "note_hotkey", "output_hotkey"):
+    for key in ("hotkey", "note_hotkey", "output_hotkey", "record_hotkey"):
         if not str(cfg.get(key) or "").strip():
             cfg[key] = DEFAULTS[key]
     if not str(cfg.get("save_dir") or "").strip():
@@ -300,4 +307,15 @@ def _sanitise(cfg: dict) -> dict:
     # The overlay's modes are named here, not imported, for the same reason.
     if cfg.get("snip_mode") not in ("rect", "window", "freeform"):
         cfg["snip_mode"] = "rect"
+    # Clip settings (0.14.0), kept to what recorder.py offers.
+    try:
+        fps = int(cfg.get("clip_fps", 15))
+    except (TypeError, ValueError):
+        fps = 15
+    cfg["clip_fps"] = fps if fps in (10, 15, 30) else 15
+    try:
+        minutes = int(cfg.get("clip_max_minutes", 10))
+    except (TypeError, ValueError):
+        minutes = 10
+    cfg["clip_max_minutes"] = min(60, max(1, minutes))
     return cfg

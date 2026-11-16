@@ -56,12 +56,15 @@ def save_latest(data: bytes, ext: str, cfg: dict) -> Path:
     return path
 
 
-def save_history(data: bytes, ext: str, cfg: dict) -> Path | None:
+def save_history(data: bytes, ext: str, cfg: dict, companion: Path | None = None) -> Path | None:
     if not cfg.get("keep_history"):
         return None
     folder = save_dir(cfg) / HISTORY_DIRNAME
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")[:-3]
     path = write_atomic(folder / f"snip_{stamp}.{ext}", data)
+    if companion is not None:
+        # A video clip (0.14.0): this snip is its poster; the video sits beside it.
+        os.replace(companion, path.with_suffix(Path(companion).suffix))
     prune_history(cfg)
     return path
 
@@ -71,8 +74,13 @@ def prune_history(cfg: dict) -> None:
     if not folder.is_dir():
         return
     limit = int(cfg.get("history_limit", 50))
+    import clips
+
+    # Clips are never pruned (0.14.0): a recording lost to a count of snips
+    # would be a nasty surprise. They stay until removed by hand.
     files = sorted(
-        (p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in _SUFFIXES),
+        (p for p in folder.iterdir()
+         if p.is_file() and p.suffix.lower() in _SUFFIXES and clips.clip_for(p) is None),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -142,9 +150,11 @@ def remove_from_history(cfg: dict, name: str) -> Path | None:
         target = target_dir / f"{source.stem}_{n}{source.suffix}"
         n += 1
     os.replace(source, target)
+    import clips
     import edits
 
     edits.move(source, target)  # its kept marks go with it
+    clips.move_with(source, target)  # and a clip's video with its poster
     return target
 
 

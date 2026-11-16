@@ -115,6 +115,21 @@ class SettingsDialog(QDialog):
         self.hotkey_edit = HotkeyEdit(cfg["hotkey"])
         self.note_hotkey_edit = HotkeyEdit(cfg["note_hotkey"])
         self.output_hotkey_edit = HotkeyEdit(cfg["output_hotkey"])
+        # 0.14.0: video clips.
+        self.record_hotkey_edit = HotkeyEdit(cfg.get("record_hotkey", "ctrl+alt+r"))
+        self.clip_fps_combo = QComboBox()
+        for fps in (10, 15, 30):
+            self.clip_fps_combo.addItem(f"{fps} frames a second", fps)
+        self.clip_fps_combo.setCurrentIndex(max(0, self.clip_fps_combo.findData(int(cfg.get("clip_fps", 15)))))
+        self.clip_fps_combo.setToolTip("Smoother clips use more processor and make bigger files.")
+        self.clip_minutes_spin = QSpinBox()
+        self.clip_minutes_spin.setRange(1, 60)
+        self.clip_minutes_spin.setSuffix(" min")
+        self.clip_minutes_spin.setValue(int(cfg.get("clip_max_minutes", 10)))
+        self.clip_minutes_spin.setToolTip("A clip stops by itself after this long, so a forgotten one cannot fill the disk.")
+        self.clip_mic_check = QCheckBox("Record the microphone")
+        self.clip_mic_check.setChecked(bool(cfg.get("clip_microphone", False)))
+        self.clip_mic_check.setToolTip("Off unless ticked. The bar shows \"mic on\" while it records.")
 
         # Print Screen as a second snip key (0.12.0).
         self.prtsc_check = QCheckBox("Also snip with the Print Screen key")
@@ -390,6 +405,10 @@ class SettingsDialog(QDialog):
         snipping.addRow("Quick note hotkey", self.note_hotkey_edit)
         snipping.addRow("Command output hotkey", self.output_hotkey_edit)
         snipping.addRow(self._prtsc_row)
+        snipping.addRow("Video clip hotkey", self.record_hotkey_edit)
+        snipping.addRow("Video clips", self.clip_fps_combo)
+        snipping.addRow("Longest clip", self.clip_minutes_spin)
+        snipping.addRow("", self.clip_mic_check)
         snipping.addRow("Save folder", folder_row)
         snipping.addRow("Replaced file name", self.name_edit)
         snipping.addRow(self.history_check)
@@ -622,6 +641,10 @@ class SettingsDialog(QDialog):
         cfg["note_hotkey"] = self.note_hotkey_edit.spec
         cfg["output_hotkey"] = self.output_hotkey_edit.spec
         cfg["prtsc_snip"] = self.prtsc_check.isChecked()
+        cfg["record_hotkey"] = self.record_hotkey_edit.spec
+        cfg["clip_fps"] = int(self.clip_fps_combo.currentData())
+        cfg["clip_max_minutes"] = self.clip_minutes_spin.value()
+        cfg["clip_microphone"] = self.clip_mic_check.isChecked()
         cfg["snip_magnifier"] = self.magnifier_check.isChecked()
         cfg["keep_edits"] = self.keep_edits_check.isChecked()
         cfg["save_dir"] = self.folder_edit.text().strip()

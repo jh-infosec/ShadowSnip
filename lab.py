@@ -409,7 +409,7 @@ def set_section(cfg: dict, path) -> str:
 
 
 # -- saving ----------------------------------------------------------------
-def save(data: bytes, ext: str, cfg: dict) -> Path | None:
+def save(data: bytes, ext: str, cfg: dict, companion: Path | None = None) -> Path | None:
     """Write one snip into the active lab. Returns None when none is active.
 
     Files are named `003_2026-08-11_14-31-07.png`: the sequence number first
@@ -424,6 +424,11 @@ def save(data: bytes, ext: str, cfg: dict) -> Path | None:
     number = _next_number(target)
     filename = f"{number:03d}_{now:%Y-%m-%d_%H-%M-%S}.{ext}"
     path = storage.write_atomic(target / filename, data)
+    if companion is not None:
+        # A video clip (0.14.0): the snip is its poster, and the clip itself
+        # moves in beside it under the same name before lab.md is written,
+        # so the index links to it from the start.
+        Path(companion).replace(path.with_suffix(Path(companion).suffix))
 
     if cfg.get("lab_index", True):
         state = _load_state(target) or _blank_state(target.name)
@@ -437,6 +442,14 @@ def save(data: bytes, ext: str, cfg: dict) -> Path | None:
                 "section": normalise_section(state.get("section", "")),
             }
         )
+        if companion is not None:
+            import clips
+
+            entry = state["entries"][-1]
+            entry["clip"] = path.with_suffix(Path(companion).suffix).name
+            seconds = clips.length_of(path)
+            if seconds is not None:
+                entry["clip_seconds"] = round(seconds, 2)
         _save_state(target, state, cfg)
     return path
 
@@ -538,6 +551,9 @@ def remove_snip(cfg: dict, filename: str) -> dict | None:
         source.replace(destination)
     except OSError as exc:
         raise LabError(f"could not move {filename} out of the lab: {exc}") from exc
+    import clips
+
+    clips.move_with(source, destination)  # a clip's video goes with its poster
 
     match = _NUMBER_RE.match(filename)
     removed = {
@@ -1264,6 +1280,13 @@ def _render_snip(entry: dict, section_entries) -> list[str]:
 
     if is_bare_image_name(filename):
         lines = [header, "", f"![{label}]({filename})", ""]
+        clip = str(entry.get("clip", ""))
+        if clip and Path(clip).name == clip and Path(clip).stem == Path(filename).stem:
+            # 0.14.0: the snip is a clip's poster; the video sits beside it.
+            import clips
+
+            length = clips.format_length(entry.get("clip_seconds"))
+            lines.extend([f"\u25b6 [Video clip{', ' + length if length else ''}]({clip})", ""])
     else:
         # A record naming a path rather than a file in this folder (a lab from
         # somewhere else, edited by hand): never linked, so neither lab.md nor

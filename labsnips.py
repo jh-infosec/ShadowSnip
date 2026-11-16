@@ -74,6 +74,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import clips
 import edits
 import skins
 import storage
@@ -1617,6 +1618,16 @@ class LabSnipsPanel(QWidget):
             dimensions = f"{width} \u00d7 {height}" if width and height else ""
             file_size = size_text(count)
             marks = "\u270e" if editable else ""
+            video = clips.clip_for(row.get("path"))
+            if video is not None:
+                # 0.14.0: a clip's poster. Its size is the video's, and Marks
+                # shows it plays and for how long.
+                try:
+                    file_size = size_text(video.stat().st_size)
+                except OSError:
+                    pass
+                length = clips.format_length(clips.length_of(row.get("path")))
+                marks = f"\u25b6 {length}".strip() + (" \u270e" if editable else "")
         else:
             dimensions = file_size = marks = ""
         notes = [str(text) for text in row.get("notes", ()) if str(text).strip()]
@@ -1782,9 +1793,20 @@ class LabSnipsPanel(QWidget):
             )
         return items
 
+    def selected_clip(self) -> Path | None:
+        """The video behind the selected snip, when it is a clip's poster (0.14.0)."""
+        row = self._rows.get(self.selected())
+        return clips.clip_for(row.get("path")) if row else None
+
     def expand(self) -> None:
         filename = self.selected()
         if not filename:
+            return
+        video = self.selected_clip()
+        if video is not None:
+            # A clip plays in the computer's video player; the full-size view
+            # would only show its poster.
+            storage.open_file(video)
             return
         if self.viewer is None:
             self.viewer = SnipViewer()
@@ -1866,13 +1888,19 @@ class LabSnipsPanel(QWidget):
         filename = self.selected()
         count = len(self.selected_files())
         one = bool(filename)
-        for text, slot, keys, enabled in (
-            ("Expand", self.expand, "Space", one),
+        is_clip = one and self.selected_clip() is not None
+        rows = [
+            ("Play" if is_clip else "Expand", self.expand, "Space", one),
             ("Copy", self.copy_selected, "Ctrl+C", one),
             ("Save as...", self.save_selected_as, "", one),
+        ]
+        if is_clip:
+            rows.append(("Save as GIF...", self.save_selected_as_gif, "", one))
+        rows += [
             ("Open", self._emit_open, "", one),
             ("Show in folder", self.show_selected_in_folder, "", one),
-        ):
+        ]
+        for text, slot, keys, enabled in rows:
             action = menu.addAction(text, slot)
             if keys:
                 action.setShortcut(QKeySequence(keys))
@@ -1894,7 +1922,15 @@ class LabSnipsPanel(QWidget):
         return path if path.is_file() else None
 
     def copy_selected(self) -> None:
-        """Put the selected snip on the clipboard (the app does the copying)."""
+        """Put the selected snip on the clipboard (the app does the copying).
+
+        A clip goes on as its video file, to paste into a chat or a folder.
+        """
+        video = self.selected_clip()
+        if video is not None:
+            clips.copy_file(video)
+            self.status_message.emit(f"Copied {video.name} as a file")
+            return
         filename = self.selected()
         if filename:
             self.flush_viewer_edits()
@@ -1903,7 +1939,7 @@ class LabSnipsPanel(QWidget):
     def save_selected_as(self) -> None:
         """Save a copy of the selected snip, mark-up included, wherever you choose."""
         self.flush_viewer_edits()
-        source = self._selected_path()
+        source = self.selected_clip() or self._selected_path()
         if source is None:
             self.status_message.emit("This snip's file is no longer there")
             return
@@ -1921,15 +1957,55 @@ class LabSnipsPanel(QWidget):
             return
         self.status_message.emit(f"Saved to {target}")
 
+    def save_selected_as_gif(self) -> None:
+        """A clip as an animated GIF: smaller frames, shorter, for READMEs and chats."""
+        video = self.selected_clip()
+        if video is None:
+            return
+        target, _ = QFileDialog.getSaveFileName(
+            self, "Save clip as GIF", str(Path.home() / video.with_suffix(".gif").name),
+            "GIF animation (*.gif)")
+        if not target:
+            return
+        from PySide6.QtWidgets import QProgressDialog
+
+        total = clips.length_of(video.with_suffix(".png")) or clips.GIF_MAX_SECONDS
+        total = min(total, clips.GIF_MAX_SECONDS)
+        progress = QProgressDialog("Making the GIF...", "Cancel", 0, max(1, int(total * 10)), self)
+        progress.setWindowTitle("Save as GIF")
+        progress.setMinimumDuration(400)
+
+        def step(seconds: float) -> bool:
+            progress.setValue(min(progress.maximum(), int(seconds * 10)))
+            return not progress.wasCanceled()
+
+        try:
+            frames = clips.export_gif(video, Path(target), progress=step)
+        except clips.GifError as exc:
+            progress.close()
+            self.status_message.emit(f"Could not make the GIF: {exc}")
+            return
+        except OSError as exc:
+            progress.close()
+            self.status_message.emit(f"Could not save the GIF: {exc}")
+            return
+        progress.close()
+        note = f" (the first {clips.GIF_MAX_SECONDS} seconds)" if total >= clips.GIF_MAX_SECONDS else ""
+        self.status_message.emit(f"Saved {frames} frames to {target}{note}")
+
     def show_selected_in_folder(self) -> None:
         """Open the snip's folder, with the snip picked out where the system allows."""
-        source = self._selected_path()
+        source = self.selected_clip() or self._selected_path()
         if source is None:
             self.status_message.emit("This snip's file is no longer there")
             return
         show_in_folder(source)
 
     def _emit_open(self) -> None:
+        video = self.selected_clip()
+        if video is not None:
+            storage.open_file(video)  # a clip opens in the video player
+            return
         filename = self.selected()
         if filename:
             self.open_requested.emit(filename)

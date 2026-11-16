@@ -117,6 +117,7 @@ removal, the viewer) is the same code on both.
 
 | Action | Key |
 | --- | --- |
+| Record a video clip | `Ctrl+Alt+R` (again to stop), the record button beside **New snip**, the tray menu, or `python main.py --record` |
 | Start a snip | `Ctrl+Shift+S`, the tray menu, or `python main.py --snip`; `Alt+N` in any ShadowSnip window; `Print Screen` if you turn it on in Settings |
 | Jot a note into the lab | `Ctrl+Shift+N`, or **Add note...** in the tray menu |
 | File command output into the lab | `Ctrl+Alt+O`, **Add output** in the window, or **File command output...** in the tray menu |
@@ -210,6 +211,41 @@ For passwords, hashes and client details, use **Black out**: a blur can still
 show how long a line was. A redaction protects the files ShadowSnip writes; a
 copy pasted somewhere before you redacted, or held in Windows clipboard history
 (`Win+V`), is outside its reach, so redact before pasting.
+
+### Video clips
+
+Record an area of the screen as an MP4: the clip hotkey (`Ctrl+Alt+R`), the
+record button beside **New snip**, **Record a video clip** in the tray menu,
+or `python main.py --record`. Pick the area as for a snip (Rectangle, Window,
+or Full screen; Freeform records the shape's box), and recording starts. A red
+frame marks the area, just outside it, and a bar below shows the time with
+**Pause** and **Stop**; the clip hotkey again also stops it. On Windows the
+frame and bar are left out of the recording even when they overlap it.
+
+A finished clip is filed like a snip: in the running lab (numbered, linked
+from lab.md as "▶ Video clip") or in the history folder, as the MP4 and a
+poster, the first frame with a play badge and the length, which is what the
+lists, the full-size view and the reports show. It is copied to the clipboard
+as a file, ready to paste into Explorer, a chat or an email.
+
+In the snip list a clip shows ▶ and its length under **Marks**. Double-click
+or **Play** opens it in your video player; right-click adds **Save as GIF...**
+(at most 60 seconds, 10 frames a second, 800 pixels wide), and Copy, Save
+as, Show in folder and Remove work on the video. Exported reports show the
+poster with a caption naming the clip, since a report file cannot carry a
+video; the clip stays in the lab folder.
+
+- **Microphone**: off unless **Record the microphone** is ticked in Settings.
+  The bar says "mic on" while it records. System sound is not recorded.
+- **Frames a second**: 10, 15 (the default) or 30. More is smoother and
+  larger.
+- **Longest clip**: a clip stops by itself after 10 minutes, or the time set
+  in Settings, so a forgotten recording cannot fill the disk.
+- Clips are **never pruned** from the history folder; remove them yourself.
+- While a clip records, snips wait: a snip's overlay would end up in the clip.
+- MP4 uses H.264 where the system offers it (Windows usually does) and
+  MPEG-4 otherwise (Linux). Both play in VLC, Windows' Media Player and most
+  chat apps. Nothing extra is installed: the encoder comes with PySide6.
 
 ### Window and freeform snips
 

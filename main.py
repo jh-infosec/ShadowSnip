@@ -2,6 +2,7 @@
 
     python main.py           start in the tray
     python main.py --snip --delay 5   the same, after a five-second countdown
+    python main.py --record  record a video clip of an area (again: stop it)
     python main.py --snip    start and take a snip straight away, or hand the
                              request to the copy that is already running
     python main.py --tray    start quietly in the tray, without the window;
@@ -282,11 +283,14 @@ def main() -> int:
     want_snip = "--snip" in sys.argv[1:]
     want_note = "--note" in sys.argv[1:] and not want_snip
     want_output = "--output" in sys.argv[1:] and not (want_snip or want_note)
-    quiet = not (want_snip or want_note or want_output) and started_at_login(
+    # 0.14.0: --record picks an area and records it (or stops a clip running).
+    want_record = "--record" in sys.argv[1:] and not (want_snip or want_note or want_output)
+    quiet = not (want_snip or want_note or want_output or want_record) and started_at_login(
         sys.argv[1:], _launch_shortcut(), _seconds_since_logon()
     )
     delay = countdown.parse_delay(sys.argv[1:]) if want_snip else 0
-    request = b"output" if want_output else request_for(want_snip, want_note, quiet, delay)
+    request = (b"output" if want_output else b"record" if want_record
+               else request_for(want_snip, want_note, quiet, delay))
     _set_dpi_awareness()
     _opt_out_of_restart_apps()
 
@@ -362,6 +366,8 @@ def main() -> int:
                 QTimer.singleShot(0, shadow.quick_note)
             elif payload.startswith(b"output"):
                 QTimer.singleShot(0, shadow.file_output)
+            elif payload.startswith(b"record"):
+                QTimer.singleShot(0, shadow.request_record)
             elif payload.startswith(b"tray"):
                 pass  # a login start that found this copy running: stay put
             else:
@@ -383,6 +389,8 @@ def main() -> int:
         QTimer.singleShot(200, shadow.quick_note)
     elif want_output:
         QTimer.singleShot(200, shadow.file_output)
+    elif want_record:
+        QTimer.singleShot(200, shadow.request_record)
     elif not quiet:
         # Launched by hand: show the window. Before 0.4.8 a fresh start went
         # straight to the tray, which looked like nothing had happened.
