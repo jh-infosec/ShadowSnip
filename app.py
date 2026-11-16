@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 import autocopy as autocopy_mod
 import capture
+import countdown
 import clipboard
 import config
 import edits
@@ -65,8 +66,13 @@ class ShadowSnipApp(QObject):
 
         skins.set_current(self.cfg.get("skin"))
         edits.enabled = bool(self.cfg.get("keep_edits", True))
+        # Quick redact also offers the running lab's own hosts and domains (0.13.0).
+        import ocr
+
+        ocr.target_source = lambda: lab.targets(self.cfg)
         self.preview = PreviewWindow(icon=build_icon())
         self.preview.new_snip_requested.connect(self.request_snip)
+        self.preview.delayed_snip_requested.connect(self.request_snip_delayed)
         self.preview.lab_toggle_requested.connect(self.toggle_lab)
         self.preview.auto_copy_toggled.connect(self.toggle_auto_copy)
         self.preview.section_changed.connect(self.set_section)
@@ -150,6 +156,17 @@ class ShadowSnipApp(QObject):
         self.action_new = QAction("New snip", self)
         self.action_new.triggered.connect(self.request_snip)
         menu.addAction(self.action_new)
+
+        # 0.13.0: a snip after a few seconds, for menus and tooltips.
+        self.delay_menu = QMenu("Snip after a delay", menu)
+        for seconds in countdown.DELAYS:
+            action = self.delay_menu.addAction(f"In {seconds} seconds")
+            action.triggered.connect(lambda _c=False, s=seconds: self.request_snip_delayed(s))
+        self.delay_menu.addSeparator()
+        self.action_cancel_delay = self.delay_menu.addAction("Cancel the countdown")
+        self.action_cancel_delay.triggered.connect(self.cancel_delayed_snip)
+        self.action_cancel_delay.setEnabled(False)
+        menu.addMenu(self.delay_menu)
 
         self.action_folder = QAction("Open save folder", self)
         self.action_folder.triggered.connect(self._open_save_folder)
@@ -1216,6 +1233,12 @@ class ShadowSnipApp(QObject):
             # instead of starting something that cannot finish.
             self._blocked_by_dialog()
             return
+        # The hotkey during a countdown means now: the countdown goes.
+        timer = getattr(self, "_delay_timer", None)
+        if timer is not None and timer.isActive():
+            self._delay_timer.stop()
+            self.countdown.hide()
+            self.action_cancel_delay.setEnabled(False)
         self.busy = True
         self.autocopy.pause()
         # Otherwise a toast still fading out is part of the frozen screen and
@@ -1225,6 +1248,11 @@ class ShadowSnipApp(QObject):
         self.preview.hide_viewer()
         was_visible = self.preview.isVisible() and not self.preview.isMinimized()
         self._reshow_preview = was_visible
+        if getattr(self, "_reshow_after_delay", False):
+            # A delayed snip hid the window when the countdown began; it comes
+            # back after the snip as if it had been showing all along.
+            self._reshow_after_delay = False
+            self._reshow_preview = True
         if was_visible:
             self.preview.hide()
         # Give the compositor a moment to actually remove our own window
@@ -1235,6 +1263,67 @@ class ShadowSnipApp(QObject):
             QTimer.singleShot(capture.HIDE_SETTLE_MS, self._begin_snip)
         else:
             QTimer.singleShot(0, self._begin_snip)
+
+    # -- delayed snips (0.13.0) ------------------------------------------------
+    # The countdown is gone this long before the screen is frozen, so it is
+    # never part of the snip.
+    COUNTDOWN_CLEAR_MS = 150
+
+    def request_snip_delayed(self, seconds: int) -> None:
+        """Snip in `seconds`, leaving time to open a menu or bring up a tooltip.
+
+        The window goes out of the way at once, so the moment can be set up
+        behind it; the countdown sits in a corner and never takes focus, so
+        a menu opened meanwhile stays open into the snip.
+        """
+        seconds = int(seconds)
+        if seconds <= 0:
+            self.request_snip()
+            return
+        if self.busy:
+            return
+        self.cancel_delayed_snip()
+        self.preview.flush_edits()
+        self.preview.hide_viewer()
+        if self.preview.isVisible() and not self.preview.isMinimized():
+            self._reshow_after_delay = True
+            self.preview.hide()
+        self._delay_left = seconds
+        if getattr(self, "countdown", None) is None:
+            self.countdown = countdown.Countdown()
+            self._delay_timer = QTimer(self)
+            self._delay_timer.setInterval(1000)
+            self._delay_timer.timeout.connect(self._count_down)
+        self.countdown.show_seconds(seconds)
+        self._delay_timer.start()
+        self.action_cancel_delay.setEnabled(True)
+
+    @property
+    def counting_down(self) -> bool:
+        return getattr(self, "_delay_timer", None) is not None and self._delay_timer.isActive()
+
+    def _count_down(self) -> None:
+        self._delay_left -= 1
+        if self._delay_left > 0:
+            self.countdown.show_seconds(self._delay_left)
+            return
+        self._delay_timer.stop()
+        self.action_cancel_delay.setEnabled(False)
+        self.countdown.hide()
+        QTimer.singleShot(self.COUNTDOWN_CLEAR_MS, self._snip_after_delay)
+
+    def _snip_after_delay(self) -> None:
+        self.request_snip()
+
+    def cancel_delayed_snip(self) -> None:
+        if not self.counting_down:
+            return
+        self._delay_timer.stop()
+        self.countdown.hide()
+        self.action_cancel_delay.setEnabled(False)
+        if getattr(self, "_reshow_after_delay", False):
+            self._reshow_after_delay = False
+            self.show_window()
 
     def _prewarm_overlay(self) -> None:
         if self.busy:
@@ -1298,6 +1387,7 @@ class ShadowSnipApp(QObject):
             mode=self.cfg.get("snip_mode", "rect"),
             window_source=winlist.visible_windows if winlist.supported() else None,
         )
+        self.controller.magnifier = bool(self.cfg.get("snip_magnifier", True))
         self.controller.mode_changed.connect(self._remember_snip_mode)
         self.controller.selected.connect(self._on_selected)
         self.controller.cancelled.connect(self._on_cancelled)
@@ -1320,10 +1410,19 @@ class ShadowSnipApp(QObject):
 
     def _on_selected(self, rect: QRect) -> None:
         shape = self.controller.shape if self.controller is not None else None
+        picked = getattr(self.controller, "picked_window", None) if self.controller is not None else None
         self.controller = None
         grabs, self._grabs = self._grabs, []
         try:
-            image = capture.compose_selection(grabs, rect)
+            image = None
+            if getattr(picked, "covered", False) and getattr(picked, "handle", None):
+                # 0.13.0: a window partly behind another, from the window
+                # itself; the screen would show what covers it.
+                import winlist
+
+                image = winlist.capture_window(picked.handle)
+            if image is None:
+                image = capture.compose_selection(grabs, rect)
             if image is not None and shape is not None:
                 image = capture.mask_outside(image, shape, rect)
             if image is None:

@@ -108,7 +108,14 @@ def op_to_dict(op) -> dict:
             out["factor"] = op.factor
         return out
     if isinstance(op, Change):
-        fields = {k: (_pt(v) if isinstance(v, QPointF) else str(v)) for k, v in op.fields.items()}
+        fields = {}
+        for key, value in op.fields.items():
+            if isinstance(value, QPointF):
+                fields[key] = _pt(value)
+            elif key in ("width", "size"):
+                fields[key] = round(float(value), 2)
+            else:
+                fields[key] = str(value)
         return {"t": "change", "id": op.id, "target": op.target, "fields": fields}
     raise TypeError(f"not an annotation operation: {op!r}")
 
@@ -162,8 +169,10 @@ def op_from_dict(data: dict):
         for key, value in raw.items():
             if key in ("a", "b", "c"):
                 fields[key] = _point(value)
-            elif key == "text":
+            elif key in ("text", "color"):
                 fields[key] = str(value)
+            elif key in ("width", "size"):
+                fields[key] = float(value)
             else:
                 raise ValueError(f"unknown change field {key!r}")
         return Change(ident, int(data["target"]), fields)

@@ -61,7 +61,7 @@ def test_x11_output_is_parsed():
 def test_tiny_windows_and_failures_are_left_out(monkeypatch):
     monkeypatch.setattr(winlist.sys, "platform", "linux")
     monkeypatch.setattr(winlist, "_windows_x11", lambda: [QRect(0, 0, 400, 300), QRect(0, 0, 5, 5)])
-    assert winlist.visible_windows() == [QRect(0, 0, 400, 300)]
+    assert [w.rect for w in winlist.visible_windows()] == [QRect(0, 0, 400, 300)]
 
     def broken():
         raise OSError("no X")

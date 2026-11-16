@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.12.0"
+APP_VERSION = "0.13.0"
 
 
 def config_dir() -> Path:
@@ -45,6 +45,8 @@ DEFAULTS = {
     # Also snip with the Print Screen key (0.12.0). Off by default: Windows 11
     # gives that key to its own Snipping Tool unless told otherwise.
     "prtsc_snip": False,
+    # A magnifier beside the pointer while snipping (0.13.0); M hides it.
+    "snip_magnifier": True,
     # Global hotkey that files a one-line note into the engaged lab.
     "note_hotkey": "ctrl+shift+n",
     # Global hotkey that files copied or highlighted command output into the
@@ -271,6 +273,7 @@ def _sanitise(cfg: dict) -> dict:
         "close_hint_shown",
         "lab_methodology",
         "prtsc_snip",
+        "snip_magnifier",
     ):
         cfg[flag] = bool(cfg.get(flag))
     cfg["auto_copy_extra_blocked"] = normalise_names(cfg.get("auto_copy_extra_blocked"))

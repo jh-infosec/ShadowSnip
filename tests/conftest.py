@@ -79,3 +79,13 @@ def _edits_on():
     edits.enabled = True
     yield
     edits.enabled = True
+
+
+@pytest.fixture(autouse=True)
+def _no_lab_targets():
+    """Quick redact's lab hook is module state: no test leaves one behind."""
+    import ocr
+
+    ocr.target_source = None
+    yield
+    ocr.target_source = None

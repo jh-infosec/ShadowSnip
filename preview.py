@@ -25,15 +25,18 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 import config
+import countdown
 import skins
 import storage
 from annotate import AnnotCanvas, AnnotToolbar
@@ -68,6 +71,12 @@ QPushButton:checked { background: #1d6b3a; border-color: #2e8b4f; }
 QPushButton#Primary:hover { background: #1273da; }
 /* Save changes with nothing to save: clearly not a live button. */
 QPushButton#Primary:disabled { background: #1c2533; border-color: #26344a; color: #6c7a8c; }
+QToolButton#Delay {
+    background: #2a2a31; color: #e6e6ec; border: 1px solid #3a3a44;
+    border-radius: 6px; padding: 4px 8px; font-size: 14px;
+}
+QToolButton#Delay:hover { background: #33333b; }
+QToolButton#Delay::menu-indicator { image: none; width: 0; }
 /* Settings is not one of the snip actions, so it does not look like one.
    A muted violet reads as a different kind of control while staying quieter
    than the blue on New snip -- it should be findable, not competing. */
@@ -127,6 +136,8 @@ QTextBrowser {
 
 class PreviewWindow(QWidget):
     new_snip_requested = Signal()
+    # 0.13.0: the clock beside New snip, a snip after this many seconds.
+    delayed_snip_requested = Signal(int)
     lab_toggle_requested = Signal()
     auto_copy_toggled = Signal()
     # The breadcrumb the lab should file things under from now on.
@@ -268,6 +279,18 @@ class PreviewWindow(QWidget):
         self.btn_new = QPushButton("New snip")
         self.btn_new.setObjectName("Primary")
         self.btn_new.setToolTip("Take a new snip (Alt+N here, or the snip hotkey anywhere)")
+        # Beside it, a snip after a few seconds: time to open a menu or bring
+        # up a tooltip, which vanish the moment ShadowSnip is clicked.
+        self.btn_delay = QToolButton()
+        self.btn_delay.setObjectName("Delay")
+        self.btn_delay.setText("\u23f1")
+        self.btn_delay.setToolTip("Snip after a delay, to catch a menu or a tooltip")
+        self.btn_delay.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        delay_menu = QMenu(self.btn_delay)
+        for seconds in countdown.DELAYS:
+            action = delay_menu.addAction(f"Snip in {seconds} seconds")
+            action.triggered.connect(lambda _c=False, s=seconds: self.delayed_snip_requested.emit(s))
+        self.btn_delay.setMenu(delay_menu)
         self.btn_lab = QPushButton("Start lab")
         # Only shown while a lab runs, since that is the only time there is a
         # list to show. Checked means the list is showing.
@@ -321,6 +344,7 @@ class PreviewWindow(QWidget):
         bar.addWidget(self.brand_icon)
         bar.addWidget(self.brand)
         bar.addWidget(self.btn_new)
+        bar.addWidget(self.btn_delay)
         bar.addWidget(self.btn_lab)
         bar.addWidget(self.btn_snips)
         bar.addWidget(self.btn_auto)
@@ -544,7 +568,10 @@ class PreviewWindow(QWidget):
         self.snips_panel.set_annotation_prefs(self.tools.prefs)
 
     def _on_annotation_prefs(self, prefs: dict) -> None:
+        before = dict(self.canvas.prefs)
         self.canvas.prefs = dict(prefs)
+        # 0.13.0: with a mark selected, a new colour or size applies to it.
+        self.canvas.restyle_selected(before, prefs)
         self.snips_panel.set_annotation_prefs(prefs)
         self.annotation_prefs_changed.emit(dict(prefs))
 

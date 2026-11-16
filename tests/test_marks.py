@@ -375,7 +375,7 @@ def test_right_click_on_a_mark_offers_edit_and_delete(canvas):
     _mark(doc, "label", (50, 50), (50, 50), text="hi", size=16)
     canvas._refresh()
     labels = [row[0] for row in canvas.context_actions(QPointF(W(canvas, 55, 58))) if row]
-    assert labels[:2] == ["Edit text...", "Delete this mark"]
+    assert labels[:4] == ["Edit text...", "Colour", "Size", "Delete this mark"]
 
 
 def test_stamp_goes_bottom_right_with_the_snips_time(canvas, monkeypatch):

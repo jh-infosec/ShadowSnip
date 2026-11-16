@@ -923,6 +923,49 @@ def _structural_sections(state: dict) -> list[str]:
     return out
 
 
+_IPV4 = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
+_HOSTNAME = re.compile(r"^(?=.*[a-z])[a-z0-9-]+(?:\.[a-z0-9-]+)+$", re.IGNORECASE)
+
+
+def _host_like(token: str) -> bool:
+    token = token.strip().strip("[]()<>,;'\"")
+    return bool(_IPV4.match(token) or (_HOSTNAME.match(token) and not token[-1].isdigit()))
+
+
+def targets(cfg: dict) -> list[str]:
+    """The running lab's hosts and domains, for Quick redact (0.13.0).
+
+    From the findings' Host fields and from section names that are hosts
+    (10.10.10.3/SMB, dc01.corp.local), with each hostname's domain too
+    (dc01.corp.local also gives corp.local), since a client's domain turns up
+    in usernames and email addresses. Empty when no lab is running.
+    """
+    if not is_active(cfg):
+        return []
+    found: dict[str, str] = {}
+
+    def add(token: str) -> None:
+        token = token.strip().strip("[]()<>,;'\"").rstrip(".")
+        if not _host_like(token):
+            return
+        found.setdefault(token.lower(), token)
+        parts = token.split(".")
+        if not _IPV4.match(token) and len(parts) >= 3:
+            domain = ".".join(parts[1:])
+            found.setdefault(domain.lower(), domain)
+
+    try:
+        for item in findings(cfg):
+            for token in re.split(r"[\s,;/]+", str(item.get("host", ""))):
+                add(token)
+        for path in sections(cfg):
+            for part in re.split(r"[/\s]+", str(path)):
+                add(part)
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return list(found.values())
+
+
 def entries(cfg: dict) -> list[dict]:
     target = active_folder(cfg)
     if target is None:

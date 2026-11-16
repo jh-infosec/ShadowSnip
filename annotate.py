@@ -94,6 +94,12 @@ PEN_COLORS = [
     "#b3e5fc", "#4fc3f7", "#0091ff", "#0063b1", "#0a2f6b",  # blues
     "#e1bee7", "#c77dff", "#9b5cff", "#6a1b9a", "#3c0d5a",  # purples
 ]
+# The right-click Colour menu on a mark (0.13.0): one strong shade per family.
+MENU_COLOURS = (
+    ("#e81123", "Red"), ("#ff8c00", "Orange"), ("#fff100", "Yellow"), ("#16c60c", "Green"),
+    ("#0091ff", "Blue"), ("#9b5cff", "Purple"), ("#ffffff", "White"), ("#8e8e9a", "Grey"),
+    ("#000000", "Black"),
+)
 # Highlighters: the bright few that read through text, in spectrum order.
 HIGHLIGHTER_COLUMNS = 6
 HIGHLIGHTER_COLORS = ["#fff100", "#ff7a1a", "#ff2fb4", "#9b5cff", "#2fd2ff", "#16e01c"]
@@ -113,14 +119,20 @@ DEFAULT_PREFS = {
     "text_size": 18,
     "magnify_factor": 2,
 }
-SHAPE_KINDS = ("arrow", "line", "rect", "ellipse")
-SHAPE_NAMES = {"arrow": "Arrow", "line": "Line", "rect": "Box", "ellipse": "Ellipse"}
+SHAPE_KINDS = ("arrow", "line", "rect", "ellipse", "blur")
+SHAPE_NAMES = {"arrow": "Arrow", "line": "Line", "rect": "Box", "ellipse": "Ellipse", "blur": "Blur"}
 TEXT_SIZES = (10, 48)
 MAGNIFY_FACTORS = (2, 3, 4)
 # Every kind of Mark (see below).
 MARK_KINDS = (*SHAPE_KINDS, "label", "step", "callout", "spotlight", "magnify", "stamp")
 # Marks that carry text you typed, and can have it edited.
 TEXT_MARKS = ("label", "callout")
+# What a mark's style can be changed to after it is drawn (0.13.0).
+COLOURED_MARKS = ("arrow", "line", "rect", "ellipse", "label", "step", "callout", "magnify")
+WIDTH_MARKS = ("arrow", "line", "rect", "ellipse", "callout", "magnify")
+SIZED_MARKS = ("label", "step", "callout")
+# Larger and Smaller step a mark's size by this factor.
+SIZE_STEP = 1.25
 # How dark Spotlight makes everything outside the areas it keeps (0-255).
 SPOTLIGHT_ALPHA = 150
 # The stamp's text size, in screen pixels when it is added.
@@ -408,13 +420,19 @@ class AnnotationDoc:
                 continue
             if isinstance(op, Mark):
                 mark = self.effective(op)
-                if mark.kind in ("spotlight", "magnify"):
+                if mark.kind in ("spotlight", "magnify", "blur"):
                     # Both read the pixels so far, marks included.
                     if painter is not None:
                         painter.end()
                         painter = None
                     if mark.kind == "magnify":
                         _apply_magnify(image, mark)
+                    elif mark.kind == "blur":
+                        # A blurred box that moves: for faces and logos. Not a
+                        # redaction (the eraser and Select can take it off),
+                        # so secrets still go under Redact.
+                        blur_rect = QRectF(mark.a, mark.b).normalized().toAlignedRect()
+                        _apply_redaction(image, Redact(mark.id, blur_rect, "blur"), "blur")
                     elif not spotlit:
                         # Every spotlight at once, at the first one: two
                         # spotlights keep both areas bright rather than each
@@ -525,7 +543,7 @@ def colour_text(colour: QColor, as_rgb: bool = False) -> str:
 def _constrain(start: QPointF, end: QPointF, kind: str) -> QPointF:
     """Shift held: a line at a multiple of 45 degrees, or a square box."""
     dx, dy = end.x() - start.x(), end.y() - start.y()
-    if kind in ("rect", "ellipse", "spotlight", "magnify"):
+    if kind in ("rect", "ellipse", "spotlight", "magnify", "blur"):
         side = max(abs(dx), abs(dy))
         return QPointF(start.x() + math.copysign(side, dx or 1), start.y() + math.copysign(side, dy or 1))
     length = math.hypot(dx, dy)
@@ -536,10 +554,14 @@ def _constrain(start: QPointF, end: QPointF, kind: str) -> QPointF:
 
 
 # -- marks: geometry and painting (0.11.0) -------------------------------------------------------
+# What a Change may set: position, words, and (0.13.0) colour, line width, size.
+CHANGE_FIELDS = ("a", "b", "c", "text", "color", "width", "size")
+
+
 def _changed(mark: Mark, fields: dict) -> Mark:
     from dataclasses import replace
 
-    allowed = {k: v for k, v in fields.items() if k in ("a", "b", "c", "text")}
+    allowed = {k: v for k, v in fields.items() if k in CHANGE_FIELDS}
     return replace(mark, **allowed)
 
 
@@ -604,6 +626,8 @@ def _outline(mark: Mark) -> QPainterPath:
 
 def mark_hit(mark: Mark, point: QPointF, radius: float) -> bool:
     """Whether `point` is on the mark: on its line, or inside a filled one."""
+    if mark.kind == "blur":
+        return QRectF(mark.a, mark.b).normalized().adjusted(-radius, -radius, radius, radius).contains(point)
     if mark.kind in ("arrow", "line", "rect", "ellipse", "spotlight"):
         stroker = QPainterPathStroker()
         stroker.setWidth(max(1.0, mark.width) + radius * 2)
@@ -713,6 +737,10 @@ def paint_mark(painter: QPainter, mark: Mark) -> None:
         painter.setPen(_ink_on(color))
         painter.drawText(QRectF(mark.a.x() - r, mark.a.y() - r, r * 2, r * 2),
                          int(Qt.AlignmentFlag.AlignCenter), str(mark.number))
+    elif mark.kind == "blur":
+        painter.setPen(QPen(QColor(255, 255, 255, 200), max(1.0, mark.width * 0.4), Qt.PenStyle.DashLine))
+        painter.setBrush(QColor(160, 170, 190, 90))
+        painter.drawRect(QRectF(mark.a, mark.b).normalized())
     elif mark.kind in ("spotlight", "magnify"):
         dash = QPen(color if mark.kind == "magnify" else QColor("#ffffff"), max(1.0, mark.width * 0.5),
                     Qt.PenStyle.DashLine)
@@ -1302,6 +1330,16 @@ class AnnotCanvas(QWidget):
         if mark is not None:
             if mark.kind in TEXT_MARKS:
                 rows.append(("Edit text...", lambda m=mark: self.edit_text(m), None))
+            if mark.kind in COLOURED_MARKS:
+                rows.append(("Colour", [
+                    (name, lambda _c=None, m=mark, c=colour: self.restyle_mark(m.id, color=c), colour)
+                    for colour, name in MENU_COLOURS
+                ], None))
+            if mark.kind in SIZED_MARKS or mark.kind in WIDTH_MARKS:
+                rows.append(("Size", [
+                    ("Larger", lambda _c=None, m=mark: self.resize_mark(m.id, SIZE_STEP), None),
+                    ("Smaller", lambda _c=None, m=mark: self.resize_mark(m.id, 1 / SIZE_STEP), None),
+                ], None))
             rows.append(("Delete this mark", lambda m=mark: self.delete_mark(m.id), None))
             rows.append(None)
         redaction = self.doc.redaction_at(self.to_image(pos))
@@ -1344,6 +1382,18 @@ class AnnotCanvas(QWidget):
                 menu.addSeparator()
                 continue
             label, callback, checked = row
+            if isinstance(callback, list):
+                # A submenu: (label, callback, swatch colour or None) rows.
+                sub = menu.addMenu(label)
+                sub.setStyleSheet(skins.style(MENU_STYLE))
+                for sub_label, sub_callback, swatch in callback:
+                    item = sub.addAction(sub_label)
+                    if swatch:
+                        chip = QPixmap(12, 12)
+                        chip.fill(QColor(swatch))
+                        item.setIcon(QIcon(chip))
+                    item.triggered.connect(lambda _c=False, cb=sub_callback: cb())
+                continue
             action = menu.addAction(label)
             if checked is not None:
                 action.setCheckable(True)
@@ -1479,7 +1529,7 @@ class AnnotCanvas(QWidget):
     def _finish_mark(self) -> None:
         mark, self._mark_live = self._mark_live, None
         span = math.hypot(mark.b.x() - mark.a.x(), mark.b.y() - mark.a.y()) * self.scale()
-        boxy = mark.kind in ("rect", "ellipse", "spotlight", "magnify")
+        boxy = mark.kind in ("rect", "ellipse", "spotlight", "magnify", "blur")
         if boxy:
             r = QRectF(mark.a, mark.b).normalized()
             span = min(r.width(), r.height()) * self.scale()
@@ -1582,6 +1632,44 @@ class AnnotCanvas(QWidget):
             self._selected = None
         self._commit(Erase(self.doc.new_id(), frozenset({ident})))
 
+    def restyle_mark(self, ident: int, **fields) -> None:
+        """Change a mark's colour, line width or size (image pixels), undoably."""
+        op = self.doc.find(ident) if self.doc is not None else None
+        if not isinstance(op, Mark) or ident in self.doc.erased():
+            return
+        now = self.doc.effective(op)
+        changes = {k: v for k, v in fields.items() if getattr(now, k) != v}
+        if changes:
+            self._commit(Change(self.doc.new_id(), ident, changes))
+
+    def resize_mark(self, ident: int, factor: float) -> None:
+        """Larger or Smaller: a mark's text size and line width together."""
+        op = self.doc.find(ident) if self.doc is not None else None
+        if not isinstance(op, Mark):
+            return
+        now = self.doc.effective(op)
+        fields = {}
+        if now.kind in SIZED_MARKS:
+            fields["size"] = round(max(4.0, min(400.0, now.size * factor)), 2)
+        if now.kind in WIDTH_MARKS:
+            fields["width"] = round(max(0.5, min(120.0, now.width * factor)), 2)
+        self.restyle_mark(ident, **fields)
+
+    def restyle_selected(self, before: dict, after: dict) -> None:
+        """Options changed on the strip with a mark selected: that mark follows."""
+        mark = self.selected_mark()
+        if mark is None or self.tool != "select":
+            return
+        fields = {}
+        if after.get("mark_color") != before.get("mark_color") and mark.kind in COLOURED_MARKS:
+            fields["color"] = after["mark_color"]
+        if after.get("shape_width") != before.get("shape_width") and mark.kind in WIDTH_MARKS:
+            fields["width"] = self._image_size(after["shape_width"])
+        if after.get("text_size") != before.get("text_size") and mark.kind in SIZED_MARKS:
+            fields["size"] = self._image_size(after["text_size"])
+        if fields:
+            self.restyle_mark(mark.id, **fields)
+
     def delete_selected(self) -> bool:
         """Delete: remove the selected mark. False when nothing is selected."""
         if self._selected is None or self.tool != "select":
@@ -1674,7 +1762,7 @@ class AnnotCanvas(QWidget):
 
     def _handles(self, mark: Mark) -> dict:
         """The selected mark's handles: name -> point (image pixels)."""
-        if mark.kind in ("arrow", "line", "rect", "ellipse", "spotlight", "magnify"):
+        if mark.kind in ("arrow", "line", "rect", "ellipse", "spotlight", "magnify", "blur"):
             return {"a": mark.a, "b": mark.b}
         if mark.kind == "callout":
             return {"a": mark.a}
@@ -2334,6 +2422,16 @@ def tool_icon(kind: str, color: str | None = None, size: int = 22) -> QIcon:
         p.setPen(pen)
         p.drawLine(QPointF(s * 0.39, s * 0.26), QPointF(s * 0.39, s * 0.48))
         p.drawLine(QPointF(s * 0.28, s * 0.37), QPointF(s * 0.50, s * 0.37))
+    elif kind == "blur":
+        # A box of soft dots: blurred, not blacked out.
+        p.drawRect(QRectF(s * 0.12, s * 0.20, s * 0.76, s * 0.60))
+        p.setPen(Qt.PenStyle.NoPen)
+        for i, (x, y) in enumerate(((0.28, 0.36), (0.50, 0.36), (0.72, 0.36), (0.39, 0.56), (0.61, 0.56))):
+            dot = QColor(ink)
+            dot.setAlpha(170 - i * 18)
+            p.setBrush(dot)
+            p.drawEllipse(QPointF(s * x, s * y), s * 0.08, s * 0.08)
+        p.setPen(pen)
     elif kind == "picker":
         # An eyedropper.
         p.save()
@@ -2748,7 +2846,8 @@ TOOL_INFO = {
 }
 HINTS = {
     None: "Left-click a tool to pick it up, right-click for its options. Changes save as you go.",
-    "select": "Select: click a mark to move it, drag a handle to resize, double-click to retype, Delete to remove.",
+    "select": "Select: click a mark to move it, drag a handle to resize, double-click to retype, Delete to remove. "
+              "Right-click it, or a mark tool, for colour and size.",
     "shape": "Shapes: drag to draw. Shift for straight lines and squares. Right-click the tool for the shape.",
     "label": "Label: click where the words go, type, Enter. Esc drops it.",
     "step": "Steps: click to number each step, 1, 2, 3... Erase one and the next continues from the highest.",
@@ -2957,7 +3056,10 @@ class AnnotToolbar(QWidget):
         """Right-click: the tool's options, with the tool picked up."""
         if not self.buttons[kind].isEnabled():
             return
-        if self.tool != kind:
+        # With Select in hand, the mark options open without putting it down,
+        # so a selected mark can be recoloured or resized from them (0.13.0).
+        keep_select = self.tool == "select" and kind in self.mark_popups
+        if self.tool != kind and not keep_select:
             self.select(kind)
         popup = self._popup_for(kind)
         if kind == "text":

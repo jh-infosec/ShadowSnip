@@ -44,13 +44,6 @@ of them; redo; Shift for straight lines.
 - Moving a pen line, highlight or redaction. Deliberately left out of 0.11:
   a redaction that can be dragged off what it hides is a way to leak a
   password by accident, and freehand lines are rarely worth moving.
-- Text size and colour changed on a mark after it is drawn (today: the
-  options apply to new marks; erase and redraw to change one).
-- Blur as a shape option (a blurred box that is not a redaction), for faces
-  and logos rather than secrets.
-
-- Quick redact could learn the lab's own targets (hostnames, the client's
-  domain) and offer them as a kind of their own.
 - OCR in more languages on Linux depends on the Tesseract language packs
   installed; a hint in the Text tool when the result looks like the wrong
   language would help.
@@ -84,15 +77,19 @@ filed as code blocks, and the methodology phases laid out in one click.
 Window and freeform snips from a mode bar on the snipping screen, the colour
 picker, Alt+N for a new snip, and Print Screen as a snip key.
 
+## Done in v0.13.0 - catching what disappears
+
+Delayed snips, the magnifier while snipping, covered windows from the window
+itself on Windows, the Blur shape, changing a mark's colour and size after it
+is drawn, and Quick redact learning the lab's targets.
+
 ## Capture modes, still open
 
-- Delayed capture (3s / 5s / 10s) so menus and tooltips can be caught.
 - Snap the selection to detected UI element edges while dragging.
-- Magnifier loupe near the cursor for pixel-exact edges.
 - Window snips on Wayland, which does not let one program list another's
   windows; the screenshot portal's own window picker is the likely route.
-- Window snips of a window hidden behind another, captured from the window
-  itself (Windows' PrintWindow) rather than the screen.
+- Covered windows on Linux, which would need a compositor that keeps each
+  window's picture (X11 has none of its own).
 
 ## After the snip
 

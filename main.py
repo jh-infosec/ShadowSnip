@@ -1,6 +1,7 @@
 """ShadowSnip entry point.
 
     python main.py           start in the tray
+    python main.py --snip --delay 5   the same, after a five-second countdown
     python main.py --snip    start and take a snip straight away, or hand the
                              request to the copy that is already running
     python main.py --tray    start quietly in the tray, without the window;
@@ -46,6 +47,7 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 import config
+import countdown
 from app import ShadowSnipApp, build_icon
 
 IPC_NAME = "ShadowSnip.instance"
@@ -208,10 +210,11 @@ def started_at_login(argv, shortcut=None, since_logon=None) -> bool:
     return False
 
 
-def request_for(want_snip: bool, want_note: bool, quiet: bool) -> bytes:
+def request_for(want_snip: bool, want_note: bool, quiet: bool, delay: int = 0) -> bytes:
     """What this launch asks a copy that is already running to do."""
     if want_snip:
-        return b"snip"
+        # 0.13.0: --snip --delay 5 asks for a snip in five seconds.
+        return f"snip:{delay}".encode() if delay else b"snip"
     if want_note:
         return b"note"
     # A quiet start that finds a copy already running asks it for nothing, so
@@ -282,7 +285,8 @@ def main() -> int:
     quiet = not (want_snip or want_note or want_output) and started_at_login(
         sys.argv[1:], _launch_shortcut(), _seconds_since_logon()
     )
-    request = b"output" if want_output else request_for(want_snip, want_note, quiet)
+    delay = countdown.parse_delay(sys.argv[1:]) if want_snip else 0
+    request = b"output" if want_output else request_for(want_snip, want_note, quiet, delay)
     _set_dpi_awareness()
     _opt_out_of_restart_apps()
 
@@ -341,7 +345,16 @@ def main() -> int:
             # clicking the taskbar pin while ShadowSnip was already in the
             # tray did nothing at all.
             if payload.startswith(b"snip"):
-                shadow.request_snip()
+                seconds = 0
+                if payload.startswith(b"snip:"):
+                    try:
+                        seconds = max(0, min(countdown.MAX_DELAY, int(payload[5:].strip() or 0)))
+                    except ValueError:
+                        seconds = 0
+                if seconds:
+                    shadow.request_snip_delayed(seconds)
+                else:
+                    shadow.request_snip()
             elif payload.startswith(b"note"):
                 # After the answer, not before: the note box waits for typing,
                 # and the launch that asked would give up waiting and report
@@ -362,7 +375,9 @@ def main() -> int:
     server.newConnection.connect(_on_connection)
     _quit_on_signals(app, shadow)
 
-    if want_snip:
+    if want_snip and delay:
+        QTimer.singleShot(200, lambda: shadow.request_snip_delayed(delay))
+    elif want_snip:
         QTimer.singleShot(200, shadow.request_snip)
     elif want_note:
         QTimer.singleShot(200, shadow.quick_note)

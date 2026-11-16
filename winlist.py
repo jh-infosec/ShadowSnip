@@ -37,6 +37,8 @@ import shutil
 import subprocess
 import sys
 
+from dataclasses import dataclass
+
 from PySide6.QtCore import QPoint, QRect
 
 # Windows smaller than this (logical pixels, either side) are not offered:
@@ -48,7 +50,24 @@ LINUX_MAX_WINDOWS = 60
 LINUX_TIMEOUT = 2.0
 
 
-def visible_windows() -> list[QRect]:
+@dataclass
+class Window:
+    """One window on screen (0.13.0): where it is, and how to reach it.
+
+    `rect` is in Qt's logical coordinates. `handle` is the native window
+    (an HWND on Windows), when there is one to capture directly. `covered`
+    says another window on the list lies over part of it.
+    """
+    rect: QRect
+    handle: int | None = None
+    covered: bool = False
+
+
+def _rect_of(item) -> QRect:
+    return item.rect if isinstance(item, Window) else item
+
+
+def visible_windows() -> list[Window]:
     """The windows on screen now, topmost first, in logical coordinates."""
     try:
         if sys.platform == "win32":
@@ -59,7 +78,16 @@ def visible_windows() -> list[QRect]:
             found = []
     except Exception:  # noqa: BLE001 - window snips are an extra; never break the snip
         return []
-    return [r for r in found if r.width() >= MIN_SIDE and r.height() >= MIN_SIDE]
+    windows = [w if isinstance(w, Window) else Window(w) for w in found]
+    windows = [w for w in windows if w.rect.width() >= MIN_SIDE and w.rect.height() >= MIN_SIDE]
+    mark_covered(windows)
+    return windows
+
+
+def mark_covered(windows: list[Window]) -> None:
+    """Set `covered` on every window something higher up the list overlaps."""
+    for index, window in enumerate(windows):
+        window.covered = any(above.rect.intersects(window.rect) for above in windows[:index])
 
 
 def supported() -> bool:
@@ -73,11 +101,11 @@ def supported() -> bool:
     )
 
 
-def window_at(windows: list[QRect], point: QPoint) -> QRect | None:
-    """The topmost window under `point`, or None."""
-    for rect in windows:
-        if rect.contains(point):
-            return rect
+def window_at(windows: list, point: QPoint):
+    """The topmost window under `point` (a Window, or a QRect from a plain list), or None."""
+    for item in windows:
+        if _rect_of(item).contains(point):
+            return item
     return None
 
 
@@ -146,7 +174,7 @@ def _windows_win32() -> list[QRect]:
     DWMWA_EXTENDED_FRAME_BOUNDS = 9
     DWMWA_CLOAKED = 14
 
-    rects: list[QRect] = []
+    found: list[tuple[int, QRect]] = []
 
     def keep(hwnd) -> None:
         if not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
@@ -170,7 +198,7 @@ def _windows_win32() -> list[QRect]:
                 return
         if rect.right <= rect.left or rect.bottom <= rect.top:
             return
-        rects.append(QRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top))
+        found.append((int(hwnd), QRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)))
 
     callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
@@ -183,7 +211,7 @@ def _windows_win32() -> list[QRect]:
 
     user32.EnumWindows(callback_type(on_window), 0)
     monitors = _qt_monitors(_win32_native_rect)
-    return [to_logical(r, monitors) for r in rects]
+    return [Window(to_logical(r, monitors), handle) for handle, r in found]
 
 
 def _win32_native_rect(screen) -> QRect | None:
@@ -267,3 +295,98 @@ def _windows_x11() -> list[QRect]:
         rects.append(area.adjusted(-left, -top, right, bottom))
     monitors = _qt_monitors()
     return [to_logical(r, monitors) for r in rects]
+
+
+# -- a covered window, from the window itself (Windows, 0.13.0) --------------------------------
+# PrintWindow's PW_RENDERFULLCONTENT: asks DWM for the window's own content,
+# which is what makes GPU-drawn windows (browsers, Electron) come out at all.
+PW_RENDERFULLCONTENT = 2
+# A capture this close to all black is a window that would not draw itself
+# for PrintWindow (some games and video players): use the screen instead.
+BLACK_SHARE = 0.97
+
+
+def capture_window(handle: int):
+    """The window's own picture (a QImage, physical pixels), frame as drawn, or None.
+
+    For a window another one covers: cut from the screen, the covering
+    window would be in the snip. Windows only; None anywhere else, or when
+    the window would not draw itself.
+    """
+    if sys.platform != "win32" or not handle:
+        return None
+    try:
+        image = _print_window(handle)
+    except Exception:  # noqa: BLE001 - the screen is the fallback
+        return None
+    if image is None or image.isNull() or mostly_black(image):
+        return None
+    return image
+
+
+def mostly_black(image) -> bool:
+    """Whether nearly every sampled pixel is pure black: a capture that failed."""
+    from PySide6.QtGui import QColor
+
+    w, h = image.width(), image.height()
+    if w <= 0 or h <= 0:
+        return True
+    samples = black = 0
+    for y in range(0, h, max(1, h // 24)):
+        for x in range(0, w, max(1, w // 24)):
+            samples += 1
+            if QColor(image.pixel(x, y)).rgb() & 0xFFFFFF == 0:
+                black += 1
+    return samples == 0 or black / samples >= BLACK_SHARE
+
+
+def _print_window(handle: int):
+    import ctypes
+    from ctypes import wintypes
+
+    from PySide6.QtGui import QImage
+
+    user32, gdi32, dwmapi = ctypes.windll.user32, ctypes.windll.gdi32, ctypes.windll.dwmapi
+    hwnd = wintypes.HWND(handle)
+    outer = wintypes.RECT()
+    if not user32.GetWindowRect(hwnd, ctypes.byref(outer)):
+        return None
+    width, height = outer.right - outer.left, outer.bottom - outer.top
+    if width <= 0 or height <= 0:
+        return None
+    frame = wintypes.RECT()
+    if dwmapi.DwmGetWindowAttribute(hwnd, 9, ctypes.byref(frame), ctypes.sizeof(frame)) != 0:
+        frame = outer
+
+    class BITMAPINFOHEADER(ctypes.Structure):
+        _fields_ = [("biSize", wintypes.DWORD), ("biWidth", wintypes.LONG), ("biHeight", wintypes.LONG),
+                    ("biPlanes", wintypes.WORD), ("biBitCount", wintypes.WORD),
+                    ("biCompression", wintypes.DWORD), ("biSizeImage", wintypes.DWORD),
+                    ("biXPelsPerMeter", wintypes.LONG), ("biYPelsPerMeter", wintypes.LONG),
+                    ("biClrUsed", wintypes.DWORD), ("biClrImportant", wintypes.DWORD)]
+
+    screen_dc = user32.GetDC(None)
+    memory_dc = gdi32.CreateCompatibleDC(screen_dc)
+    bitmap = gdi32.CreateCompatibleBitmap(screen_dc, width, height)
+    try:
+        old = gdi32.SelectObject(memory_dc, bitmap)
+        drawn = user32.PrintWindow(hwnd, memory_dc, PW_RENDERFULLCONTENT)
+        gdi32.SelectObject(memory_dc, old)
+        if not drawn:
+            return None
+        header = BITMAPINFOHEADER()
+        header.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+        header.biWidth, header.biHeight = width, -height  # negative: top row first
+        header.biPlanes, header.biBitCount, header.biCompression = 1, 32, 0
+        buffer = ctypes.create_string_buffer(width * height * 4)
+        if not gdi32.GetDIBits(memory_dc, bitmap, 0, height, buffer, ctypes.byref(header), 0):
+            return None
+        image = QImage(buffer.raw, width, height, width * 4, QImage.Format.Format_RGB32).copy()
+    finally:
+        gdi32.DeleteObject(bitmap)
+        gdi32.DeleteDC(memory_dc)
+        user32.ReleaseDC(None, screen_dc)
+    # Trim the invisible resize border and shadow: keep the frame as drawn.
+    crop = QRect(frame.left - outer.left, frame.top - outer.top,
+                 frame.right - frame.left, frame.bottom - frame.top).intersected(image.rect())
+    return image.copy(crop) if not crop.isEmpty() else image

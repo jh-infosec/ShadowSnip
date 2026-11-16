@@ -36,6 +36,7 @@ annotate.py          marking up the snip: pen, highlighter, eraser, crop,
                      popups
 edits.py             keeping marks editable after leaving a snip: the
                      hidden .edits sidecars (marks and the original)
+countdown.py         the countdown before a delayed snip (never takes focus)
 winlist.py           the windows on screen, for window snips (Windows: EnumWindows
                      and DWM frame bounds; X11: xprop and xwininfo)
 ocr.py               reading text from a snip (Windows OCR or Tesseract) and
@@ -172,6 +173,28 @@ Freeform keeps the points drawn and finishes with their bounding box; the app
 cuts that box as usual and `capture.mask_outside()` fills what lies outside
 the outline. A release only ends a snip that a drag started: a click on the
 bar or on a window has already done its work on the press.
+
+### 0.13.0 additions
+
+**Delayed snips** hide the window at once, count down in a ToolTip-type label
+that is shown without activation and passes mouse events through (a menu
+closes when another window is activated, so this is what lets a menu survive
+into the snip), then hide the label and wait `COUNTDOWN_CLEAR_MS` before the
+ordinary `request_snip()`. A running copy receives `snip:N` over the local
+socket.
+
+**The magnifier** is painted by the overlay window under the pointer, from the
+same frozen pixmap as the rest, so it shows exactly the pixels that will be
+cut. The controller tracks the pointer and repaints only the old and new
+magnifier boxes.
+
+**Covered windows**: `winlist.visible_windows()` returns `Window` records
+(rectangle, native handle, covered). A covered window picked on Windows is
+captured with `PrintWindow(PW_RENDERFULLCONTENT)` and trimmed to its DWM frame;
+an all-black result counts as a failure and the screen is used.
+
+**Mark styles**: a `Change` may also set `color`, `width` and `size`, so a
+recolour or resize is one undo and is kept in the sidecar like a move.
 
 ## The snip pipeline
 

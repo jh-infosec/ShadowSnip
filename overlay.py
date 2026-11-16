@@ -83,6 +83,14 @@ MODE_KEYS = {Qt.Key.Key_R: "rect", Qt.Key.Key_W: "window", Qt.Key.Key_L: "freefo
 # Freeform: a new point only once the pointer has moved this far (logical px).
 FREEFORM_STEP = 2
 
+# The magnifier beside the pointer (0.13.0): this many logical pixels across,
+# each drawn this many screen pixels wide, so single pixels can be aimed at.
+LOUPE_SPAN = 15
+LOUPE_ZOOM = 9
+LOUPE_SIDE = LOUPE_SPAN * LOUPE_ZOOM
+LOUPE_LABEL = 22
+LOUPE_OFFSET = 26
+
 _VK_LBUTTON = 0x01
 _VK_RBUTTON = 0x02
 _SM_SWAPBUTTON = 23
@@ -122,12 +130,19 @@ class SelectionController(QObject):
         self.mode = mode if mode in MODES else "rect"
         # Window mode: where the windows are (topmost first), asked once.
         self._window_source = window_source
-        self._windows_on_screen: list[QRect] | None = None
+        self._windows_on_screen: list | None = None
         self.hover_window: QRect | None = None
+        # The window clicked in window mode: a winlist.Window (or a QRect
+        # from a plain list), for the app to capture it directly if covered.
+        self.picked_window = None
         # Freeform: the points drawn so far, global logical coordinates.
         self.path: list[QPoint] = []
         # A short line the bar shows (no windows found, and so on).
         self.notice = ""
+        # The magnifier (0.13.0): on unless Settings turned it off; M toggles
+        # it for this snip. `pointer` is where it is, global logical pixels.
+        self.magnifier = True
+        self.pointer: QPoint | None = None
         self._grabs = grabs
         self._dim = dim_opacity
         self._windows: list[OverlayWindow] = []
@@ -148,6 +163,11 @@ class SelectionController(QObject):
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
+        # The magnifier is drawn from the first frame, where the pointer is.
+        try:
+            self.pointer = QPoint(self._cursor_pos())
+        except Exception:  # noqa: BLE001 - a missing pointer only hides the magnifier
+            self.pointer = None
         for grab in self._grabs:
             window = _window_for(grab.screen)
             window.attach(grab, self, self._dim)
@@ -225,9 +245,11 @@ class SelectionController(QObject):
         """Window mode: light up the window under the pointer."""
         if self.mode != "window" or self._finished:
             return
-        from winlist import window_at
+        from winlist import _rect_of, window_at
 
-        found = window_at(self.windows(), global_pos)
+        item = window_at(self.windows(), global_pos)
+        self._hover_item = item
+        found = _rect_of(item) if item is not None else None
         if found != self.hover_window:
             before = self.hover_window or QRect()
             self.hover_window = found
@@ -242,6 +264,7 @@ class SelectionController(QObject):
             return
         self._finished = True
         rect = QRect(self.hover_window)
+        self.picked_window = getattr(self, "_hover_item", None)
         self.close_all()
         self.selected.emit(rect)
 
@@ -343,6 +366,36 @@ class SelectionController(QObject):
         for window in self._windows:
             window.update()
 
+    # -- the magnifier (0.13.0) ---------------------------------------------
+    def loupe_rect(self, pointer: QPoint | None) -> QRect:
+        """Where the magnifier is drawn for a pointer at `pointer`, globally."""
+        if pointer is None or not self.magnifier or self.mode == "window" or self._finished:
+            return QRect()
+        screen = None
+        for window in self._windows:
+            if window.geometry().contains(pointer):
+                screen = window.geometry()
+                break
+        if screen is None:
+            return QRect()
+        return loupe_place(pointer, screen)
+
+    def move_pointer(self, global_pos: QPoint) -> None:
+        before = self.loupe_rect(self.pointer)
+        self.pointer = QPoint(global_pos)
+        after = self.loupe_rect(self.pointer)
+        if before != after:
+            dirty = before.united(after) if not before.isNull() else after
+            for window in self._windows:
+                window.update_global(dirty.adjusted(-2, -2, 2, 2))
+
+    def toggle_magnifier(self) -> None:
+        old = self.loupe_rect(self.pointer)
+        self.magnifier = not self.magnifier
+        new = self.loupe_rect(self.pointer)
+        for window in self._windows:
+            window.update_global(old.united(new).adjusted(-2, -2, 2, 2))
+
     def _repaint_between(self, before: QRect, after: QRect) -> None:
         """Repaint only where the rectangle was and where it is now."""
         dirty = _with_badge(before).united(_with_badge(after))
@@ -354,6 +407,21 @@ class SelectionController(QObject):
 # above the rectangle (or below it near the top of the screen).
 _BADGE_W = 220
 _BADGE_H = 40
+
+
+def loupe_place(pointer: QPoint, screen: QRect) -> QRect:
+    """The magnifier's box, below right of the pointer, flipped near an edge."""
+    w, h = LOUPE_SIDE + 2, LOUPE_SIDE + LOUPE_LABEL + 2
+    x = pointer.x() + LOUPE_OFFSET
+    y = pointer.y() + LOUPE_OFFSET
+    if x + w > screen.right():
+        x = pointer.x() - LOUPE_OFFSET - w
+    if y + h > screen.bottom():
+        y = pointer.y() - LOUPE_OFFSET - h
+    # Never off the screen, even one too small for it on either side.
+    x = max(screen.left(), min(x, screen.right() - w))
+    y = max(screen.top(), min(y, screen.bottom() - h))
+    return QRect(x, y, w, h)
 
 
 def _with_badge(rect: QRect) -> QRect:
@@ -550,6 +618,7 @@ class OverlayWindow(QWidget):
     def mouseMoveEvent(self, event):
         if self.controller is None:
             return
+        self.controller.move_pointer(QCursor.pos())
         hot = self._bar_item_at(event.position().toPoint())
         if hot != getattr(self, "_bar_hot", None):
             self._bar_hot = hot
@@ -577,7 +646,9 @@ class OverlayWindow(QWidget):
         if self.controller is None:
             return super().keyPressEvent(event)
         key = event.key()
-        if key in MODE_KEYS:
+        if key == Qt.Key.Key_M:
+            self.controller.toggle_magnifier()
+        elif key in MODE_KEYS:
             self.controller.set_mode(MODE_KEYS[key])
         elif key == Qt.Key.Key_Escape:
             self.controller.cancel()
@@ -623,7 +694,41 @@ class OverlayWindow(QWidget):
                 self._draw_size_badge(painter, local, selection)
         if not controller.dragging and area.intersects(bar_rect(self.width()).adjusted(0, 0, 0, 40)):
             self._draw_bar(painter)
+        loupe = controller.loupe_rect(controller.pointer).translated(-geom.x(), -geom.y())
+        if not loupe.isNull() and loupe.intersects(area):
+            self._draw_loupe(painter, loupe, pixmap, scale, geom)
         painter.end()
+
+    def _draw_loupe(self, painter, box: QRect, pixmap, scale, geom) -> None:
+        """The pixels around the pointer, enlarged, with a crosshair and the position."""
+        pointer = self.controller.pointer
+        local = QPoint(pointer.x() - geom.x(), pointer.y() - geom.y())
+        half = LOUPE_SPAN // 2
+        source = QRect(local.x() - half, local.y() - half, LOUPE_SPAN, LOUPE_SPAN)
+        view = QRect(box.x() + 1, box.y() + 1, LOUPE_SIDE, LOUPE_SIDE)
+        painter.save()
+        # The size badge leaves its fill on the painter; outlines here are outlines.
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+        painter.fillRect(box, QColor(16, 16, 19))
+        painter.drawPixmap(QRectF(view), pixmap, _device_rect(source, scale))
+        # The pixel under the pointer, outlined in black and white.
+        cell = QRect(view.x() + half * LOUPE_ZOOM, view.y() + half * LOUPE_ZOOM, LOUPE_ZOOM, LOUPE_ZOOM)
+        painter.setPen(QPen(QColor(0, 0, 0, 200), 1))
+        painter.drawRect(cell.adjusted(-1, -1, 0, 0))
+        painter.setPen(QPen(QColor(255, 255, 255), 1))
+        painter.drawRect(cell)
+        painter.setPen(QPen(QColor(255, 255, 255, 110), 1))
+        painter.drawRect(box.adjusted(0, 0, -1, -1))
+        label = QRect(box.x(), view.bottom() + 1, box.width(), LOUPE_LABEL)
+        painter.setPen(HINT_FG)
+        font = QFont()
+        font.setPointSizeF(8.5)
+        painter.setFont(font)
+        x = round((pointer.x() - geom.x()) * scale)
+        y = round((pointer.y() - geom.y()) * scale)
+        painter.drawText(label, Qt.AlignmentFlag.AlignCenter, f"{x}, {y}   M hides")
+        painter.restore()
 
     def _paint_window(self, painter, area, pixmap, scale, geom) -> None:
         """The window under the pointer, bright and outlined, with its size."""

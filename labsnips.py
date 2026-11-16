@@ -593,7 +593,10 @@ class SnipViewer(QWidget):
         self.canvas.prefs = dict(self.tools.prefs)
 
     def _on_prefs(self, prefs: dict) -> None:
+        before = dict(self.canvas.prefs)
         self.canvas.prefs = dict(prefs)
+        # 0.13.0: with a mark selected, a new colour or size applies to it.
+        self.canvas.restyle_selected(before, prefs)
         self.prefs_changed.emit(dict(prefs))
 
     def _on_edited(self) -> None:

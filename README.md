@@ -128,6 +128,8 @@ removal, the viewer) is the same code on both.
 | Start hidden in the tray | `ShadowSnip.exe --tray` on Windows, `shadowsnip --tray` on Linux (for the login shortcut) |
 | Always open the window | `ShadowSnip.exe --show` |
 | Start or stop a lab | **Start lab** in the preview window, or the tray menu |
+| Snip after a delay (to catch a menu or tooltip) | The clock button beside **New snip**, **Snip after a delay** in the tray menu, or `--snip --delay 5`. The window steps aside at once; a countdown sits in the bottom right corner. The snip hotkey during the countdown snips straight away; **Cancel the countdown** is in the tray menu |
+| Magnifier while snipping | Shown beside the pointer in Rectangle and Freeform, with the position in screen pixels; `M` hides it for this snip, Settings turns it off |
 | Pick how to snip | The bar at the top: **Rectangle** `R`, **Window** `W`, **Freeform** `L`, **Full screen** `F` or `Space`. The last one used is remembered |
 | Drag a region (Rectangle) | left mouse button |
 | Snip a window (Window) | hover it, then click |
@@ -159,7 +161,7 @@ above it has:
 | **Text** | Reads the words in the snip and outlines them. Click a word, drag across several, Shift+click to add, `Ctrl+A` for all, then `Ctrl+C` or right-click to copy them as text |
 | **Quick redact** | The button beside the tools: finds passwords, keys and tokens, hashes, email addresses and phone numbers (and IP addresses, if you tick them) and covers them in one go |
 | **Select** | Click a shape, label, step, callout, spotlight or magnifier to move it; drag its square handles to resize; double-click words to change them; `Delete` removes it |
-| **Shapes** | Drag to draw an arrow, line, box or ellipse (right-click the tool to choose). Hold Shift for straight lines at 45° steps and for squares and circles |
+| **Shapes** | Drag to draw an arrow, line, box, ellipse or blur box (right-click the tool to choose). Hold Shift for straight lines at 45° steps and for squares and circles. The blur box is for faces and logos: it can be moved and erased like any mark, so secrets still go under **Redact** |
 | **Label** | Click where the words go, type, Enter. Esc drops it |
 | **Numbered steps** | Click to drop ①, ②, ③... in order, to show the steps of an attack |
 | **Callout** | Drag from what to point at to where the words go, then type: an arrow and a label in one |
@@ -222,12 +224,23 @@ Snipping Tool does; the clipboard's bitmap and JPEG have no transparency, so
 white is the one fill that comes out the same everywhere. Window snips need
 X11 on Linux (`xprop` and `xwininfo`, from x11-utils).
 
+A window partly hidden behind another is snipped from the window itself on
+Windows (since 0.13.0), so what covers it is not in the snip. A window that
+will not draw itself that way (some games and video players come back black)
+is snipped from the screen instead. On Linux, covered windows come from the
+screen, as they appear.
+
 ### Shapes, labels, steps and callouts
 
 Shapes, labels, numbered steps, callouts and magnify share one colour, set
 from any of their right-click options, so a report's marks match. Shapes have
 a line width; labels, steps and callouts a text size. Sizes are what you see
 on screen when you draw, like the pen's.
+
+Their colour and size can be changed after they are drawn too: right-click
+a mark for **Colour** and **Size** (Larger, Smaller), or select it with
+**Select** and right-click a mark tool on the strip, whose options then apply
+to the selected mark. Each change is one undo.
 
 Every one of them can be moved after it is drawn: pick up **Select**, click
 the mark, and drag it. Arrows, lines, boxes, ellipses, spotlights and the
@@ -279,6 +292,10 @@ each ticked match with a redaction in your usual style (black out or blur).
 
 What it recognises, in the places a pentest puts them:
 
+- **This lab's targets**, while a lab runs: the hosts in its findings and in
+  section names that are hosts (`10.10.10.3/SMB`), and each hostname's domain
+  (`dc01.corp.local` also gives `corp.local`). Matched as whole names, so
+  `10.10.10.3` never catches `10.10.10.30`
 - `password: hunter2`, `token=...`, `-p 'secret'`, `/p:secret`, CrackMapExec
   and NetExec `[+] DOMAIN\user:password`, Impacket `user:password@host`
 - JWTs, AWS, GitHub, Slack, Google and OpenAI style keys, private key headers

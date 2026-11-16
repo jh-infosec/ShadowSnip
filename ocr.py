@@ -296,7 +296,30 @@ KINDS = {
     "email": ("Email addresses", True),
     "phone": ("Phone numbers", True),
     "ip": ("IP addresses", False),
+    # 0.13.0: the hosts and domains of the running lab (see target_source).
+    "target": ("This lab's targets", True),
 }
+
+# Where Quick redact gets the running lab's targets: set by the app to a
+# function returning hostnames, IPs and domains. Empty outside a lab.
+target_source = None
+
+
+def lab_targets() -> list[str]:
+    if target_source is None:
+        return []
+    try:
+        return [str(t) for t in target_source() if str(t).strip()]
+    except Exception:  # noqa: BLE001 - a lab that cannot be read just has no targets
+        return []
+
+
+def _target_patterns(targets) -> list[re.Pattern]:
+    """Each target as a whole token: 10.10.10.3 never matches inside 10.10.10.30."""
+    out = []
+    for target in sorted({t.strip() for t in targets if len(t.strip()) >= 3}, key=len, reverse=True):
+        out.append(re.compile(r"(?<![\w.-])" + re.escape(target) + r"(?![\w-]|\.\w)", re.IGNORECASE))
+    return out
 
 _HEX = r"[0-9A-Fa-f]"
 _PATTERNS: dict[str, list[re.Pattern]] = {
@@ -352,13 +375,16 @@ class Found:
     boxes: list = field(default_factory=list)  # (x, y, w, h) per line it covers
 
 
-def find_sensitive(words: list[Word], kinds=None) -> list[Found]:
+def find_sensitive(words: list[Word], kinds=None, targets=None) -> list[Found]:
     """What in `words` looks like something to hide, with the boxes to cover.
 
     A match inside one word covers only its share of that word's box (the
     value in `password=hunter2`), estimated from the character positions.
+    `targets`: the lab's hosts and domains (default: the running lab's).
     """
     wanted = set(KINDS) if kinds is None else set(kinds)
+    patterns = dict(_PATTERNS)
+    patterns["target"] = _target_patterns(lab_targets() if targets is None else targets)
     found: list[Found] = []
     for line in _lines(words):
         text, spans = _line_text(line)
@@ -366,7 +392,7 @@ def find_sensitive(words: list[Word], kinds=None) -> list[Found]:
         for kind in KINDS:  # KINDS is in priority order
             if kind not in wanted:
                 continue
-            for pattern in _PATTERNS[kind]:
+            for pattern in patterns[kind]:
                 for match in pattern.finditer(text):
                     group = 1 if pattern.groups else 0
                     start, end = match.span(group)

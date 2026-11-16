@@ -1,35 +1,47 @@
 # Changelog
 
-## Latest: 0.12.0
+## Latest: 0.13.0
 
-Capture modes, the colour picker, and the Snipping Tool keys.
+Catching what disappears, and the mark-up odds and ends.
 
-**Added**: a bar at the top of the snipping screen to pick how to snip:
-**Rectangle** (R), **Window** (W), **Freeform** (L) and **Full screen** (F or
-Space). The mode you used last is remembered.
+**Added**: **delayed snips**, for right-click menus, tooltips and hover states
+that vanish the moment anything else is clicked. The clock button beside New
+snip, **Snip after a delay** in the tray menu, or `--snip --delay 5` on the
+command line, in 3, 5 or 10 seconds. The window steps out of the way at once
+and a countdown waits in the bottom right corner without ever taking focus,
+so a menu opened meanwhile stays open into the snip. The countdown is gone
+before the screen freezes. The snip hotkey during a countdown snips now;
+**Cancel the countdown** is in the tray menu.
 
-- **Window**: hover a window to light it up with its size, click to snip it.
-  On Windows the frame as drawn, without the invisible resize border and
-  shadow; on Linux (X11) the title bar is included. Windows on other monitors
-  at other scales land exactly, and ShadowSnip never offers its own windows.
-- **Freeform**: draw any shape; everything outside it is filled white, as in
-  Windows Snipping Tool.
+**Added**: a **magnifier** beside the pointer while snipping, showing the
+pixels around it, undimmed and enlarged, with the position in screen pixels,
+for edges exact to the pixel. `M` hides it for one snip; Settings, Snipping
+tab, turns it off.
 
-**Added**: the **Colour picker** on the mark-up strip. Hover the snip for a
-magnifier over the pixels and the colour's hex code; click copies `#rrggbb`,
-Shift+click copies `rgb(r, g, b)`. It reads the snip as it looks, marks and
-redactions included.
+**Added**: **covered windows** in Window mode come from the window itself on
+Windows, not from the screen, so the window on top of it is not in the snip.
+One that will not draw itself that way falls back to the screen.
 
-**Added**: **Alt+N** for a new snip in the preview window and the full-size
-view, and **Also snip with the Print Screen key** in Settings. On Windows 11,
-Windows keeps Print Screen for its own screen capture unless that is switched
-off; Settings says so and opens the right page, and ShadowSnip takes the key
-over within a few seconds of it being freed, no restart needed. ShadowSnip
-never changes the Windows setting itself.
+**Added**: a **Blur** shape, a blurred box that moves and erases like any
+mark, for faces and logos. Secrets still belong under Redact, which cannot be
+dragged off what it hides.
 
-**Fixed**: closing a snip's window while its text was being read in the
-background (Text tool, Quick redact) could crash ShadowSnip. The reader no
-longer touches Qt from its own thread.
+**Added**: a mark's **colour and size can change after it is drawn**:
+right-click it for Colour and Size (Larger, Smaller), or select it and
+right-click a mark tool, whose options then apply to it. One undo each, kept
+in the `.edits` sidecar.
+
+**Added**: Quick redact offers **This lab's targets**: the hosts in the
+running lab's findings and host-named sections, and their domains, matched as
+whole names.
+
+### 0.12.0 in brief
+
+Capture modes. **Added**: a mode bar on the snipping screen with Rectangle,
+Window, Freeform and Full screen (R, W, L, F); the colour picker on the
+mark-up strip; Alt+N for a new snip; Print Screen as a snip key, with
+Windows 11's own use of the key detected and explained. **Fixed**: a crash
+when a window closed while its text was being read.
 
 ### 0.11.0 in brief
 

@@ -138,6 +138,14 @@ class SettingsDialog(QDialog):
         prtsc_layout.addWidget(self.prtsc_check)
         prtsc_layout.addWidget(self.prtsc_note)
         prtsc_layout.addWidget(self.btn_prtsc_windows, 0, Qt.AlignmentFlag.AlignLeft)
+        # 0.13.0: the magnifier while snipping.
+        self.magnifier_check = QCheckBox("Show a magnifier while snipping (M hides it)")
+        self.magnifier_check.setChecked(bool(cfg.get("snip_magnifier", True)))
+        self.magnifier_check.setToolTip(
+            "A close-up of the pixels around the pointer, with its position, "
+            "for edges exact to the pixel."
+        )
+        prtsc_layout.addWidget(self.magnifier_check)
         self._prtsc_row = prtsc_row
         self._sync_prtsc_note()
 
@@ -614,6 +622,7 @@ class SettingsDialog(QDialog):
         cfg["note_hotkey"] = self.note_hotkey_edit.spec
         cfg["output_hotkey"] = self.output_hotkey_edit.spec
         cfg["prtsc_snip"] = self.prtsc_check.isChecked()
+        cfg["snip_magnifier"] = self.magnifier_check.isChecked()
         cfg["keep_edits"] = self.keep_edits_check.isChecked()
         cfg["save_dir"] = self.folder_edit.text().strip()
         cfg["latest_name"] = self.name_edit.text().strip()
