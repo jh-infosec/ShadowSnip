@@ -33,6 +33,11 @@ at that moment, and a Stop pressed during the wait is carried out once the
 first frame is in. An encoder that takes no frame within `WARMUP_SECONDS` is
 reported as a failure, not saved as an empty file.
 
+The frame input is created without a frame format. Given one, PySide6 6.11
+never accepts a frame (found on Windows with 6.11.2, reproduced on Linux with
+the same version; 6.12 is fine either way), so the encoder is left to read the
+size and pixel format off the first frame.
+
 ## Encoding
 
 MP4, with H.264 where the platform's FFmpeg build offers it (Windows usually
@@ -165,7 +170,6 @@ class Recorder(QObject):
             QAudioInput,
             QMediaCaptureSession,
             QMediaRecorder,
-            QVideoFrameFormat,
             QVideoFrameInput,
         )
 
@@ -177,9 +181,11 @@ class Recorder(QObject):
         self.first_frame = first.copy(0, 0, width, height)
 
         self._session = QMediaCaptureSession(self)
-        frame_format = QVideoFrameFormat(self._size, QVideoFrameFormat.PixelFormat.Format_BGRA8888)
-        _set_rate(frame_format, self.fps)
-        self._input = QVideoFrameInput(frame_format, self)
+        # No frame format is given here, on purpose. PySide6 6.11 refuses every
+        # frame of an input that was created with one (6.12 does not); without
+        # it, the encoder takes its size and pixel format from the first frame,
+        # which works on both.
+        self._input = QVideoFrameInput(self)
         self._input.readyToSendVideoFrame.connect(self._offer_first)
         self._session.setVideoFrameInput(self._input)
         if self.microphone:

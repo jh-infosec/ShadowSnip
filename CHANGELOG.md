@@ -24,6 +24,9 @@ Windows both stay out of the recording even where they overlap it.
 - Nothing extra to install: the encoder comes with PySide6 (H.264 where the
   system has it, MPEG-4 otherwise). `python clipcheck.py` tests recording on
   a machine and says which codecs work there.
+- Works with PySide6 6.11 as well as 6.12. On 6.11 the first build recorded
+  nothing ("The video encoder did not start"): that version refuses every
+  frame of a frame input created with a frame format, so none is given now.
 
 **Changed**: saving a file is tried again for a moment when Windows reports
 it in use, which an antivirus or the search indexer can cause for a file
