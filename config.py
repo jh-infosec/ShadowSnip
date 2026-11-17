@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.14.1"
+APP_VERSION = "0.14.2"
 
 
 def config_dir() -> Path:

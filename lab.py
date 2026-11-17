@@ -470,6 +470,22 @@ def set_caption(cfg: dict, filename: str, caption: str) -> bool:
     return False
 
 
+def set_clip_seconds(cfg: dict, filename: str, seconds) -> bool:
+    """A clip in the active lab was trimmed: record its new length and re-render lab.md."""
+    target = active_folder(cfg)
+    if target is None or seconds is None:
+        return False
+    state = _load_state(target)
+    if not state:
+        return False
+    for entry in reversed(state.get("entries", [])):
+        if entry.get("file") == filename and "clip" in entry:
+            entry["clip_seconds"] = round(float(seconds), 2)
+            _save_state(target, state, cfg)
+            return True
+    return False
+
+
 def add_note(cfg: dict, text: str, attach=None, fmt: str = "text", label: str = "") -> dict | None:
     """Record a note in the active lab's current section.
 

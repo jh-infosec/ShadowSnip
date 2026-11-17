@@ -88,6 +88,11 @@ A finished clip shows in the main window and is picked out in the list;
 clips play in the main window and the full-size view, with the video player
 one click away and a setting for which is the default.
 
+## Done in v0.14.2 - trimming clips
+
+Trim with a two-handled bar, frame-exact, with the recorded clip kept for
+Undo trim; player controls styled and inset like the rest of the window.
+
 ## Next: v0.15 - the report
 
 - PDF export straight from ShadowSnip.

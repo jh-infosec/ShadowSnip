@@ -452,6 +452,9 @@ class SnipViewer(QWidget):
     edit_saved = Signal(str, QImage)
     # Pen and highlighter colours and widths, the redact mode.
     prefs_changed = Signal(dict)
+    # 0.14.2: a clip's file is about to be replaced by a trim, and has been.
+    clip_about_to_change = Signal(str)
+    clip_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.Window)
@@ -489,6 +492,10 @@ class SnipViewer(QWidget):
         # 0.14.1: a clip plays here in place of the picture.
         self.player = player_mod.ClipPlayer()
         self.player.notice.connect(self.flash)
+        self.player.about_to_change.connect(self.clip_about_to_change.emit)
+        self.player.changed.connect(self.clip_changed.emit)
+        # Lined up with the tool row above and the buttons below.
+        self.player.set_control_margins(12, 8, 12, 2)
         self._clip: Path | None = None
         self.view = QStackedWidget()
         self.view.addWidget(self.canvas)
@@ -644,6 +651,11 @@ class SnipViewer(QWidget):
         """These files are about to be moved: stop playing the clip if it is one of them."""
         if self._clip is not None and self._loaded_file in set(filenames):
             self.player.unload()
+
+    def take_back(self, video) -> None:
+        """A clip changed on disk: show it again if it is the one here."""
+        if self._clip is not None and Path(video) == self._clip and self.player.video is None:
+            self.player.load(self._clip, QImage(str(self._clip.with_suffix(".png"))))
 
     # -- what is shown --------------------------------------------------------------
     # items are in capture order, oldest first, so Right means "later"
@@ -1297,6 +1309,9 @@ class LabSnipsPanel(QWidget):
     export_requested = Signal()
     # From the outline: a section to mark as a finding or edit.
     finding_requested = Signal(str)
+    # A clip in the full-size view is being trimmed (0.14.2).
+    clip_about_to_change = Signal(str)
+    clip_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1886,6 +1901,8 @@ class LabSnipsPanel(QWidget):
             self.viewer.new_snip_requested.connect(self.new_snip_requested.emit)
             self.viewer.about_to_load.connect(self.viewer_loading.emit)
             self.viewer.edit_saved.connect(self.edit_saved.emit)
+            self.viewer.clip_about_to_change.connect(self.clip_about_to_change.emit)
+            self.viewer.clip_changed.connect(self.clip_changed.emit)
             self.viewer.prefs_changed.connect(self._on_viewer_prefs)
             if self._annotation_prefs:
                 self.viewer.set_prefs(self._annotation_prefs)

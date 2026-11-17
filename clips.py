@@ -117,10 +117,18 @@ def move_with(image_source: Path, image_target: Path) -> None:
         return
     import os
 
+    target = Path(image_target).with_suffix(SUFFIX)
     try:
-        os.replace(video, Path(image_target).with_suffix(SUFFIX))
+        os.replace(video, target)
     except OSError:
-        pass
+        return
+    # A trimmed clip's original goes with it (0.14.2, see cliptrim).
+    kept = video.with_name(video.stem + ".untrimmed" + SUFFIX)
+    if kept.is_file():
+        try:
+            os.replace(kept, target.with_name(target.stem + ".untrimmed" + SUFFIX))
+        except OSError:
+            pass
 
 
 # -- GIF export ---------------------------------------------------------------------------------

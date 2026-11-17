@@ -103,6 +103,7 @@ class ShadowSnipApp(QObject):
         self.preview.output_requested.connect(lambda attach: self.file_output(attach))
         self.preview.methodology_requested.connect(self.add_methodology)
         self.preview.export_requested.connect(self.export_report)
+        self.preview.clip_changed.connect(self._on_clip_trimmed)
 
         # The snip list follows the lab folder itself rather than relying on
         # every code path that writes into it remembering to refresh. A snip,
@@ -1568,6 +1569,21 @@ class ShadowSnipApp(QObject):
             image = storage.write_atomic(folder / f"clip_{datetime.now():%Y-%m-%d_%H-%M-%S}.png", poster)
             os.replace(video, image.with_suffix(clips.SUFFIX))
         return image.with_suffix(clips.SUFFIX)
+
+    def _on_clip_trimmed(self, video: str) -> None:
+        """A clip was trimmed or put back: its new length into lab.md and the lists."""
+        import clips
+
+        poster = Path(video).with_suffix(".png")
+        folder = lab.active_folder(self.cfg) if lab.is_active(self.cfg) else None
+        if folder is not None and poster.parent == folder:
+            try:
+                lab.set_clip_seconds(self.cfg, poster.name, clips.length_of(poster))
+            except (OSError, lab.LabError) as exc:
+                self.preview.set_status(f"lab.md not updated: {exc}")
+            self._refresh_menu_text()
+        else:
+            self._refresh_snip_list()
 
     def _record_label(self) -> str:
         spec = self.cfg.get("record_hotkey", "")

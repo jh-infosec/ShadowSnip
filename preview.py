@@ -161,6 +161,8 @@ class PreviewWindow(QWidget):
     snip_remove_requested = Signal(list)
     # A lab snip to put on the clipboard, from the full-size viewer.
     snip_copy_requested = Signal(str)
+    # A clip was trimmed or put back (0.14.2): its length and poster changed.
+    clip_changed = Signal(str)
     # From the full-size viewer: a lab snip about to be shown, and one edited.
     lab_snip_loading = Signal(str)
     lab_snip_edited = Signal(str, QImage)
@@ -234,6 +236,8 @@ class PreviewWindow(QWidget):
         # 0.14.1: a clip plays where a snip is shown, in the same place.
         self.player = ClipPlayer()
         self.player.notice.connect(lambda text: self.status.setText(text))
+        self.player.about_to_change.connect(self._clip_about_to_change)
+        self.player.changed.connect(self._on_clip_changed)
         self._clip: Path | None = None
         self.view = QStackedWidget()
         self.view.addWidget(self.canvas)
@@ -267,6 +271,8 @@ class PreviewWindow(QWidget):
         self.snips_panel.open_md_requested.connect(self.lab_md_open_requested.emit)
         self.snips_panel.export_requested.connect(self.export_requested.emit)
         self.snips_panel.finding_requested.connect(self.finding_requested.emit)
+        self.snips_panel.clip_about_to_change.connect(self._clip_about_to_change)
+        self.snips_panel.clip_changed.connect(self._on_clip_changed)
         # Short names for the parts other code and the tests reach for.
         self.snips_list = self.snips_panel.list
         self.snips_title = self.snips_panel.title
@@ -592,6 +598,22 @@ class PreviewWindow(QWidget):
         self._clip = None
         self.view.setCurrentWidget(self.canvas)
         self.btn_copy.setText("Copy again")
+
+    def _clip_about_to_change(self, video: str) -> None:
+        """A trim is about to replace this clip: every player showing it lets go."""
+        self.let_go_of_files([Path(video).with_suffix(".png").name])
+
+    def _on_clip_changed(self, video: str) -> None:
+        """Trimmed or put back: show it again wherever it was, and tell the app."""
+        video = Path(video)
+        if self._clip is not None and video == self._clip:
+            self._image = QImage(str(video.with_suffix(".png")))
+            if self.player.video is None:
+                self.player.load(video, self._image)
+        viewer = self.snips_panel.viewer
+        if viewer is not None:
+            viewer.take_back(video)
+        self.clip_changed.emit(str(video))
 
     def let_go_of_files(self, filenames) -> None:
         """These snips are about to be moved: let go of any clip among them.

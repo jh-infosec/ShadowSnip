@@ -1,6 +1,29 @@
 # Changelog
 
-## Latest: 0.14.1
+## Latest: 0.14.2
+
+**Added**: **trim a clip**. **Trim** beside the player swaps the slider for a
+trim bar with a handle at each end: drag them, or play to the spot and press
+**Start here** (I) or **End here** (O). Play then plays only the part being
+kept, and the time shows tenths of a second. **Save trim** keeps only that
+part, exact to the frame, and remakes the poster with the new first frame and
+length; the list, lab.md and the reports show the new length. The clip as
+recorded is kept beside it (`<name>.untrimmed.mp4`, moved and removed with the
+clip), so **Undo trim** always puts it back, however many times it was
+trimmed. Works in the main window and the full-size view.
+
+A clip recorded with the microphone loses its sound when trimmed; the trim
+row says so before you save. Qt can re-encode pictures but not cut sound.
+
+**Changed**: the player's buttons now take the window's own style, so they
+match the rest of ShadowSnip in every skin, and its controls are inset to line
+up with the tool row and the buttons in the full-size view instead of running
+to the window's edges.
+
+**Fixed**: dragging the position slider before pressing Play did nothing; the
+frame at that point now shows.
+
+## 0.14.1
 
 **Added**: **clips play inside ShadowSnip**. A clip just recorded now takes
 the snip's place in the main window, with Play / Pause (Space, or a click on

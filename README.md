@@ -234,7 +234,11 @@ video player**. In the snip list a clip shows ▶ and its length under
 **Marks**. Double-click or **Play** plays it in the full-size view (arrow
 keys move on to the next snip or clip); right-click adds **Play in video
 player**. **Settings > Play clips** makes your video player the default
-instead. Right-click also adds **Save as GIF...**
+instead. **Trim** cuts the start or end off: drag the handles on the trim
+bar, or play to the spot and press **Start here** (I) or **End here** (O),
+then **Save trim**. The clip as recorded is kept, and **Undo trim** puts it
+back. A clip with microphone sound loses the sound when trimmed. Right-click
+also adds **Save as GIF...**
 (at most 60 seconds, 10 frames a second, 800 pixels wide), and Copy, Save
 as, Show in folder and Remove work on the video. Exported reports show the
 poster with a caption naming the clip, since a report file cannot carry a

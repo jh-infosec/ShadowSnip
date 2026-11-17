@@ -40,7 +40,8 @@ countdown.py         the countdown before a delayed snip (never takes focus)
 recorder.py          recording an area to MP4 (frames pushed into Qt Multimedia)
 recordbar.py         the red frame and the Pause/Stop bar while a clip records
 clips.py             a clip's poster, finding the video beside it, GIF export
-player.py            playing a clip inside ShadowSnip (main window and full-size view)
+player.py            playing a clip inside ShadowSnip (main window and full-size view), the trim bar
+cliptrim.py          trimming a clip: re-encoding the part kept, keeping and restoring the original
 clipcheck.py         run by hand: does video recording work on this machine?
 winlist.py           the windows on screen, for window snips (Windows: EnumWindows
                      and DWM frame bounds; X11: xprop and xwininfo)
@@ -241,6 +242,27 @@ never open the sound system. Before a clip is moved or removed,
 `PreviewWindow.let_go_of_files()` unloads any player holding it, because
 Windows will not move an open file. `cfg["clip_player"]` ("app" or
 "external") decides where the list's Play and Expand go.
+
+### Trimming clips (0.14.2)
+
+Qt Multimedia's FFmpeg can decode and encode but has no cut, and no FFmpeg
+program ships with ShadowSnip, so `cliptrim.reencode()` plays the clip muted
+at 2x from the start point into a `QVideoSink` and sends each frame up to the
+end point into a new `QVideoFrameInput` / `QMediaRecorder`, its time shifted
+back by the start. Frames queue for the encoder; above `QUEUE_HIGH` playback
+pauses until the queue drains below `QUEUE_LOW`, so no frame is skipped and
+memory stays flat through the encoder's start-up. The cut is frame-exact.
+Sound is dropped (no way to cut it with Qt alone). `trim()` writes to
+`<name>.trimming.mp4`, moves the clip as recorded to `<name>.untrimmed.mp4`
+the first time only, puts the new file in place and remakes the poster;
+`untrim()` reverses it. `clips.move_with()` carries the `.untrimmed` file
+with its clip.
+
+A trim replaces a file another player may hold open, which Windows forbids,
+so `ClipPlayer` emits `about_to_change` first (the window unloads every
+player showing that clip) and `changed` after (they reload, and the app
+writes the new length into lab.json / lab.md with `lab.set_clip_seconds()`
+and refreshes the list).
 
 ## The snip pipeline
 
