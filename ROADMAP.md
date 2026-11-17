@@ -82,6 +82,12 @@ picker, Alt+N for a new snip, and Print Screen as a snip key.
 Recording an area to MP4 with pause, an optional microphone and a length
 limit; clips filed like snips with a poster; copy as a file; Save as GIF.
 
+## Done in v0.14.1 - clips play in ShadowSnip
+
+A finished clip shows in the main window and is picked out in the list;
+clips play in the main window and the full-size view, with the video player
+one click away and a setting for which is the default.
+
 ## Next: v0.15 - the report
 
 - PDF export straight from ShadowSnip.

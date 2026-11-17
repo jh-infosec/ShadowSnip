@@ -40,6 +40,7 @@ countdown.py         the countdown before a delayed snip (never takes focus)
 recorder.py          recording an area to MP4 (frames pushed into Qt Multimedia)
 recordbar.py         the red frame and the Pause/Stop bar while a clip records
 clips.py             a clip's poster, finding the video beside it, GIF export
+player.py            playing a clip inside ShadowSnip (main window and full-size view)
 clipcheck.py         run by hand: does video recording work on this machine?
 winlist.py           the windows on screen, for window snips (Windows: EnumWindows
                      and DWM frame bounds; X11: xprop and xwininfo)
@@ -222,6 +223,24 @@ image. Copying a clip puts a file on the clipboard (CF_HDROP through pywin32
 on Windows, a uri-list through Qt elsewhere). GIF export plays the clip muted
 at 8x into a `QVideoSink` and keeps a frame every 100 ms of the clip's own
 clock.
+
+The frame input is created without a frame format: PySide6 6.11 refuses
+every frame of an input given one (6.12 does not), and the encoder takes the
+size and pixel format from the first frame anyway.
+
+### Playing clips (0.14.1)
+
+`player.ClipPlayer` is a `QMediaPlayer` playing into a `QVideoSink`, with each
+frame painted scaled to fit, not a `QVideoWidget`: that widget embeds a native
+window that ignores the skins, draws over anything on top of it, and on some
+drivers stays black until a resize. The main window and the full-size view
+each hold a `QStackedWidget` of the snip canvas and a player and switch
+between them by what is shown (`clips.clip_for()` on the image). A
+`QAudioOutput` is attached only when the media reports audio, so silent clips
+never open the sound system. Before a clip is moved or removed,
+`PreviewWindow.let_go_of_files()` unloads any player holding it, because
+Windows will not move an open file. `cfg["clip_player"]` ("app" or
+"external") decides where the list's Play and Expand go.
 
 ## The snip pipeline
 

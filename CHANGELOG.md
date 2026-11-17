@@ -1,6 +1,31 @@
 # Changelog
 
-## Latest: 0.14.0
+## Latest: 0.14.1
+
+**Added**: **clips play inside ShadowSnip**. A clip just recorded now takes
+the snip's place in the main window, with Play / Pause (Space, or a click on
+the picture), a position slider, the time, and **Open in video player**.
+Play or Expand on a clip in the snip list plays it in the full-size view,
+where the arrow keys still move between snips and clips. Right-click a clip
+for **Play in video player**. Settings > **Play clips** chooses which one
+Play and Expand use (in ShadowSnip unless changed). The list's Expand button
+reads **Play** when a clip is selected.
+
+**Fixed**: after a clip was recorded the main window went on showing the
+snip taken before it, and the snip list kept that snip selected. The new
+clip is now on screen and picked out in the list.
+
+While a clip is on screen the mark-up tools are greyed out (a clip has no
+marks), **Copy again** reads **Copy clip** and copies the video as a file,
+and **Save as** saves the MP4. A clip being played is let go of before it is
+removed, since Windows will not move a file that is open.
+
+The player paints each frame itself rather than using Qt's video widget,
+which puts a native window inside ShadowSnip that ignores the skins and can
+stay black on some graphics drivers. Sound is played only for a clip that
+has some (one recorded with the microphone).
+
+## 0.14.0
 
 **Added**: **video clips**. Record an area of the screen as an MP4 with the
 clip hotkey (`Ctrl+Alt+R`), the record button beside New snip, the tray menu,

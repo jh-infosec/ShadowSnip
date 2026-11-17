@@ -130,6 +130,14 @@ class SettingsDialog(QDialog):
         self.clip_mic_check = QCheckBox("Record the microphone")
         self.clip_mic_check.setChecked(bool(cfg.get("clip_microphone", False)))
         self.clip_mic_check.setToolTip("Off unless ticked. The bar shows \"mic on\" while it records.")
+        # 0.14.1: where a clip plays.
+        self.clip_player_combo = QComboBox()
+        self.clip_player_combo.addItem("In ShadowSnip", "app")
+        self.clip_player_combo.addItem("In your video player", "external")
+        self.clip_player_combo.setCurrentIndex(max(0, self.clip_player_combo.findData(cfg.get("clip_player", "app"))))
+        self.clip_player_combo.setToolTip(
+            "Where Play and Expand play a clip from the snip list. Right-click a clip "
+            "for the other one; a clip just recorded always shows in ShadowSnip.")
 
         # Print Screen as a second snip key (0.12.0).
         self.prtsc_check = QCheckBox("Also snip with the Print Screen key")
@@ -409,6 +417,7 @@ class SettingsDialog(QDialog):
         snipping.addRow("Video clips", self.clip_fps_combo)
         snipping.addRow("Longest clip", self.clip_minutes_spin)
         snipping.addRow("", self.clip_mic_check)
+        snipping.addRow("Play clips", self.clip_player_combo)
         snipping.addRow("Save folder", folder_row)
         snipping.addRow("Replaced file name", self.name_edit)
         snipping.addRow(self.history_check)
@@ -645,6 +654,7 @@ class SettingsDialog(QDialog):
         cfg["clip_fps"] = int(self.clip_fps_combo.currentData())
         cfg["clip_max_minutes"] = self.clip_minutes_spin.value()
         cfg["clip_microphone"] = self.clip_mic_check.isChecked()
+        cfg["clip_player"] = self.clip_player_combo.currentData()
         cfg["snip_magnifier"] = self.magnifier_check.isChecked()
         cfg["keep_edits"] = self.keep_edits_check.isChecked()
         cfg["save_dir"] = self.folder_edit.text().strip()

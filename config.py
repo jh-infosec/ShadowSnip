@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.14.0"
+APP_VERSION = "0.14.1"
 
 
 def config_dir() -> Path:
@@ -59,6 +59,8 @@ DEFAULTS = {
     "clip_fps": 15,
     "clip_microphone": False,
     "clip_max_minutes": 10,
+    # Where a clip plays (0.14.1): "app" in ShadowSnip, "external" in the video player.
+    "clip_player": "app",
     # Where the always-overwritten snip and any history land.
     "save_dir": str(default_save_dir()),
     # Base name of the file that gets replaced on every snip.
@@ -329,4 +331,6 @@ def _sanitise(cfg: dict) -> dict:
     except (TypeError, ValueError):
         minutes = 10
     cfg["clip_max_minutes"] = min(60, max(1, minutes))
+    if cfg.get("clip_player") not in ("app", "external"):
+        cfg["clip_player"] = "app"
     return cfg

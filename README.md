@@ -228,8 +228,13 @@ poster, the first frame with a play badge and the length, which is what the
 lists, the full-size view and the reports show. It is copied to the clipboard
 as a file, ready to paste into Explorer, a chat or an email.
 
-In the snip list a clip shows ▶ and its length under **Marks**. Double-click
-or **Play** opens it in your video player; right-click adds **Save as GIF...**
+When a clip finishes it shows in the main window, where a snip would, with
+Play / Pause (Space, or click the picture), a position slider and **Open in
+video player**. In the snip list a clip shows ▶ and its length under
+**Marks**. Double-click or **Play** plays it in the full-size view (arrow
+keys move on to the next snip or clip); right-click adds **Play in video
+player**. **Settings > Play clips** makes your video player the default
+instead. Right-click also adds **Save as GIF...**
 (at most 60 seconds, 10 frames a second, 800 pixels wide), and Copy, Save
 as, Show in folder and Remove work on the video. Exported reports show the
 poster with a caption naming the clip, since a report file cannot carry a

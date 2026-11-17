@@ -65,6 +65,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QStyleFactory,
     QTabWidget,
     QTextBrowser,
@@ -76,6 +77,7 @@ from PySide6.QtWidgets import (
 
 import clips
 import edits
+import player as player_mod
 import skins
 import storage
 import annotate
@@ -484,6 +486,13 @@ class SnipViewer(QWidget):
         self._edit_timer.timeout.connect(self.flush_edits)
         # Kept for the tests and anything that asked for "the image area".
         self.image = self.canvas
+        # 0.14.1: a clip plays here in place of the picture.
+        self.player = player_mod.ClipPlayer()
+        self.player.notice.connect(self.flash)
+        self._clip: Path | None = None
+        self.view = QStackedWidget()
+        self.view.addWidget(self.canvas)
+        self.view.addWidget(self.player)
 
         self.caption = QLabel()
         self.caption.setObjectName("ViewerCaption")
@@ -542,7 +551,7 @@ class SnipViewer(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addLayout(top)
-        layout.addWidget(self.canvas, 1)
+        layout.addWidget(self.view, 1)
         layout.addWidget(self.caption)
         layout.addWidget(self.hint)
         layout.addLayout(bar)
@@ -565,6 +574,7 @@ class SnipViewer(QWidget):
         QShortcut(QKeySequence("Ctrl+-"), self, lambda: self.canvas.set_zoom(self.canvas.zoom() / 1.2))
         for key, step in (("Left", -1), ("Up", -1), ("Right", 1), ("Down", 1)):
             QShortcut(QKeySequence(key), self, lambda s=step: self.step(s))
+        QShortcut(QKeySequence("Space"), self, lambda: self.player.toggle() if self._clip is not None else None)
 
     # -- the tools ----------------------------------------------------------------
     def set_lab_mode(self, lab: bool) -> None:
@@ -586,6 +596,7 @@ class SnipViewer(QWidget):
         """Re-apply the stylesheet in the current skin."""
         self.setStyleSheet(skins.style(VIEWER_STYLE))
         self.tools.restyle()
+        self.player.restyle()
         self.canvas.update()
 
     def set_prefs(self, prefs: dict) -> None:
@@ -625,7 +636,14 @@ class SnipViewer(QWidget):
     def closeEvent(self, event):
         self.flush_edits()
         self.tools.select(None)
+        self.player.unload()
+        self._clip = None
         super().closeEvent(event)
+
+    def let_go_of(self, filenames) -> None:
+        """These files are about to be moved: stop playing the clip if it is one of them."""
+        if self._clip is not None and self._loaded_file in set(filenames):
+            self.player.unload()
 
     # -- what is shown --------------------------------------------------------------
     # items are in capture order, oldest first, so Right means "later"
@@ -685,6 +703,10 @@ class SnipViewer(QWidget):
         self.copy_image()
 
     def copy_image(self) -> None:
+        if self._clip is not None:
+            clips.copy_file(self._clip)
+            self.flash("Clip copied as a file")
+            return
         filename = self.current_file()
         if filename:
             # The copy is read from the file, so mark-up still waiting has to
@@ -701,15 +723,16 @@ class SnipViewer(QWidget):
         if not (0 <= self._index < len(self._items)):
             return
         item = self._items[self._index]
-        source = Path(item.get("path") or "")
+        source = self._clip or Path(item.get("path") or "")
         if not source.is_file():
             self.flash("This snip's file is no longer there")
             return
         self.flush_edits()
         start = str(Path.home() / source.name)
         suffix = source.suffix.lower().lstrip(".") or "png"
-        filters = f"{suffix.upper()} image (*.{suffix});;All files (*)"
-        target, _ = QFileDialog.getSaveFileName(self, "Save snip", start, filters)
+        kind = "video" if self._clip is not None else "image"
+        filters = f"{suffix.upper()} {kind} (*.{suffix});;All files (*)"
+        target, _ = QFileDialog.getSaveFileName(self, "Save clip" if self._clip else "Save snip", start, filters)
         if not target:
             return
         try:
@@ -723,6 +746,8 @@ class SnipViewer(QWidget):
         filename = self.current_file()
         if filename:
             self.flush_edits()
+            # A clip being played is held open, and Windows will not move an open file.
+            self.player.unload()
             self.remove_requested.emit(filename)
 
     def step(self, delta: int) -> None:
@@ -742,6 +767,16 @@ class SnipViewer(QWidget):
         if reload or item["file"] != self._loaded_file:
             self.about_to_load.emit(item["file"])
             path = item.get("path") or ""
+            video = clips.clip_for(path)
+            if video is not None:
+                # 0.14.1: a clip plays here instead of opening elsewhere.
+                self._show_clip(item, video)
+                self._finish_show(item, announce)
+                return
+            if self._clip is not None:
+                self.player.unload()
+                self._clip = None
+            self.view.setCurrentWidget(self.canvas)
             # The marks kept from last time, each still erasable (edits.py),
             # or else the picture as it is on disk.
             doc = edits.load(Path(path)) if path else None
@@ -759,14 +794,31 @@ class SnipViewer(QWidget):
             self._edit_pending = False
             self._edit_timer.stop()
             self.tools.set_available(not image.isNull())
+        self._finish_show(item, announce)
+
+    def _show_clip(self, item: dict, video: Path) -> None:
+        self.canvas.load(None)
+        poster = QImage(item.get("path") or "")
+        self.player.load(video, poster)
+        self._clip = video
+        self._loaded_file = item["file"]
+        self._edit_pending = False
+        self._edit_timer.stop()
+        self.tools.select(None)
+        self.tools.set_available(False)
+        self.view.setCurrentWidget(self.player)
+        self.player.setFocus()
+
+    def _finish_show(self, item: dict, announce: bool) -> None:
         position = f"{self._index + 1} of {len(self._items)}"
         title = f"{item['label']}  -  {item.get('caption') or 'no caption'}"
         self.caption.setText(f"{title}   ({position})\nFiled under {item.get('section') or 'root'}")
         self.setWindowTitle(f"ShadowSnip - {item['label']} ({position})")
         self.btn_prev.setEnabled(self._index > 0)
         self.btn_next.setEnabled(self._index < len(self._items) - 1)
-        self.btn_copy.setEnabled(self.canvas.doc is not None)
-        self.btn_save.setEnabled(self.canvas.doc is not None)
+        usable = self._clip is not None or self.canvas.doc is not None
+        self.btn_copy.setEnabled(usable)
+        self.btn_save.setEnabled(usable)
         if announce:
             self.current_changed.emit(item["file"])
 
@@ -1776,6 +1828,11 @@ class LabSnipsPanel(QWidget):
         self.btn_remove.setText(text)
         self.btn_open.setEnabled(chosen)
         self.btn_expand.setEnabled(chosen)
+        is_clip = chosen and self.selected_clip() is not None
+        self.btn_expand.setText("Play" if is_clip else "Expand")
+        self.btn_expand.setToolTip(
+            "Play this clip (Space on the list does the same)" if is_clip
+            else "Show this snip full size (Space on the list does the same)")
 
     # -- actions ----------------------------------------------------------------
     def _viewer_items(self) -> list[dict]:
@@ -1793,6 +1850,21 @@ class LabSnipsPanel(QWidget):
             )
         return items
 
+    # 0.14.1: where Play and Expand play a clip (config key clip_player).
+    clip_play_mode = player_mod.PLAY_HERE
+
+    def play_externally(self) -> None:
+        """The selected clip in the computer's video player."""
+        video = self.selected_clip()
+        if video is None:
+            return
+        if self.viewer is not None:
+            self.viewer.player.pause()
+        try:
+            storage.open_file(video)
+        except OSError as exc:
+            self.status_message.emit(f"Could not open the clip: {exc}")
+
     def selected_clip(self) -> Path | None:
         """The video behind the selected snip, when it is a clip's poster (0.14.0)."""
         row = self._rows.get(self.selected())
@@ -1803,10 +1875,9 @@ class LabSnipsPanel(QWidget):
         if not filename:
             return
         video = self.selected_clip()
-        if video is not None:
-            # A clip plays in the computer's video player; the full-size view
-            # would only show its poster.
-            storage.open_file(video)
+        if video is not None and self.clip_play_mode == player_mod.PLAY_EXTERNAL:
+            # Settings > Clips: played in the computer's video player.
+            self.play_externally()
             return
         if self.viewer is None:
             self.viewer = SnipViewer()
@@ -1895,6 +1966,7 @@ class LabSnipsPanel(QWidget):
             ("Save as...", self.save_selected_as, "", one),
         ]
         if is_clip:
+            rows.insert(1, ("Play in video player", self.play_externally, "", one))
             rows.append(("Save as GIF...", self.save_selected_as_gif, "", one))
         rows += [
             ("Open", self._emit_open, "", one),

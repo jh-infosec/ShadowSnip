@@ -30,16 +30,19 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 import config
+import clips
 import countdown
 import skins
 import storage
 from annotate import AnnotCanvas, AnnotToolbar
+from player import ClipPlayer
 from labsnips import LOCKED_STYLE, ClickToEditLine, LabSnipsPanel
 
 # How long after the last mark the edited snip is saved, in milliseconds.
@@ -228,7 +231,14 @@ class PreviewWindow(QWidget):
         image_layout.setContentsMargins(0, 0, 0, 0)
         image_layout.setSpacing(6)
         image_layout.addWidget(self.tools)
-        image_layout.addWidget(self.canvas, 1)
+        # 0.14.1: a clip plays where a snip is shown, in the same place.
+        self.player = ClipPlayer()
+        self.player.notice.connect(lambda text: self.status.setText(text))
+        self._clip: Path | None = None
+        self.view = QStackedWidget()
+        self.view.addWidget(self.canvas)
+        self.view.addWidget(self.player)
+        image_layout.addWidget(self.view, 1)
 
         # The caption for the snip on screen, shown while a lab is engaged.
         # Locked until double-clicked, so a stray click cannot change it, and
@@ -526,6 +536,7 @@ class PreviewWindow(QWidget):
         self._disk_ext = ext
         self._latest_path = latest_path
         self._copy_again = copy_again
+        self._show_canvas()
 
         self.caption.clear()
         self._caption_saved = ""
@@ -541,6 +552,58 @@ class PreviewWindow(QWidget):
 
         self.status.setText(status)
         self._bring_up()
+
+    def show_clip(self, video: Path, poster: QImage, status: str,
+                  folder_path: Path | None = None, caption_cb=None) -> None:
+        """A clip just recorded, in place of the snip (0.14.1).
+
+        Mark-up is a snip's; a clip has the player instead, and the tools are
+        greyed out while it is on screen. Save as and Copy work on the video.
+        """
+        self.flush_edits()
+        self._edit_timer.stop()
+        self._image = poster
+        self._disk_bytes = b""
+        self._latest_path = Path(video)
+        self._clip = Path(video)
+        self._copy_again = lambda: clips.copy_file(self._clip)
+        self.caption.clear()
+        self._caption_saved = ""
+        self.caption.set_locked(True)
+        self.note_edit.clear()
+        self.attach_lab(folder_path, caption_cb)
+        self.tools.select(None)
+        self.tools.set_available(False)
+        self.canvas.load(None)
+        self.player.load(video, poster)
+        self.view.setCurrentWidget(self.player)
+        self.btn_copy.setText("Copy clip")
+        self.status.setText(status)
+        self._bring_up()
+        self.player.setFocus()
+
+    def showing_clip(self) -> Path | None:
+        """The clip on screen, or None when it is a snip."""
+        return self._clip
+
+    def _show_canvas(self) -> None:
+        if self._clip is not None:
+            self.player.unload()
+        self._clip = None
+        self.view.setCurrentWidget(self.canvas)
+        self.btn_copy.setText("Copy again")
+
+    def let_go_of_files(self, filenames) -> None:
+        """These snips are about to be moved: let go of any clip among them.
+
+        A clip being played is held open, and Windows will not move an open file.
+        """
+        names = set(filenames or ())
+        if self._clip is not None and self._clip.with_suffix(".png").name in names:
+            self.player.unload()
+        viewer = self.snips_panel.viewer
+        if viewer is not None:
+            viewer.let_go_of(names)
 
     # -- marking up the snip -------------------------------------------------
     def _on_canvas_edited(self) -> None:
@@ -764,12 +827,18 @@ class PreviewWindow(QWidget):
     def closeEvent(self, event):
         self.snips_panel.hide_viewer()
         self.flush_edits()
+        self.player.pause()
         super().closeEvent(event)
         self.closed.emit()
 
     def forget_snip_on_screen(self) -> None:
         """The snip on screen was removed from the lab: stop offering lab actions for it."""
         self.snips_panel.set_current("")
+        if self._clip is not None:
+            self._show_canvas()
+            self._image = None
+            self.tools.set_available(False)
+            self.canvas.set_message("The clip was removed")
         self._caption_cb = None
         self.caption.clear()
         self.caption.setVisible(False)
@@ -804,6 +873,7 @@ class PreviewWindow(QWidget):
         self.setStyleSheet(skins.style(STYLE))
         self.caption.setStyleSheet(skins.style(LOCKED_STYLE))
         self.tools.restyle()
+        self.player.restyle()
         self.snips_panel.restyle()
         branded = not skins.is_original()
         self.brand_icon.setVisible(branded and self.brand_icon.pixmap() is not None
@@ -872,6 +942,9 @@ class PreviewWindow(QWidget):
 
     # -- actions -----------------------------------------------------------
     def save_as(self) -> None:
+        if self._clip is not None:
+            self._save_clip_as()
+            return
         # Unsaved mark-up first, so Save as writes the snip as it looks now.
         self.flush_edits()
         if not self._disk_bytes:
@@ -890,6 +963,24 @@ class PreviewWindow(QWidget):
             return
         self.status.setText(f"Saved to {path}")
 
+    def _save_clip_as(self) -> None:
+        import shutil
+
+        source = self._clip
+        if source is None or not source.is_file():
+            self.status.setText("This clip's file is no longer there")
+            return
+        start = str((self._folder_path or Path.home()) / source.name)
+        path, _ = QFileDialog.getSaveFileName(self, "Save clip", start, "MP4 video (*.mp4);;All files (*)")
+        if not path:
+            return
+        try:
+            shutil.copyfile(source, path)
+        except OSError as exc:
+            QMessageBox.warning(self, "ShadowSnip", f"Could not write the file: {exc}")
+            return
+        self.status.setText(f"Saved to {path}")
+
     def copy_again(self) -> None:
         """Ctrl+C: the words picked with the Text tool, when there are some; else the snip.
 
@@ -899,7 +990,7 @@ class PreviewWindow(QWidget):
         if panel.list.hasFocus() and panel.selected():
             panel.copy_selected()
             return
-        if self.canvas.tool == "text" and self.canvas.has_picked_text():
+        if self._clip is None and self.canvas.tool == "text" and self.canvas.has_picked_text():
             self.canvas.copy_text(selected=True)
             return
         self.copy_image()
@@ -917,7 +1008,7 @@ class PreviewWindow(QWidget):
         except Exception as exc:  # noqa: BLE001 - surfaced to the user
             QMessageBox.warning(self, "ShadowSnip", f"Could not copy: {exc}")
             return
-        self.status.setText("Copied to the clipboard again")
+        self.status.setText("Clip copied as a file" if self._clip is not None else "Copied to the clipboard again")
 
     def open_folder(self) -> None:
         if self._folder_path is None:

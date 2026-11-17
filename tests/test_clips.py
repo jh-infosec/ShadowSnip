@@ -248,18 +248,22 @@ def test_a_clip_row_says_it_plays(panel):
 
     assert panel.list.topLevelItem(0).text(ls.COL_MARKS).startswith("▶ 0:07")
     assert panel.selected_clip() is not None
+    assert panel.btn_expand.text() == "Play"
 
 
 def test_a_clips_menu_plays_and_offers_a_gif(panel):
     texts = [a.text() for a in panel.snip_menu().actions() if not a.isSeparator()]
-    assert texts[0] == "Play" and "Save as GIF..." in texts
+    assert texts[:2] == ["Play", "Play in video player"] and "Save as GIF..." in texts
 
 
 def test_opening_a_clip_plays_it(panel, monkeypatch):
+    import player
+
     opened = []
     monkeypatch.setattr(storage, "open_file", opened.append)
-    panel.expand()
     panel._emit_open()
+    panel.clip_play_mode = player.PLAY_EXTERNAL
+    panel.expand()
     assert opened == [panel.selected_clip(), panel.selected_clip()]
 
 

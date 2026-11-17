@@ -82,6 +82,7 @@ class ShadowSnipApp(QObject):
         self.preview.snip_edited.connect(self.apply_snip_edit)
         self.preview.annotation_prefs_changed.connect(self._save_annotation_prefs)
         self.preview.set_annotation_prefs(self.cfg.get("annotation") or {})
+        self.preview.snips_panel.clip_play_mode = self.cfg.get("clip_player", "app")
         # Every file the snip on screen was written to, so an edit (above all
         # a redaction) replaces each of them and leaves no original behind.
         self._snip_paths: dict[str, Path] = {}
@@ -716,6 +717,8 @@ class ShadowSnipApp(QObject):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        # A clip being played is held open, and Windows will not move an open file.
+        self.preview.let_go_of_files(present)
 
         done, notes, errors = [], [], []
         for name in present:
@@ -784,6 +787,7 @@ class ShadowSnipApp(QObject):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        self.preview.let_go_of_files(present)
         done, errors = [], []
         for name in present:
             try:
@@ -1525,10 +1529,29 @@ class ShadowSnipApp(QObject):
 
         clips.copy_file(saved)
         size = saved.stat().st_size / (1024 * 1024)
-        self.toast.show_message(
-            f"Clip saved ({clips.format_length(rec.elapsed())}, {size:.1f} MB) and copied as a file.")
+        message = f"Clip saved ({clips.format_length(rec.elapsed())}, {size:.1f} MB) and copied as a file."
+        self.toast.show_message(message)
+        # 0.14.1: the clip becomes what is on screen, as a snip does, and the
+        # list picks it out. Before, the window went on showing the last snip.
+        poster_path = saved.with_suffix(".png")
+        in_lab = lab.is_active(self.cfg) and poster_path.parent == lab.active_folder(self.cfg)
+        self._last_lab_file = poster_path.name if in_lab else ""
+        self._last_history_file = "" if in_lab else poster_path.name
+        self._snip_paths = {}
+        if self.cfg["show_preview"]:
+            from PySide6.QtGui import QImage
+
+            caption_cb = None
+            if in_lab and self.cfg["lab_index"] and self.cfg["lab_caption"]:
+                caption_cb = self._caption_setter(poster_path.name)
+            self.preview.show_clip(saved, QImage(str(poster_path)), message,
+                                   folder_path=poster_path.parent if in_lab else None,
+                                   caption_cb=caption_cb)
         self._finish_busy()
-        self._refresh_snip_list()
+        if in_lab:
+            self._refresh_menu_text()
+        else:
+            self._refresh_snip_list()
 
     def _save_clip(self, video: Path, first_frame, seconds: float) -> Path:
         """File the clip like a snip: its poster in the lab or history, the MP4 beside it."""
@@ -1763,6 +1786,7 @@ class ShadowSnipApp(QObject):
         self._sync_print_screen(announce=prtsc_changed or hotkeys_changed)
         edits.enabled = bool(self.cfg.get("keep_edits", True))
         self.autocopy.configure(self.cfg)
+        self.preview.snips_panel.clip_play_mode = self.cfg.get("clip_player", "app")
         if self.cfg["auto_copy"] and not self.autocopy.engaged:
             self._engage_auto_copy(announce=False)
         elif not self.cfg["auto_copy"] and self.autocopy.engaged:
