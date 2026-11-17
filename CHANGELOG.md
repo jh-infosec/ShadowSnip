@@ -22,7 +22,13 @@ Windows both stay out of the recording even where they overlap it.
   unless changed) so a forgotten recording cannot fill the disk.
 - Clips are never pruned from the history folder.
 - Nothing extra to install: the encoder comes with PySide6 (H.264 where the
-  system has it, MPEG-4 otherwise).
+  system has it, MPEG-4 otherwise). `python clipcheck.py` tests recording on
+  a machine and says which codecs work there.
+
+**Changed**: saving a file is tried again for a moment when Windows reports
+it in use, which an antivirus or the search indexer can cause for a file
+written a millisecond earlier. Before, that was a snip or a setting silently
+not saved.
 
 ### 0.13.0 in brief
 

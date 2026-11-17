@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
@@ -181,7 +182,17 @@ def save(cfg: dict) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(cfg, fh, indent=2, sort_keys=True)
-        os.replace(tmp, target)
+        # Tried again briefly on Windows, where an antivirus can hold the
+        # file just written (0.14.0; the same loop as storage.replace_with_retry,
+        # repeated here because storage imports this module).
+        for attempt in range(6):
+            try:
+                os.replace(tmp, target)
+                break
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
     except OSError:
         if os.path.exists(tmp):
             os.unlink(tmp)

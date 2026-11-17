@@ -40,6 +40,7 @@ countdown.py         the countdown before a delayed snip (never takes focus)
 recorder.py          recording an area to MP4 (frames pushed into Qt Multimedia)
 recordbar.py         the red frame and the Pause/Stop bar while a clip records
 clips.py             a clip's poster, finding the video beside it, GIF export
+clipcheck.py         run by hand: does video recording work on this machine?
 winlist.py           the windows on screen, for window snips (Windows: EnumWindows
                      and DWM frame bounds; X11: xprop and xwininfo)
 ocr.py               reading text from a snip (Windows OCR or Tesseract) and
@@ -206,6 +207,10 @@ each picture, stamped with the time it was grabbed (pauses left out), into a
 `QVideoFrameInput` on a `QMediaCaptureSession` whose `QMediaRecorder` writes
 MP4. Grabbing only the area keeps 4K affordable; even frame sizes keep the
 encoders happy; the time stamps keep a slow grab from speeding the clip up.
+An encoder is not ready at once (Windows' hardware H.264 can take over a
+second), and a frame offered early is refused: the first frame is offered
+until it is taken, the clock starts then, a Stop during the wait is honoured
+after it, and no frame within `WARMUP_SECONDS` is a reported failure.
 
 A finished clip is filed through the same functions as a snip, `lab.save()`
 and `storage.save_history()`, with the poster as the snip and the MP4 passed

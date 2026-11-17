@@ -1460,6 +1460,11 @@ class ShadowSnipApp(QObject):
         self.record_bar = recordbar.RecordingBar(self.recorder.microphone)
         self.record_bar.pause_clicked.connect(self.toggle_record_pause)
         self.record_bar.stop_clicked.connect(self.stop_recording)
+        if not self.recorder.is_started:
+            # Windows' encoder can take a second or two to get going; the
+            # clip's clock starts when it does, and the bar says so meanwhile.
+            self.record_bar.time.setText("starting...")
+            self.recorder.started.connect(lambda: self._on_record_tick(0))
         self.record_bar.place_beside(area, self.recorder.screen.geometry())
         self.record_frame.show()
         self.record_bar.show()

@@ -243,6 +243,10 @@ video; the clip stays in the lab folder.
   in Settings, so a forgotten recording cannot fill the disk.
 - Clips are **never pruned** from the history folder; remove them yourself.
 - While a clip records, snips wait: a snip's overlay would end up in the clip.
+- The encoder can take a second or two to start on Windows; the bar says
+  "starting..." and the clip begins when it does. If clips come out empty or
+  will not play on some machine, `python clipcheck.py` records a test clip
+  with each codec that machine offers and says which work.
 - MP4 uses H.264 where the system offers it (Windows usually does) and
   MPEG-4 otherwise (Linux). Both play in VLC, Windows' Media Player and most
   chat apps. Nothing extra is installed: the encoder comes with PySide6.

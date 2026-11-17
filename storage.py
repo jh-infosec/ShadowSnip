@@ -24,13 +24,40 @@ def save_dir(cfg: dict) -> Path:
     return path
 
 
+REPLACE_ATTEMPTS = 6
+REPLACE_WAIT = 0.05
+
+
+def replace_with_retry(source, target, attempts: int = REPLACE_ATTEMPTS, wait: float = REPLACE_WAIT,
+                       replace=None, sleep=None) -> None:
+    """os.replace, tried again for a moment when Windows says the file is in use.
+
+    On Windows an antivirus or the search indexer can hold a file that was
+    written a millisecond ago, and replacing it (or replacing something with
+    it) fails with PermissionError until they let go. Without the retry that
+    is a snip or a setting silently not saved (0.14.0).
+    """
+    import time
+
+    sleep = sleep or time.sleep
+    replace = replace or os.replace  # looked up now, so a test's stand-in is used
+    for attempt in range(attempts):
+        try:
+            replace(source, target)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            sleep(wait * (attempt + 1))
+
+
 def write_atomic(path: Path, data: bytes) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
-        os.replace(tmp, path)
+        replace_with_retry(tmp, path)
     except OSError:
         if os.path.exists(tmp):
             os.unlink(tmp)

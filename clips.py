@@ -28,6 +28,9 @@ POSTER_KEY = "ShadowSnip-Clip-Seconds"
 GIF_MAX_WIDTH = 800
 GIF_FPS = 10
 GIF_MAX_SECONDS = 60
+# Reading a clip gives up after this long with no new picture (ms): an empty
+# or damaged clip must not hold the window for half a minute.
+GIF_IDLE_MS = 6000
 
 
 def clip_for(image_path) -> Path | None:
@@ -162,6 +165,7 @@ def frames_of(video: Path, fps: int = GIF_FPS, max_seconds: int = GIF_MAX_SECOND
         if image.width() > max_width:
             image = image.scaledToWidth(max_width, Qt.TransformationMode.SmoothTransformation)
         kept.append((start, image))
+        idle.start(GIF_IDLE_MS)
         state["next"] = start + step
         if progress is not None and progress(start / 1_000_000) is False:
             state["stop"] = True
@@ -174,6 +178,9 @@ def frames_of(video: Path, fps: int = GIF_FPS, max_seconds: int = GIF_MAX_SECOND
                 state["error"] = "The clip could not be read."
             loop.quit()
 
+    idle = QTimer()
+    idle.setSingleShot(True)
+    idle.timeout.connect(loop.quit)
     sink.videoFrameChanged.connect(on_frame)
     player.mediaStatusChanged.connect(on_status)
     player.errorOccurred.connect(lambda _e, message: (state.update(error=message), loop.quit()))
@@ -184,6 +191,7 @@ def frames_of(video: Path, fps: int = GIF_FPS, max_seconds: int = GIF_MAX_SECOND
     watchdog.setSingleShot(True)
     watchdog.timeout.connect(loop.quit)
     watchdog.start(max(30_000, int(max_seconds * 1000)))
+    idle.start(GIF_IDLE_MS)
     loop.exec()
     player.stop()
     if state["error"] and not kept:

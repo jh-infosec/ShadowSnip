@@ -20,6 +20,19 @@ Qt's own screen capture only records whole screens.
   so a slow grab makes a frame last longer instead of making the clip run
   fast, and a microphone stays in step.
 
+## Starting up
+
+An encoder is not ready the moment recording is asked for. On Linux it takes
+a few milliseconds; on Windows, where Qt tries the hardware H.264 encoders
+before settling on one, it can take a second or more, and a frame offered
+before then is refused. Offering frames on a timer regardless, and
+counting the refusals as drops, would on Windows mean a clip with no
+pictures in it at all. So the first frame is held and offered again until
+the encoder takes it (Qt also says when it is ready), the clip's clock starts
+at that moment, and a Stop pressed during the wait is carried out once the
+first frame is in. An encoder that takes no frame within `WARMUP_SECONDS` is
+reported as a failure, not saved as an empty file.
+
 ## Encoding
 
 MP4, with H.264 where the platform's FFmpeg build offers it (Windows usually
@@ -49,6 +62,9 @@ DEFAULT_FPS = 15
 # forgotten recording does not fill the disk.
 DEFAULT_MAX_SECONDS = 10 * 60
 MAX_MINUTES_RANGE = (1, 60)
+# How long the encoder may take to accept its first frame before the clip is
+# given up as failed. Windows' hardware encoders can take a few seconds.
+WARMUP_SECONDS = 10.0
 
 
 class RecorderError(RuntimeError):
@@ -92,6 +108,18 @@ def _codec_and_format():
     raise RecorderError("This computer's video encoder cannot write MP4 (no H.264 or MPEG-4 codec).")
 
 
+def _set_rate(target, fps: int) -> None:
+    """Tell a frame or a frame format its rate, where this Qt has a way to."""
+    for name in ("setStreamFrameRate", "setFrameRate"):
+        setter = getattr(target, name, None)
+        if setter is not None:
+            try:
+                setter(float(fps))
+            except (TypeError, RuntimeError):
+                continue
+            return
+
+
 class Recorder(QObject):
     """Records an area of the screen to an MP4 file.
 
@@ -102,6 +130,8 @@ class Recorder(QObject):
     tick = Signal(int)
     finished = Signal(str)
     failed = Signal(str)
+    # The encoder took its first frame: the clip's clock runs from here.
+    started = Signal()
 
     def __init__(self, rect: QRect, path: Path, fps: int = DEFAULT_FPS, microphone: bool = False,
                  max_seconds: int = DEFAULT_MAX_SECONDS, grab=grab_area, parent=None):
@@ -120,6 +150,10 @@ class Recorder(QObject):
         self._run_started = None    # monotonic time the current run began
         self._last_tick = -1
         self._stopping = False
+        self._started = False        # the encoder has taken the first frame
+        self._stop_wanted = False    # Stop pressed while it was still warming up
+        self._failed = False
+        self._warm_from = 0.0
         self._size: QSize | None = None
         self._timer = QTimer(self)
         self._timer.setInterval(max(1, round(1000 / self.fps)))
@@ -143,8 +177,10 @@ class Recorder(QObject):
         self.first_frame = first.copy(0, 0, width, height)
 
         self._session = QMediaCaptureSession(self)
-        self._input = QVideoFrameInput(
-            QVideoFrameFormat(self._size, QVideoFrameFormat.PixelFormat.Format_BGRA8888), self)
+        frame_format = QVideoFrameFormat(self._size, QVideoFrameFormat.PixelFormat.Format_BGRA8888)
+        _set_rate(frame_format, self.fps)
+        self._input = QVideoFrameInput(frame_format, self)
+        self._input.readyToSendVideoFrame.connect(self._offer_first)
         self._session.setVideoFrameInput(self._input)
         if self.microphone:
             self._audio = QAudioInput(self)
@@ -159,12 +195,23 @@ class Recorder(QObject):
         self._recorder.errorOccurred.connect(self._on_error)
         self._recorder.recorderStateChanged.connect(self._on_state)
         self._recorder.record()
-        self._run_started = time.monotonic()
-        self._send(self.first_frame)
+        self._warm_from = time.monotonic()
         self._timer.start()
+        self._offer_first()
+
+    def _offer_first(self) -> None:
+        """Offer the first frame until the encoder takes it; the clock starts then."""
+        if self._started or self._stopping:
+            return
+        if self._send(self.first_frame, at=0.0):
+            self._started = True
+            self._run_started = time.monotonic()
+            self.started.emit()
+            if self._stop_wanted:
+                self._stop_now()
 
     def pause(self) -> None:
-        if self.paused or self._stopping:
+        if self.paused or self._stopping or not self._started:
             return
         self.paused = True
         self._timer.stop()
@@ -183,6 +230,14 @@ class Recorder(QObject):
     def stop(self) -> None:
         if self._stopping:
             return
+        if not self._started:
+            # Still warming up: stop as soon as the first frame is in, so the
+            # clip is never empty. _frame() gives up if that never happens.
+            self._stop_wanted = True
+            return
+        self._stop_now()
+
+    def _stop_now(self) -> None:
         self._stopping = True
         self._timer.stop()
         self._active = self.elapsed()
@@ -190,7 +245,7 @@ class Recorder(QObject):
         self._recorder.stop()
 
     def elapsed(self) -> float:
-        """Seconds recorded so far, pauses left out."""
+        """Seconds recorded so far, pauses and the encoder's start-up left out."""
         if self._run_started is None:
             return self._active
         return self._active + (time.monotonic() - self._run_started)
@@ -199,8 +254,18 @@ class Recorder(QObject):
     def recording(self) -> bool:
         return not self._stopping
 
+    @property
+    def is_started(self) -> bool:
+        """Whether the encoder has taken its first frame yet."""
+        return self._started
+
     # -- frames ------------------------------------------------------------
     def _frame(self) -> None:
+        if not self._started:
+            self._offer_first()
+            if not self._started and time.monotonic() - self._warm_from > WARMUP_SECONDS:
+                self._fail("The video encoder did not start. Nothing was recorded.")
+            return
         seconds = self.elapsed()
         if int(seconds) != self._last_tick:
             self._last_tick = int(seconds)
@@ -217,23 +282,38 @@ class Recorder(QObject):
             return
         self._send(image.copy(0, 0, self._size.width(), self._size.height()))
 
-    def _send(self, image: QImage) -> None:
+    def _send(self, image: QImage, at: float | None = None) -> bool:
         from PySide6.QtMultimedia import QVideoFrame
 
         frame = QVideoFrame(image.convertToFormat(QImage.Format.Format_ARGB32))
-        start = int(self.elapsed() * 1_000_000)
+        _set_rate(frame, self.fps)
+        start = int((self.elapsed() if at is None else at) * 1_000_000)
         frame.setStartTime(start)
         frame.setEndTime(start + int(1_000_000 / self.fps))
         if self._input.sendVideoFrame(frame):
             self.frames_sent += 1
-        else:
+            return True
+        if self._started:
             self.frames_dropped += 1  # the encoder is behind: skip, keep time
+        return False
+
+    def _fail(self, message: str) -> None:
+        if self._failed:
+            return
+        self._failed = True
+        self._stopping = True
+        self._timer.stop()
+        try:
+            self._recorder.stop()
+        except RuntimeError:
+            pass
+        self.failed.emit(message)
 
     # -- results -----------------------------------------------------------
     def _on_state(self, state) -> None:
         from PySide6.QtMultimedia import QMediaRecorder
 
-        if state != QMediaRecorder.RecorderState.StoppedState or not self._stopping:
+        if state != QMediaRecorder.RecorderState.StoppedState or not self._stopping or self._failed:
             return
         written = Path(self._recorder.actualLocation().toLocalFile() or self.path)
         if written.is_file() and written.stat().st_size > 0:
@@ -243,6 +323,4 @@ class Recorder(QObject):
             self.failed.emit("The clip could not be written.")
 
     def _on_error(self, _error, message: str) -> None:
-        self._timer.stop()
-        self._stopping = True
-        self.failed.emit(message or "Recording failed.")
+        self._fail(message or "Recording failed.")

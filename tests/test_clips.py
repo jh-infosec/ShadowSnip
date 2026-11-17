@@ -145,7 +145,8 @@ def test_a_clip_is_copied_as_a_file(tmp_path):
     video.write_bytes(b"x")
     clips.copy_file(video)
     urls = QApplication.clipboard().mimeData().urls()
-    assert [u.toLocalFile() for u in urls] == [str(video)]
+    # Compared as paths: read back on Windows they come with forward slashes.
+    assert [Path(u.toLocalFile()) for u in urls] == [video]
 
 
 def test_moving_a_poster_takes_its_clip(tmp_path):
@@ -360,3 +361,112 @@ def test_the_windows_file_drop_block_is_laid_out_like_explorers():
     assert offset == 20 and wide == 1
     names = data[20:].decode("utf-16-le")
     assert names == "C:\\labs\\Lame\\001_a.mp4\0C:\\x.mp4\0\0"
+
+
+# -- the encoder's start-up (0.14.0) ------------------------------------------------------------
+class SlowInput:
+    """An encoder that refuses frames until it has been offered `refuse` of them."""
+
+    def __init__(self, refuse):
+        self.refuse, self.offers, self.taken = refuse, 0, []
+
+    def sendVideoFrame(self, frame):
+        self.offers += 1
+        if self.offers <= self.refuse:
+            return False
+        self.taken.append(frame.startTime())
+        return True
+
+
+def _warming(refuse, monkeypatch, clock):
+    from PySide6.QtCore import QObject
+
+    monkeypatch.setattr(recorder.time, "monotonic", lambda: clock[0])
+    rec = recorder.Recorder.__new__(recorder.Recorder)
+    QObject.__init__(rec)
+    stops = []
+    rec.fps, rec.max_seconds, rec.first_frame = 15, 600, _frame()
+    rec._input = SlowInput(refuse)
+    rec._recorder = SimpleNamespace(stop=lambda: stops.append(True))
+    rec._timer = SimpleNamespace(stop=lambda: None, start=lambda: None)
+    rec._grab = lambda screen, rect: _frame()
+    rec.screen, rec.rect = None, QRect(0, 0, 160, 90)
+    from PySide6.QtCore import QSize
+
+    rec._size = QSize(160, 90)
+    rec.frames_sent = rec.frames_dropped = 0
+    rec.paused = rec._started = rec._stopping = rec._stop_wanted = rec._failed = False
+    rec._active, rec._run_started, rec._last_tick, rec._warm_from = 0.0, None, -1, clock[0]
+    return rec, stops
+
+
+def test_the_first_frame_waits_for_a_slow_encoder(monkeypatch):
+    clock = [50.0]
+    rec, _stops = _warming(3, monkeypatch, clock)
+    begun = []
+    rec.started.connect(lambda: begun.append(True))
+    for _ in range(3):
+        clock[0] += 0.5
+        rec._frame()
+    assert not rec.is_started and rec.frames_dropped == 0 and rec.elapsed() == 0
+    clock[0] += 0.5
+    rec._frame()
+    assert rec.is_started and begun == [True]
+    assert rec._input.taken == [0]          # the clip starts at zero, not at 2 seconds
+    clock[0] += 1.0
+    rec._frame()
+    assert rec._input.taken[1] == pytest.approx(1_000_000)
+
+
+def test_stop_during_start_up_waits_for_the_first_frame(monkeypatch):
+    clock = [50.0]
+    rec, stops = _warming(2, monkeypatch, clock)
+    rec._offer_first()
+    rec.stop()
+    assert stops == [] and rec.recording          # not stopped empty
+    rec._frame()
+    assert stops == []
+    rec._frame()                                  # the encoder takes it: now it stops
+    assert stops == [True] and rec.frames_sent == 1
+
+
+def test_an_encoder_that_never_starts_is_a_failure_not_an_empty_clip(monkeypatch):
+    clock = [50.0]
+    rec, stops = _warming(10_000, monkeypatch, clock)
+    said, done = [], []
+    rec.failed.connect(said.append)
+    rec.finished.connect(done.append)
+    rec._frame()
+    clock[0] += recorder.WARMUP_SECONDS + 1
+    rec._frame()
+    assert said == ["The video encoder did not start. Nothing was recorded."]
+    assert stops == [True] and not rec.recording
+    rec._on_state(None)
+    assert done == []
+
+
+def test_pause_is_ignored_until_the_clip_has_started(monkeypatch):
+    rec, _stops = _warming(5, monkeypatch, [50.0])
+    rec.pause()
+    assert rec.paused is False
+
+
+# -- file writes on Windows (0.14.0) ------------------------------------------------------------
+def test_a_file_held_for_a_moment_is_still_replaced():
+    calls, waits = [], []
+
+    def replace(source, target):
+        calls.append((source, target))
+        if len(calls) < 3:
+            raise PermissionError("in use")
+
+    storage.replace_with_retry("a", "b", replace=replace, sleep=waits.append)
+    assert len(calls) == 3 and len(waits) == 2
+
+
+def test_a_file_held_for_good_still_fails():
+    def replace(source, target):
+        raise PermissionError("in use")
+
+    with pytest.raises(PermissionError):
+        storage.replace_with_retry("a", "b", attempts=3, replace=replace, sleep=lambda s: None)
