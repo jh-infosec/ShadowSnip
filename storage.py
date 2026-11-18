@@ -185,6 +185,46 @@ def remove_from_history(cfg: dict, name: str) -> Path | None:
     return target
 
 
+def removed_history(cfg: dict) -> list[dict]:
+    """The snips taken off the recent list (in history/removed), most recent first (0.15.0)."""
+    folder = history_folder(cfg) / REMOVED_DIRNAME
+    try:
+        files = [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in _SUFFIXES]
+    except OSError:
+        return []
+    rows = []
+    for path in files:
+        try:
+            when = path.stat().st_mtime
+        except OSError:
+            when = 0.0
+        rows.append({
+            "file": path.name, "stored": path.name, "number": 0, "time": "", "section": "",
+            "caption": "", "removed": datetime.fromtimestamp(when).strftime("%Y-%m-%d %H:%M:%S"),
+            "notes": 0, "path": str(path), "recorded": False, "_when": when,
+        })
+    rows.sort(key=lambda row: (row.pop("_when"), row["file"]), reverse=True)
+    return rows
+
+
+def restore_history(cfg: dict, name: str) -> Path:
+    """Put a removed snip back on the recent list. Raises OSError (FileExistsError if taken)."""
+    folder = history_folder(cfg)
+    source = folder / REMOVED_DIRNAME / Path(name).name
+    if not source.is_file():
+        raise FileNotFoundError(f"{Path(name).name} is no longer in history\\removed")
+    target = folder / source.name
+    if target.exists():
+        raise FileExistsError(f"{source.name} is on the list already")
+    os.replace(source, target)
+    import clips
+    import edits
+
+    edits.move(source, target)
+    clips.move_with(source, target)
+    return target
+
+
 def suggested_name(ext: str) -> str:
     return f"snip_{datetime.now():%Y-%m-%d_%H-%M-%S}.{ext}"
 

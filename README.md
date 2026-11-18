@@ -525,8 +525,15 @@ are its evidence. Set the **Section** box (`10.10.10.3 / SMB`, say) and press
 | Field | |
 | --- | --- |
 | Severity | Critical, High, Medium, Low or Info |
+| Score it with CVSS 3.1 | Optional. Paste a vector (`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`, from a CVE or NVD) or build one with the eight pickers. The base score and rating show as you go (9.8 Critical), and the severity follows the rating (None shows as Info) |
 | Affected host | Filled in from the breadcrumb when it starts with an address or hostname |
 | Description, Impact, Remediation | Free text |
+
+The score is worked out the way the FIRST specification says, rounding
+included, so it matches NVD's calculator. Only the base metrics count;
+temporal ones in a pasted vector are ignored. Findings with a score show it in
+the summary table's **CVSS** column and under the finding, with the vector;
+within a severity, the higher score comes first.
 
 `lab.md` gets a **Findings summary** table at the top, most severe first, and
 a finding block straight under the section's heading, above its evidence. In
@@ -566,17 +573,23 @@ new labs with the methodology sections** on the Labs tab of Settings.
 ### Exporting the report
 
 **Export report...** (on the **Preview** tab, or in the tray menu) writes the
-running lab as one file to hand over, and opens it:
+running lab as one file to hand over, and opens it. It asks two things first,
+and remembers both for next time:
 
 | Format | What you get |
 | --- | --- |
-| Web page (`.html`) | One self-contained file: the images are inside it. Opens in any browser, prints to PDF |
+| Web page (`.html`) | One self-contained file: the images are inside it. Opens in any browser |
 | Word document (`.docx`) | Real Word headings, the findings summary as a table with coloured severities, finding blocks, the images embedded and scaled to the page, command output in a monospace block. Ready to edit or to paste into a client template |
+| PDF (`.pdf`) | A4 pages with the lab's name and "Page n of m" at the foot, real text you can search and copy, snips at full resolution scaled to the page and never split across pages |
 
-The default name is `<lab>-report.html` in the lab folder. The report follows
-`lab.md` exactly: findings summary, then the sections in report order. The
-Word export needs `python-docx` (`pip install -r requirements.txt`); the
-release builds include it.
+| What goes in | |
+| --- | --- |
+| The whole lab | Everything in `lab.md`: findings summary, then the sections in report order |
+| Findings only | The findings summary, then each finding, most severe first, under its full breadcrumb, with the snips, notes and output filed in its section and the sections under it. Recon and anything not under a finding is left out. The shape of a client report or an exam write-up |
+
+The default name is `<lab>-report.<format>` (or `<lab>-findings.<format>`) in
+the lab folder. The Word export needs `python-docx` (`pip install -r
+requirements.txt`); the release builds include it. The PDF needs nothing extra.
 
 ### Sections
 
@@ -722,8 +735,17 @@ lab after asking. Shift-click or Ctrl-click to select several and the button
 becomes **Remove 3 from lab**: one question covers them all. Nothing is deleted: the image goes to a `removed` folder
 inside the lab, its record goes to a `removed` list in `lab.json`, and `lab.md`
 is re-rendered without it. Notes attached only to that snip go with it; a note
-also attached to another snip stays. The next snip reuses the freed number. To
-undo, move the image back up a level and its record back into `entries`.
+also attached to another snip stays. The next snip reuses the freed number.
+
+**Removed (3)** beside **Remove from lab** (or **Removed snips...** on the
+right-click menu) lists what was taken out, newest first, with a preview,
+where it was filed and when it was removed. **Restore** (or a double-click)
+puts the selected snips back: the image, a clip's video and any kept marks
+move back from `removed`, the notes that went with it come back too, and the
+record goes back into the section it was filed under, in its place in
+`lab.md`. A snip whose file name is in the lab again is left where it is
+rather than overwriting anything. Outside a lab the same window lists
+`history\removed` and puts snips back on the recent list.
 
 Old labs from 0.3.x open and render without being migrated. Their entries have
 no section, so they appear at the root of the tree.

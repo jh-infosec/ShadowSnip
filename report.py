@@ -27,7 +27,10 @@ from pathlib import Path
 
 import lab
 
-EXPORT_FORMATS = ("html", "docx")
+EXPORT_FORMATS = ("html", "docx", "pdf")
+# What goes in: the whole lab, or (0.15.0) only the findings and their evidence.
+EXPORT_SCOPES = ("full", "findings")
+FORMAT_NAMES = {"html": "Web page", "docx": "Word document", "pdf": "PDF"}
 
 # Severity colours, shared by both exports: background, text.
 SEVERITY_COLOURS = {
@@ -66,18 +69,28 @@ def _clip_line(block: dict) -> str:
     length = clips.format_length(clips.length_of(block.get("path")))
     return f"Video clip {video.name}" + (f" ({length})" if length else "") + ", in the lab folder"
 
-def model(folder: Path) -> dict:
+def model(folder: Path, scope: str = "full") -> dict:
     """The report, in order, as plain data.
 
-    {"name", "started", "findings": [...], "blocks": [...]}, where each block is
-    one of:
+    {"name", "started", "scope", "findings": [...], "blocks": [...]}, where each
+    block is one of:
 
         {"type": "heading", "level": 1-6, "text"}
         {"type": "finding", **finding}
         {"type": "snip", "label", "time", "caption", "path"}
         {"type": "note", "text", "evidence": [files]}
         {"type": "code", "label", "text"}
+
+    and every block carries "section", the section path it sits in ("" for the
+    top of the report).
+
+    `scope` "findings" (0.15.0) keeps only the findings: each one in summary
+    order, most severe first, as a heading with its finding block and then
+    the evidence filed in its section and the sections under it. Everything
+    filed elsewhere is left out.
     """
+    if scope not in EXPORT_SCOPES:
+        raise ExportError(f"unknown report scope '{scope}'")
     folder = Path(folder)
     state = lab._load_state(folder)
     if not state:
@@ -90,7 +103,13 @@ def model(folder: Path) -> dict:
     stored = lab._findings_of(state)
     blocks: list[dict] = []
 
-    def entries(here):
+    def entries(here, section=""):
+        start = len(blocks)
+        _entries(here)
+        for block in blocks[start:]:
+            block["section"] = section
+
+    def _entries(here):
         for entry in here:
             if lab.entry_kind(entry) == "note":
                 if str(entry.get("id", "")) in consumed:
@@ -122,17 +141,57 @@ def model(folder: Path) -> dict:
             "type": "heading",
             "level": min(depth + 2, lab.MAX_HEADING_LEVEL),
             "text": path.rsplit(lab.SECTION_SEPARATOR, 1)[-1],
+            "section": path,
+            "depth": depth,
         })
         if path in stored:
-            blocks.append({"type": "finding", **stored[path], "path": path})
-        entries(grouped.get(path, []))
+            blocks.append({"type": "finding", **stored[path], "path": path,
+                           "score": lab.finding_score(stored[path]), "section": path})
+        entries(grouped.get(path, []), path)
 
+    findings = lab.findings_of_state(state)
+    if scope == "findings":
+        blocks = _findings_only(blocks, findings)
     return {
         "name": str(state.get("name", folder.name)),
         "started": str(state.get("started", "")).replace("T", " ")[:19],
-        "findings": lab.findings_of_state(state),
+        "scope": scope,
+        "findings": findings,
         "blocks": blocks,
     }
+
+
+def _within(section: str, path: str) -> bool:
+    return section == path or section.startswith(path + lab.SECTION_SEPARATOR)
+
+
+def _findings_only(blocks: list[dict], findings: list[dict]) -> list[dict]:
+    """Each finding with its evidence, most severe first, nothing else.
+
+    A finding's heading is its whole breadcrumb ("10.10.10.3 / SMB"), since it
+    no longer sits under its parents' headings; sections under it keep their
+    own names, a level down. A finding filed inside another finding's section
+    is shown under its own heading, not twice.
+    """
+    out: list[dict] = []
+    paths = [item["path"] for item in findings]
+    for item in findings:
+        path = item["path"]
+        nested = [other for other in paths if other != path and _within(other, path)]
+        out.append({"type": "heading", "level": 2, "text": item["title"], "section": path})
+        base_depth = path.count(lab.SECTION_SEPARATOR)
+        for block in blocks:
+            section = block.get("section", "")
+            if not _within(section, path) or any(_within(section, other) for other in nested):
+                continue
+            if block["type"] == "heading":
+                if section == path:
+                    continue   # the finding's own heading is the one above
+                depth = section.count(lab.SECTION_SEPARATOR) - base_depth
+                out.append({**block, "level": min(2 + depth, lab.MAX_HEADING_LEVEL)})
+            else:
+                out.append(block)
+    return out
 
 
 def _note_block(entry: dict) -> dict:
@@ -146,18 +205,31 @@ def _note_block(entry: dict) -> dict:
     }
 
 
-def default_path(folder: Path, fmt: str) -> Path:
+def default_path(folder: Path, fmt: str, scope: str = "full") -> Path:
     folder = Path(folder)
-    return folder / f"{folder.name}-report.{fmt}"
+    kind = "findings" if scope == "findings" else "report"
+    return folder / f"{folder.name}-{kind}.{fmt}"
 
 
-def export(folder: Path, fmt: str, target: Path | None = None) -> Path:
+def export(folder: Path, fmt: str, target: Path | None = None, scope: str = "full") -> Path:
     """Write the report for the lab in `folder`. Returns the file written."""
     if fmt not in EXPORT_FORMATS:
         raise ExportError(f"unknown export format '{fmt}'")
-    data = model(folder)
-    target = Path(target) if target else default_path(folder, fmt)
-    payload = to_html(data) if fmt == "html" else to_docx(data)
+    data = model(folder, scope)
+    if scope == "findings" and not data["findings"]:
+        raise ExportError(
+            "This lab has no findings yet. Right-click a section in the Outline "
+            "and choose Mark as finding, or export the full report."
+        )
+    target = Path(target) if target else default_path(folder, fmt, scope)
+    if fmt == "html":
+        payload = to_html(data)
+    elif fmt == "docx":
+        payload = to_docx(data)
+    else:
+        import reportpdf
+
+        payload = reportpdf.to_pdf(data)
     try:
         import storage
 
@@ -189,6 +261,7 @@ table.summary { border-collapse: collapse; width: 100%; margin: 8px 0 28px; }
 .finding .host { color: var(--dim); }
 .finding h5 { margin: 12px 0 2px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); }
 .finding p { margin: 0 0 4px; white-space: pre-wrap; }
+.finding p.vector { color: var(--dim); font: 12px/1.4 Consolas, "Cascadia Mono", "DejaVu Sans Mono", monospace; }
 figure { margin: 14px 0 6px; }
 figure img { max-width: 100%; border: 1px solid var(--rule); border-radius: 4px; display: block; }
 figcaption { color: var(--dim); font-size: 13px; margin-top: 4px; }
@@ -223,6 +296,20 @@ def _data_uri(path: str) -> str | None:
     return f"data:{kind};base64,{base64.b64encode(data).decode('ascii')}"
 
 
+def score_text(item: dict) -> str:
+    """'9.8' for a finding with a CVSS score, '-' without."""
+    score = item.get("score")
+    return f"{score:.1f}" if score is not None else "-"
+
+
+def subtitle(data: dict) -> str:
+    """The line under the lab's name: what this export is, and when the lab started."""
+    bits = ["Findings report" if data.get("scope") == "findings" else ""]
+    if data["started"]:
+        bits.append(f"Started {data['started']}")
+    return " - ".join(bit for bit in bits if bit)
+
+
 def to_html(data: dict) -> bytes:
     out = [
         "<!doctype html>",
@@ -232,16 +319,17 @@ def to_html(data: dict) -> bytes:
         f"<style>{_CSS}</style></head><body><main>",
         f"<h1>{_esc(data['name'])}</h1>",
     ]
-    if data["started"]:
-        out.append(f'<p class="started">Started {_esc(data["started"])}</p>')
+    if subtitle(data):
+        out.append(f'<p class="started">{_esc(subtitle(data))}</p>')
     if data["findings"]:
         out.append("<h2>Findings summary</h2>")
         out.append('<table class="summary"><thead><tr><th>#</th><th>Finding</th>'
-                   "<th>Severity</th><th>Host</th></tr></thead><tbody>")
+                   "<th>Severity</th><th>CVSS</th><th>Host</th></tr></thead><tbody>")
         for index, item in enumerate(data["findings"], start=1):
             out.append(
                 f"<tr><td>{index}</td><td>{_esc(item['title'])}</td>"
-                f"<td>{_sev_chip(item['severity'])}</td><td>{_esc(item['host'] or '-')}</td></tr>"
+                f"<td>{_sev_chip(item['severity'])}</td><td>{score_text(item)}</td>"
+                f"<td>{_esc(item['host'] or '-')}</td></tr>"
             )
         out.append("</tbody></table>")
 
@@ -254,9 +342,13 @@ def to_html(data: dict) -> bytes:
             bg, _fg = SEVERITY_COLOURS.get(block["severity"], ("#6c6c78", "#fff"))
             out.append(f'<div class="finding" style="--sev:{bg}"><div class="head">'
                        f"<b>Finding</b> {_sev_chip(block['severity'])}")
+            if block.get("score") is not None:
+                out.append(f'<span class="host">CVSS 3.1 <b>{block["score"]:.1f}</b></span>')
             if block.get("host"):
                 out.append(f'<span class="host">Affected host: {_esc(block["host"])}</span>')
             out.append("</div>")
+            if block.get("cvss"):
+                out.append(f'<p class="vector">{_esc(block["cvss"])}</p>')
             for field, heading in (("description", "Description"), ("impact", "Impact"),
                                    ("remediation", "Remediation")):
                 if block.get(field):
@@ -351,22 +443,23 @@ def to_docx(data: dict) -> bytes:
     section = doc.sections[0]
     usable = section.page_width - section.left_margin - section.right_margin
     doc.add_heading(data["name"], level=0)
-    if data["started"]:
-        doc.add_paragraph(f"Started {data['started']}")
+    if subtitle(data):
+        doc.add_paragraph(subtitle(data))
 
     if data["findings"]:
         doc.add_heading("Findings summary", level=1)
-        table = doc.add_table(rows=1, cols=4)
+        table = doc.add_table(rows=1, cols=5)
         table.style = "Table Grid"
         table.alignment = WD_TABLE_ALIGNMENT.LEFT
-        for cell, text in zip(table.rows[0].cells, ("#", "Finding", "Severity", "Host")):
+        for cell, text in zip(table.rows[0].cells, ("#", "Finding", "Severity", "CVSS", "Host")):
             cell.text = ""
             cell.paragraphs[0].add_run(text).bold = True
         for index, item in enumerate(data["findings"], start=1):
             cells = table.add_row().cells
             cells[0].text = str(index)
             cells[1].text = item["title"]
-            cells[3].text = item["host"] or "-"
+            cells[3].text = score_text(item)
+            cells[4].text = item["host"] or "-"
             bg, fg = SEVERITY_COLOURS.get(item["severity"], ("#6c6c78", "#ffffff"))
             cells[2].text = ""
             run = cells[2].paragraphs[0].add_run(item["severity"])
@@ -381,7 +474,8 @@ def to_docx(data: dict) -> bytes:
             doc.add_heading(block["text"], level=max(1, min(block["level"] - 1, 9)))
         elif kind == "finding":
             bg, fg = SEVERITY_COLOURS.get(block["severity"], ("#6c6c78", "#ffffff"))
-            table = doc.add_table(rows=2 if block.get("host") else 1, cols=2)
+            rows = 1 + bool(block.get("host")) + bool(block.get("cvss"))
+            table = doc.add_table(rows=rows, cols=2)
             table.style = "Table Grid"
             table.rows[0].cells[0].text = ""
             table.rows[0].cells[0].paragraphs[0].add_run("Severity").bold = True
@@ -390,10 +484,19 @@ def to_docx(data: dict) -> bytes:
             run.bold = True
             run.font.color.rgb = RGBColor.from_string(fg.lstrip("#").upper())
             shade(table.rows[0].cells[1], bg)
+            row = 1
+            if block.get("cvss"):
+                table.rows[row].cells[0].text = ""
+                table.rows[row].cells[0].paragraphs[0].add_run("CVSS 3.1").bold = True
+                table.rows[row].cells[1].text = ""
+                cell = table.rows[row].cells[1].paragraphs[0]
+                cell.add_run(f"{block['score']:.1f}  ").bold = True
+                mono(cell.add_run(block["cvss"]))
+                row += 1
             if block.get("host"):
-                table.rows[1].cells[0].text = ""
-                table.rows[1].cells[0].paragraphs[0].add_run("Affected host").bold = True
-                table.rows[1].cells[1].text = block["host"]
+                table.rows[row].cells[0].text = ""
+                table.rows[row].cells[0].paragraphs[0].add_run("Affected host").bold = True
+                table.rows[row].cells[1].text = block["host"]
             doc.add_paragraph()
             for field, heading in (("description", "Description"), ("impact", "Impact"),
                                    ("remediation", "Remediation")):

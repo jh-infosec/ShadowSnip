@@ -1312,6 +1312,8 @@ class LabSnipsPanel(QWidget):
     # A clip in the full-size view is being trimmed (0.14.2).
     clip_about_to_change = Signal(str)
     clip_changed = Signal(str)
+    # Show the removed snips, to put some back (0.15.0).
+    removed_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1396,8 +1398,8 @@ class LabSnipsPanel(QWidget):
         self.btn_open_md.clicked.connect(self.open_md_requested.emit)
         self.btn_export = QPushButton("Export report...")
         self.btn_export.setToolTip(
-            "One file to hand over: a self-contained HTML page or a Word "
-            "document, with the images inside"
+            "One file to hand over: a web page, a Word document or a PDF, with "
+            "the images inside. The whole lab, or only its findings."
         )
         self.btn_export.clicked.connect(self.export_requested.emit)
         preview_page = QWidget()
@@ -1485,12 +1487,16 @@ class LabSnipsPanel(QWidget):
             "removed folder, not deleted. Notes attached only to them go too."
         )
         self.btn_remove.clicked.connect(self._emit_remove)
+        self.btn_removed = QPushButton("Removed")
+        self.btn_removed.setToolTip("See the snips taken out, and put them back")
+        self.btn_removed.clicked.connect(self.removed_requested.emit)
 
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
         buttons.setSpacing(8)
         buttons.addWidget(self.btn_open, 1)
         buttons.addWidget(self.btn_remove, 1)
+        buttons.addWidget(self.btn_removed)
 
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1499,6 +1505,10 @@ class LabSnipsPanel(QWidget):
         layout.addLayout(where_row)
         layout.addLayout(buttons)
         return panel
+
+    def set_removed_count(self, count: int) -> None:
+        """How many snips are in the removed folder: shown on the Removed button."""
+        self.btn_removed.setText(f"Removed ({count})" if count else "Removed")
 
     # -- lab or recent ---------------------------------------------------------
     def set_lab_mode(self, lab: bool) -> None:
@@ -2001,6 +2011,7 @@ class LabSnipsPanel(QWidget):
         remove.setShortcut(QKeySequence("Delete"))
         remove.setShortcutVisibleInContextMenu(True)
         remove.setEnabled(count > 0)
+        menu.addAction("Removed snips...", self.removed_requested.emit)
         return menu
 
     def _selected_path(self) -> Path | None:

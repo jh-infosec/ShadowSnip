@@ -51,7 +51,7 @@ def _action(menu: QMenu, text: str):
 
 def test_menu_offers_the_snip_actions(panel):
     menu = panel.snip_menu()
-    assert _texts(menu) == ["Expand", "Copy", "Save as...", "Open", "Show in folder", "Remove..."]
+    assert _texts(menu) == ["Expand", "Copy", "Save as...", "Open", "Show in folder", "Remove...", "Removed snips..."]
     assert _action(menu, "Copy").shortcut().toString() == "Ctrl+C"
     assert all(a.isEnabled() for a in menu.actions() if not a.isSeparator())
 

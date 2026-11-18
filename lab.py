@@ -604,6 +604,10 @@ def remove_snip(cfg: dict, filename: str) -> dict | None:
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for entry in moved:
             entry["removed"] = stamp
+            if entry_kind(entry) == "snip":
+                # Where it went, for Restore (0.15.0): a name already taken
+                # in removed/ gets a time added.
+                entry["removed_as"] = destination.name
         state["entries"] = kept
         state.setdefault("removed", []).extend(moved)
         try:
@@ -626,6 +630,131 @@ def remove_snip(cfg: dict, filename: str) -> dict | None:
             raise
     _move_edits(source, destination)
     return removed
+
+
+# -- restoring (0.15.0) ----------------------------------------------------
+def removed_snips(cfg: dict) -> list[dict]:
+    """The snips taken out of the active lab, most recently removed first.
+
+    From lab.json's `removed` list, with any image in removed/ that the
+    record does not mention added at the end (removed by hand, or with the
+    lab record off). Each row: file, number, time, section, caption,
+    removed (when), notes (how many notes went with it), path (the image in
+    removed/, or "" when it is no longer there), recorded.
+    """
+    target = active_folder(cfg)
+    if target is None:
+        return []
+    bin_dir = target / REMOVED_DIR
+    state = _load_state(target) or {}
+    rows: list[dict] = []
+    seen: set[str] = set()
+    records = [e for e in state.get("removed", []) if isinstance(e, dict)]
+    for entry in records:
+        if entry_kind(entry) != "snip":
+            continue
+        filename = str(entry.get("file", ""))
+        stored = str(entry.get("removed_as") or filename)
+        if not filename or Path(stored).name != stored:
+            continue
+        image = bin_dir / stored
+        seen.add(stored)
+        notes = sum(1 for other in records
+                    if entry_kind(other) == "note" and filename in other.get("attach", ())
+                    and other.get("removed") == entry.get("removed"))
+        rows.append({
+            "file": filename, "stored": stored, "number": entry.get("number", 0),
+            "time": str(entry.get("time", "")), "section": normalise_section(entry.get("section", "")),
+            "caption": str(entry.get("caption", "")), "removed": str(entry.get("removed", "")),
+            "notes": notes, "path": str(image) if image.is_file() else "", "recorded": True,
+        })
+    rows.sort(key=lambda row: row["removed"], reverse=True)
+    try:
+        loose = sorted(p for p in bin_dir.iterdir() if p.is_file() and p.suffix.lower() in _SUFFIXES)
+    except OSError:
+        loose = []
+    for image in loose:
+        if image.name in seen:
+            continue
+        match = _NUMBER_RE.match(image.name)
+        when = datetime.fromtimestamp(image.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        rows.append({
+            "file": image.name, "stored": image.name, "number": int(match.group(1)) if match else 0,
+            "time": "", "section": "", "caption": "", "removed": when, "notes": 0,
+            "path": str(image), "recorded": False,
+        })
+    return rows
+
+
+def restore_snip(cfg: dict, filename: str) -> dict:
+    """Put a removed snip back into the active lab, with the notes that went with it.
+
+    The image (and a clip's video, and kept marks) move back from removed/
+    under the name they had; the record goes back into `entries` just before
+    the first later-numbered snip, so it lands where it was in lab.md, in the
+    section it was filed under. A snip whose name is taken in the lab again
+    is refused rather than overwriting anything.
+
+    Returns the row it restored (see removed_snips). Raises LabError.
+    """
+    target = active_folder(cfg)
+    if target is None:
+        raise LabError("No lab is running.")
+    filename = str(filename or "").strip()
+    row = next((r for r in removed_snips(cfg) if r["file"] == filename or r["stored"] == filename), None)
+    if row is None:
+        raise LabError(f"{filename} is not among this lab's removed snips.")
+    if not row["path"]:
+        raise LabError(f"{row['stored']} is no longer in the removed folder.")
+    source = Path(row["path"])
+    destination = target / row["file"]
+    if destination.exists():
+        raise LabError(f"{row['file']} is in the lab already; the removed copy was left where it is.")
+    try:
+        source.replace(destination)
+    except OSError as exc:
+        raise LabError(f"could not move {row['stored']} back: {exc}") from exc
+    import clips
+
+    clips.move_with(source, destination)
+    _move_edits(source, destination)
+
+    state = _load_state(target)
+    if not state or not row["recorded"]:
+        return row
+    removed = [e for e in state.get("removed", []) if isinstance(e, dict)]
+    snip = next(e for e in removed if entry_kind(e) == "snip" and e.get("file") == row["file"]
+                and str(e.get("removed_as") or e.get("file")) == row["stored"])
+    notes = [e for e in removed if entry_kind(e) == "note" and row["file"] in e.get("attach", ())
+             and e.get("removed") == snip.get("removed")]
+    back = [snip] + notes
+    state["removed"] = [e for e in state.get("removed", []) if not any(e is b for b in back)]
+    for entry in back:
+        entry.pop("removed", None)
+        entry.pop("removed_as", None)
+    entries_now = state.setdefault("entries", [])
+    number = snip.get("number", 0)
+    at = len(entries_now)
+    if isinstance(number, int):
+        for index, entry in enumerate(entries_now):
+            other = entry.get("number") if isinstance(entry, dict) and entry_kind(entry) == "snip" else None
+            if isinstance(other, int) and other > number:
+                at = index
+                break
+    entries_now[at:at] = back
+    try:
+        _save_state(target, state, cfg)
+    except LabError:
+        # The record could not be written: put the image back in removed/,
+        # so the folder and the record still agree.
+        try:
+            destination.replace(source)
+            clips.move_with(destination, source)
+            _move_edits(destination, source)
+        except OSError:
+            pass
+        raise
+    return row
 
 
 def _move_edits(source: Path, destination: Path) -> None:
@@ -828,7 +957,34 @@ def normalise_finding(data) -> dict | None:
     finding = {"severity": severity, "host": " ".join(str(data.get("host", "")).split())[:200]}
     for field in FINDING_FIELDS:
         finding[field] = str(data.get(field, "") or "").strip()[:MAX_FINDING_TEXT]
+    # 0.15.0: an optional CVSS 3.1 vector. When it scores, the score decides
+    # the severity, so the two can never disagree. One that does not score
+    # is dropped rather than kept half-valid.
+    vector = str(data.get("cvss", "") or "").strip()
+    if vector:
+        import cvss
+
+        try:
+            canonical, score, _rating = cvss.score(vector)
+        except cvss.CvssError:
+            pass
+        else:
+            finding["cvss"] = canonical
+            finding["severity"] = cvss.severity_for(score)
     return finding
+
+
+def finding_score(finding: dict) -> float | None:
+    """A finding's CVSS base score, or None when it has no vector."""
+    vector = finding.get("cvss") if isinstance(finding, dict) else None
+    if not vector:
+        return None
+    import cvss
+
+    try:
+        return cvss.score(vector)[1]
+    except cvss.CvssError:
+        return None
 
 
 def _findings_of(state: dict) -> dict[str, dict]:
@@ -897,8 +1053,13 @@ def findings_of_state(state: dict) -> list[dict]:
     rank = {path: i for i, path in enumerate(order)}
     out = []
     for path, data in stored.items():
-        out.append({**data, "path": path, "title": path.replace(SECTION_SEPARATOR, " / ")})
-    out.sort(key=lambda f: (SEVERITIES.index(f["severity"]), rank.get(f["path"], len(rank))))
+        out.append({**data, "path": path, "title": path.replace(SECTION_SEPARATOR, " / "),
+                    "score": finding_score(data)})
+    # Most severe first; within a severity, the higher CVSS score first (a
+    # finding without one after those with), then report order.
+    out.sort(key=lambda f: (SEVERITIES.index(f["severity"]),
+                            -(f["score"] if f["score"] is not None else -1),
+                            rank.get(f["path"], len(rank))))
     return out
 
 
@@ -1029,11 +1190,13 @@ def render_index(state: dict) -> str:
 
     summary = findings_of_state(state)
     if summary:
-        lines.extend(["## Findings summary", "", "| # | Finding | Severity | Host |", "| --- | --- | --- | --- |"])
+        lines.extend(["## Findings summary", "", "| # | Finding | Severity | CVSS | Host |",
+                      "| --- | --- | --- | --- | --- |"])
         for index, item in enumerate(summary, start=1):
             title = item["title"].replace("|", "\\|")
             host = (item["host"] or "-").replace("|", "\\|")
-            lines.append(f"| {index} | {title} | {item['severity']} | {host} |")
+            score = f"{item['score']:.1f}" if item.get("score") is not None else "-"
+            lines.append(f"| {index} | {title} | {item['severity']} | {score} | {host} |")
         lines.append("")
 
     # Notes attached to a snip in the same section render under that snip, so
@@ -1342,6 +1505,9 @@ def _render_code(entry: dict) -> list[str]:
 
 def _render_finding(item: dict) -> list[str]:
     lines = [f"> **Finding: {item['severity']}**"]
+    score = finding_score(item)
+    if score is not None:
+        lines.append(f"> CVSS 3.1 base score: {score:.1f} (`{item['cvss']}`)")
     if item.get("host"):
         lines.append(f"> Affected host: {item['host']}")
     lines.append("")

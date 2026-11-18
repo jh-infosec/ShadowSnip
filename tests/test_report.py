@@ -51,7 +51,7 @@ def test_a_section_can_be_marked_as_a_finding(cfg_lab):
     assert lab.finding(cfg_lab, "10.10.10.3/SMB") == stored
     md = _md(cfg_lab)
     assert "## Findings summary" in md
-    assert "| 1 | 10.10.10.3 / SMB | High | 10.10.10.3 |" in md
+    assert "| 1 | 10.10.10.3 / SMB | High | - | 10.10.10.3 |" in md
     block = md.index("> **Finding: High**")
     assert md.index("### SMB") < block < md.index("![001]")
     assert "**Remediation**\n\nDisable guest." in md
@@ -339,6 +339,12 @@ def test_cancelled_output_files_nothing(shadow, monkeypatch):
     assert lab.entries(shadow.cfg) == []
 
 
+def _choose_export(monkeypatch, fmt, scope):
+    """Answer the Export report dialog without showing it."""
+    monkeypatch.setattr(report_dialogs.ExportDialog, "exec", lambda d: QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(report_dialogs.ExportDialog, "values", lambda d: (fmt, scope))
+
+
 def test_export_from_the_window(shadow, monkeypatch, tmp_path):
     pytest.importorskip("docx")  # the Word export needs python-docx installed
     lab.add_note(shadow.cfg, "hello")
@@ -346,7 +352,8 @@ def test_export_from_the_window(shadow, monkeypatch, tmp_path):
     import app as app_mod
 
     monkeypatch.setattr(app_mod.storage, "open_file", lambda p: opened.append(Path(p)))
-    target = tmp_path / "out" / "report"  # no extension: the filter decides
+    target = tmp_path / "out" / "report"  # no extension: the chosen format decides
+    _choose_export(monkeypatch, "docx", "full")
     monkeypatch.setattr(QFileDialog, "getSaveFileName",
                         lambda *a, **k: (str(target), "Word document (*.docx)"))
     shadow.export_report()
@@ -366,6 +373,7 @@ def test_a_word_export_without_python_docx_says_so(shadow, monkeypatch, tmp_path
     monkeypatch.setattr(shadow, "_warn", warned.append)
     monkeypatch.setattr(app_mod.storage, "open_file", lambda p: None)
     target = tmp_path / "report.docx"
+    _choose_export(monkeypatch, "docx", "full")
     monkeypatch.setattr(QFileDialog, "getSaveFileName",
                         lambda *a, **k: (str(target), "Word document (*.docx)"))
     shadow.export_report()

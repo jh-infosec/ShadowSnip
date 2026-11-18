@@ -50,6 +50,8 @@ EDIT_SAVE_MS = 500
 
 STYLE = """
 QWidget#Root { background: #1b1b1f; }
+QDialog { background: #1b1b1f; }
+QDialog QCheckBox, QDialog QRadioButton { color: #e6e6ec; }
 QLabel { color: #e6e6ec; }
 QLabel#Status { color: #9a9aa6; font-size: 11px; }
 QLabel#Version { color: #5f5f6b; font-size: 11px; }
@@ -163,6 +165,8 @@ class PreviewWindow(QWidget):
     snip_copy_requested = Signal(str)
     # A clip was trimmed or put back (0.14.2): its length and poster changed.
     clip_changed = Signal(str)
+    # Show the removed snips (0.15.0).
+    removed_requested = Signal()
     # From the full-size viewer: a lab snip about to be shown, and one edited.
     lab_snip_loading = Signal(str)
     lab_snip_edited = Signal(str, QImage)
@@ -272,6 +276,7 @@ class PreviewWindow(QWidget):
         self.snips_panel.export_requested.connect(self.export_requested.emit)
         self.snips_panel.finding_requested.connect(self.finding_requested.emit)
         self.snips_panel.clip_about_to_change.connect(self._clip_about_to_change)
+        self.snips_panel.removed_requested.connect(self.removed_requested.emit)
         self.snips_panel.clip_changed.connect(self._on_clip_changed)
         # Short names for the parts other code and the tests reach for.
         self.snips_list = self.snips_panel.list

@@ -104,6 +104,7 @@ class ShadowSnipApp(QObject):
         self.preview.methodology_requested.connect(self.add_methodology)
         self.preview.export_requested.connect(self.export_report)
         self.preview.clip_changed.connect(self._on_clip_trimmed)
+        self.preview.removed_requested.connect(self.show_removed)
 
         # The snip list follows the lab folder itself rather than relying on
         # every code path that writes into it remembering to refresh. A snip,
@@ -323,6 +324,7 @@ class ShadowSnipApp(QObject):
         Outside a lab the list shows the recent snips in the history folder.
         """
         name = lab.active_name(self.cfg)
+        self.preview.snips_panel.set_removed_count(self._removed_count())
         if not name:
             if self.cfg.get("lab_snip_list", True):
                 self.preview.set_lab_snips(storage.history_rows(self.cfg), self._last_history_file)
@@ -1045,24 +1047,40 @@ class ShadowSnipApp(QObject):
         self._refresh_menu_text()
 
     def export_report(self) -> None:
-        """Save the running lab as one HTML page or Word document, then open it."""
+        """Save the running lab as an HTML page, Word document or PDF, then open it.
+
+        0.15.0: a dialog first, for the format and for the whole lab or only
+        its findings; both are remembered for next time.
+        """
         if not self._needs_record("Reports"):
             return
         folder = lab.active_folder(self.cfg)
-        filters = "Web page, images inside (*.html);;Word document (*.docx)"
-        chosen, selected = QFileDialog.getSaveFileName(
+        import report_dialogs
+
+        dialog = report_dialogs.ExportDialog(
+            self.cfg.get("report_format", "html"), self.cfg.get("report_scope", "full"),
+            len(lab.findings(self.cfg)), report.docx_available(), self._dialog_parent())
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        fmt, scope = dialog.values()
+        self.cfg["report_format"], self.cfg["report_scope"] = fmt, scope
+        self._persist()
+        filters = {
+            "html": "Web page, images inside (*.html)",
+            "docx": "Word document (*.docx)",
+            "pdf": "PDF (*.pdf)",
+        }[fmt]
+        chosen, _selected = QFileDialog.getSaveFileName(
             self._dialog_parent(), "Export report",
-            str(report.default_path(folder, "html")), filters,
+            str(report.default_path(folder, fmt, scope)), filters,
         )
         if not chosen:
             return
         path = Path(chosen)
-        fmt = path.suffix.lower().lstrip(".")
-        if fmt not in report.EXPORT_FORMATS:
-            fmt = "docx" if "docx" in selected else "html"
-            path = path.with_suffix(f".{fmt}")
+        if path.suffix.lower() != f".{fmt}":
+            path = path.with_name(path.name + f".{fmt}") if path.suffix else path.with_suffix(f".{fmt}")
         try:
-            written = report.export(folder, fmt, path)
+            written = report.export(folder, fmt, path, scope=scope)
         except report.ExportError as exc:
             self._warn(str(exc))
             return
@@ -1569,6 +1587,51 @@ class ShadowSnipApp(QObject):
             image = storage.write_atomic(folder / f"clip_{datetime.now():%Y-%m-%d_%H-%M-%S}.png", poster)
             os.replace(video, image.with_suffix(clips.SUFFIX))
         return image.with_suffix(clips.SUFFIX)
+
+    # -- removed snips (0.15.0) ------------------------------------------------
+    def _removed_count(self) -> int:
+        try:
+            if lab.active_name(self.cfg):
+                return sum(1 for row in lab.removed_snips(self.cfg) if row.get("path"))
+            return len(storage.removed_history(self.cfg))
+        except (OSError, lab.LabError):
+            return 0
+
+    def show_removed(self) -> None:
+        """The snips taken out of the lab (or off the recent list), to put back."""
+        import removedview
+
+        in_lab = bool(lab.active_name(self.cfg))
+        if in_lab:
+            rows_fn = lambda: lab.removed_snips(self.cfg)  # noqa: E731
+            restore_fn = lambda name: lab.restore_snip(self.cfg, name)["file"]  # noqa: E731
+            folder = lab.active_folder(self.cfg) / lab.REMOVED_DIR
+        else:
+            rows_fn = lambda: storage.removed_history(self.cfg)  # noqa: E731
+            restore_fn = lambda name: storage.restore_history(self.cfg, name).name  # noqa: E731
+            folder = storage.history_folder(self.cfg) / storage.REMOVED_DIRNAME
+
+        def open_folder() -> None:
+            folder.mkdir(parents=True, exist_ok=True)
+            storage.open_folder(folder)
+
+        dialog = removedview.RemovedDialog(rows_fn, restore_fn, open_folder,
+                                           lab.active_name(self.cfg) if in_lab else "",
+                                           self._dialog_parent())
+        dialog.restored.connect(lambda names: self._after_restore(names, in_lab))
+        self._removed_dialog = dialog
+        dialog.exec()
+        self._removed_dialog = None
+
+    def _after_restore(self, names: list, in_lab: bool) -> None:
+        if in_lab:
+            self._last_lab_file = names[-1]
+            self._refresh_menu_text()
+        else:
+            self._last_history_file = names[-1]
+            self._refresh_snip_list()
+        self.preview.set_status(
+            f"Restored {', '.join(names)}" if len(names) <= 3 else f"Restored {len(names)} snips")
 
     def _on_clip_trimmed(self, video: str) -> None:
         """A clip was trimmed or put back: its new length into lab.md and the lists."""

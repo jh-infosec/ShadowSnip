@@ -56,9 +56,10 @@ filed as code blocks, and the methodology phases laid out in one click.
 
 ## The report, still open
 
-- A PDF export straight from the app (today: print the HTML page to PDF).
 - Exporting into a client's own Word template (styles and cover page).
-- CVSS scores on findings, and a findings-only export.
+- CVSS 4.0 vectors (3.1 is scored today; 4.0's score comes from a lookup
+  table, not a formula).
+- A cover page and table of contents in the PDF.
 
 ## Later - integration
 
@@ -93,21 +94,18 @@ one click away and a setting for which is the default.
 Trim with a two-handled bar, frame-exact, with the recorded clip kept for
 Undo trim; player controls styled and inset like the rest of the window.
 
-## Next: v0.15 - the report
+## Done in v0.15.0 - the report
 
-- PDF export straight from ShadowSnip.
-- CVSS scores on findings.
-- A findings-only export.
-- Restoring a removed snip from inside ShadowSnip.
+CVSS 3.1 scores on findings, PDF export, findings-only export in every
+format, and restoring removed snips from inside ShadowSnip.
 
-## Then: v0.16 - encrypted labs
+## Next: v0.16 - encrypted labs
 
 Lab folders encrypted at rest, with the unlock and recovery choices still to
 be settled.
 
 ## Video clips, still open
 
-- Trimming a clip's start and end inside ShadowSnip.
 - System sound (Windows' loopback capture), which Qt does not offer.
 - Marking up a clip (an arrow that stays on screen for a few seconds).
 

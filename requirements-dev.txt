@@ -4,3 +4,5 @@
 # hotkey parsing, imageops) and needs no display: run it with
 # QT_QPA_PLATFORM=offscreen on a headless machine.
 pytest>=8.0
+# Reads the text back out of exported PDFs in the tests (skipped without it).
+pypdf>=4.0

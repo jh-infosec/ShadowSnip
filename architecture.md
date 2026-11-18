@@ -42,6 +42,9 @@ recordbar.py         the red frame and the Pause/Stop bar while a clip records
 clips.py             a clip's poster, finding the video beside it, GIF export
 player.py            playing a clip inside ShadowSnip (main window and full-size view), the trim bar
 cliptrim.py          trimming a clip: re-encoding the part kept, keeping and restoring the original
+cvss.py              CVSS 3.1 vectors: parsing, base score, rating
+reportpdf.py         the PDF report, laid out with QTextDocument and painted onto QPdfWriter
+removedview.py       the Removed snips window: list, preview, Restore
 clipcheck.py         run by hand: does video recording work on this machine?
 winlist.py           the windows on screen, for window snips (Windows: EnumWindows
                      and DWM frame bounds; X11: xprop and xwininfo)
@@ -263,6 +266,35 @@ so `ClipPlayer` emits `about_to_change` first (the window unloads every
 player showing that clip) and `changed` after (they reload, and the app
 writes the new length into lab.json / lab.md with `lab.set_clip_seconds()`
 and refreshes the list).
+
+## The report (0.15.0)
+
+`report.model(folder, scope)` is the one reading of lab.json that every
+export uses. Each block now carries the section path it sits in, which is
+what makes the findings-only scope a filter rather than a second renderer:
+for each finding in summary order, its heading (the full breadcrumb), then
+every block whose section is the finding's or below it, minus those inside a
+nested finding (shown under that finding instead). Sub-section headings keep
+their names and drop to sit under the finding.
+
+CVSS lives in `cvss.py` (pure Python, no Qt). A finding stores only the
+canonical vector; the score is recomputed wherever it is shown, so there is
+no stored number to drift from the vector. `lab.normalise_finding` sets the
+severity from the score, so the two cannot disagree in lab.json.
+
+The PDF (`reportpdf.py`) is a separate builder because QTextDocument reads a
+subset of HTML (no flexbox, borders only on tables): coloured table cells
+stand in for the HTML export's chips and boxes. The writer runs at 96 dpi so
+one device pixel is one CSS pixel; the document is paginated by Qt at the
+page height minus a footer, and each page is painted with a translated
+`drawContents`, then the footer drawn under it. An image is one text line,
+and Qt never splits a line, so a snip never breaks across pages.
+
+Restoring a removed snip (`lab.restore_snip`) moves the files back first and
+then the records (the snip and the notes removed with it, matched by the
+same `removed` stamp), inserting them before the first later-numbered snip.
+If lab.json cannot be written, the files go back into `removed/`, so folder
+and record never disagree.
 
 ## The snip pipeline
 

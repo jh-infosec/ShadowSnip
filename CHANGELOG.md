@@ -1,6 +1,46 @@
 # Changelog
 
-## Latest: 0.14.2
+## Latest: 0.15.0
+
+The report release.
+
+**Added**: **CVSS 3.1 on findings**. Tick **Score it with CVSS 3.1** in the
+finding window and paste a vector or build one with eight pickers; the base
+score and rating show as you go, and the severity follows the rating. Scores
+are worked out as the FIRST specification says, rounding included, and match
+NVD's calculator (tested against known vectors). The findings summary in
+lab.md and every export gains a **CVSS** column, the finding block shows the
+score and vector, and findings of the same severity are ordered by score. A
+vector that does not score is not saved. New module `cvss.py`.
+
+**Added**: **PDF export**. Export report now offers a PDF beside the web page
+and Word document: A4, a footer with the lab's name and page numbers, real
+text, and snips at full resolution scaled to the page and never split across
+pages. Built with Qt alone (`reportpdf.py`), so nothing new to install.
+
+**Added**: **findings-only export**, in any of the three formats: the summary
+and then each finding, most severe first, under its full breadcrumb, with the
+evidence filed in its section and the sections below it. A finding filed
+inside another finding's section shows once, under its own heading. Default
+name `<lab>-findings.<format>`.
+
+**Added**: an **Export report** window before the save dialog, for the format
+and the scope. Both are remembered (`report_format`, `report_scope`).
+
+**Added**: **restoring removed snips**. A **Removed (n)** button beside Remove
+from lab, and **Removed snips...** on the right-click menu, open a list of
+what was taken out, with a preview. **Restore** puts snips back with their
+notes, clip video and kept marks, in the section and the place in lab.md they
+had. A name that is taken again is refused, never overwritten. Outside a lab
+it lists and restores `history\removed`. Removals now record where the image
+went (`removed_as`), so one renamed on the way into `removed/` is found;
+older removals are found by their name. New module `removedview.py`.
+
+**Changed**: dialogs opened from the window (finding, command output, export,
+removed snips) now have the window's dark background instead of the system's,
+so their light text is readable in every skin.
+
+## 0.14.2
 
 **Added**: **trim a clip**. **Trim** beside the player swaps the slider for a
 trim bar with a handle at each end: drag them, or play to the spot and press
