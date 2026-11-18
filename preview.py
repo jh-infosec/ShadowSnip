@@ -612,7 +612,9 @@ class PreviewWindow(QWidget):
         """Trimmed or put back: show it again wherever it was, and tell the app."""
         video = Path(video)
         if self._clip is not None and video == self._clip:
-            self._image = QImage(str(video.with_suffix(".png")))
+            import vault
+
+            self._image = vault.load_image(video.with_suffix(".png"))
             if self.player.video is None:
                 self.player.load(video, self._image)
         viewer = self.snips_panel.viewer
@@ -984,7 +986,7 @@ class PreviewWindow(QWidget):
         if not path:
             return
         try:
-            storage.write_atomic(Path(path), self._disk_bytes)
+            storage.write_atomic(Path(path), self._disk_bytes, plain=True)
         except OSError as exc:
             QMessageBox.warning(self, "ShadowSnip", f"Could not write the file: {exc}")
             return

@@ -158,7 +158,10 @@ class RemovedDialog(QDialog):
             self.preview.setText("")
             self.detail.setText("")
             return
-        picture = QPixmap(row["path"]) if row.get("path") else QPixmap()
+        import vault
+
+        image = vault.load_image(row.get("path") or "")
+        picture = QPixmap.fromImage(image) if not image.isNull() else QPixmap()
         if picture.isNull():
             self.preview.setPixmap(QPixmap())
             self.preview.setText("No preview")

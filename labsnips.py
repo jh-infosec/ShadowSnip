@@ -78,6 +78,7 @@ from PySide6.QtWidgets import (
 import clips
 import edits
 import player as player_mod
+import vault
 import skins
 import storage
 import annotate
@@ -156,7 +157,7 @@ class ThumbCache:
         if hit is not None and hit[0] == stamp:
             return hit[1]
 
-        reader = QImageReader(path)
+        reader, _buffer = vault.image_reader(path)   # decrypting an encrypted lab's snip
         reader.setAutoTransform(True)
         size = reader.size()
         if size.isValid():
@@ -179,9 +180,26 @@ class ThumbCache:
             del self._cache[key]
 
 
+def _data_url(image: QImage, size: QSize) -> str:
+    """A small PNG data URL of `image` at `size`, for rich text that cannot read the file."""
+    import base64
+
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+
+    if image.isNull():
+        return ""
+    scaled = image.scaled(size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    scaled.save(buffer, "PNG")
+    buffer.close()
+    return "data:image/png;base64," + base64.b64encode(bytes(data.data())).decode("ascii")
+
+
 def fit_size(path: str, box: QSize) -> QSize:
     """The size an image is shown at inside `box`, from its header alone."""
-    size = QImageReader(path).size()
+    size = vault.image_size(path)
     if not size.isValid() or size.isEmpty():
         return QSize(box)
     if size.width() <= box.width() and size.height() <= box.height():
@@ -276,7 +294,7 @@ def snip_facts(path: str) -> tuple[int, int, int, bool] | None:
     key = (str(file), stat.st_mtime_ns, stat.st_size)
     facts = _FACTS.get(key)
     if facts is None:
-        size = QImageReader(str(file)).size()
+        size = vault.image_size(file)
         width, height = (size.width(), size.height()) if size.isValid() else (0, 0)
         facts = (width, height, stat.st_size, False)
         if len(_FACTS) > 2000:
@@ -655,7 +673,7 @@ class SnipViewer(QWidget):
     def take_back(self, video) -> None:
         """A clip changed on disk: show it again if it is the one here."""
         if self._clip is not None and Path(video) == self._clip and self.player.video is None:
-            self.player.load(self._clip, QImage(str(self._clip.with_suffix(".png"))))
+            self.player.load(self._clip, vault.load_image(self._clip.with_suffix(".png")))
 
     # -- what is shown --------------------------------------------------------------
     # items are in capture order, oldest first, so Right means "later"
@@ -748,7 +766,7 @@ class SnipViewer(QWidget):
         if not target:
             return
         try:
-            storage.write_atomic(Path(target), source.read_bytes())
+            storage.write_atomic(Path(target), vault.read(source), plain=True)
         except OSError as exc:
             self.flash(f"Could not save: {exc}")
             return
@@ -792,7 +810,7 @@ class SnipViewer(QWidget):
             # The marks kept from last time, each still erasable (edits.py),
             # or else the picture as it is on disk.
             doc = edits.load(Path(path)) if path else None
-            image = doc.base if doc is not None else (QImage(path) if path else QImage())
+            image = doc.base if doc is not None else vault.load_image(path)
             if image.isNull():
                 self.canvas.load(None)
                 self.canvas.set_message("This image could not be loaded.")
@@ -810,7 +828,7 @@ class SnipViewer(QWidget):
 
     def _show_clip(self, item: dict, video: Path) -> None:
         self.canvas.load(None)
-        poster = QImage(item.get("path") or "")
+        poster = vault.load_image(item.get("path") or "")
         self.player.load(video, poster)
         self._clip = video
         self._loaded_file = item["file"]
@@ -1174,7 +1192,7 @@ class MarkdownPreview(QTextBrowser):
             path = resolved.toLocalFile()
             key = (path, self._width)
             if key not in self._images:
-                image = QImage(path)
+                image = vault.load_image(path)
                 if not image.isNull() and image.width() > self._width:
                     image = image.scaledToWidth(
                         self._width, Qt.TransformationMode.SmoothTransformation
@@ -1743,6 +1761,10 @@ class LabSnipsPanel(QWidget):
         if path and Path(path).is_file():
             size = fit_size(path, HOVER_BOX)
             source = html.escape(QUrl.fromLocalFile(path).toString(), quote=True)
+            if vault.is_encrypted_file(path):
+                # The tooltip cannot read an encrypted file: hand it the
+                # picture itself, already scaled, as a data URL.
+                source = _data_url(vault.load_image(path), size)
             parts.append(
                 f'<img src="{source}" width="{size.width()}" height="{size.height()}">'
             )
@@ -1886,7 +1908,7 @@ class LabSnipsPanel(QWidget):
         if self.viewer is not None:
             self.viewer.player.pause()
         try:
-            storage.open_file(video)
+            storage.open_file(vault.handoff(video))
         except OSError as exc:
             self.status_message.emit(f"Could not open the clip: {exc}")
 
@@ -2051,7 +2073,7 @@ class LabSnipsPanel(QWidget):
         if not target:
             return
         try:
-            storage.write_atomic(Path(target), source.read_bytes())
+            storage.write_atomic(Path(target), vault.read(source), plain=True)
         except OSError as exc:
             self.status_message.emit(f"Could not save: {exc}")
             return
@@ -2104,7 +2126,10 @@ class LabSnipsPanel(QWidget):
     def _emit_open(self) -> None:
         video = self.selected_clip()
         if video is not None:
-            storage.open_file(video)  # a clip opens in the video player
+            try:
+                storage.open_file(vault.handoff(video))  # a clip opens in the video player
+            except OSError as exc:
+                self.status_message.emit(f"Could not open the clip: {exc}")
             return
         filename = self.selected()
         if filename:

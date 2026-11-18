@@ -79,7 +79,9 @@ class _Builder:
 
     def image(self, path: str) -> str | None:
         """Register the picture with the document; the markup to show it, or None."""
-        picture = QImage(path)
+        import vault
+
+        picture = vault.load_image(path)
         if picture.isNull():
             return None
         if picture.width() > MAX_IMAGE_PX:

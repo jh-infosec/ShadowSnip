@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.15.0"
+APP_VERSION = "0.16.0"
 
 
 def config_dir() -> Path:
@@ -134,6 +134,8 @@ DEFAULTS = {
     # Lay out the methodology phases (Recon ... Post-exploitation) as sections
     # when a new lab starts (0.9.0). Off: the Phases button does it on demand.
     "lab_methodology": False,
+    # Encrypted labs (0.16.0): whether Start lab ticks "Encrypt this lab" for a new one.
+    "lab_encrypt_default": False,
     # The list of the running lab's snips beside the image in the preview
     # window. Toggled with the Snip list button; remembered between runs.
     "lab_snip_list": True,
@@ -294,6 +296,7 @@ def _sanitise(cfg: dict) -> dict:
         "keep_edits",
         "close_hint_shown",
         "lab_methodology",
+        "lab_encrypt_default",
         "prtsc_snip",
         "snip_magnifier",
         "clip_microphone",

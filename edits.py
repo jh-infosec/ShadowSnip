@@ -46,6 +46,7 @@ from PySide6.QtCore import QPointF, QRect
 from PySide6.QtGui import QImage
 
 import storage
+import vault
 from annotate import MARK_KINDS, AnnotationDoc, Change, Crop, Erase, Mark, Redact, Restyle, Stroke
 
 DIR_NAME = ".edits"
@@ -236,19 +237,19 @@ def load(snip: Path) -> AnnotationDoc | None:
             return None
         if record_path.stat().st_size > MAX_RECORD_BYTES:
             return None
-        record = json.loads(record_path.read_text(encoding="utf-8"))
+        record = json.loads(vault.read_text(record_path))
         if not isinstance(record, dict) or record.get("version") != VERSION:
             return None
         if record.get("file") != snip.name:
             return None
-        if record.get("file_sha256") != _sha256(snip.read_bytes()):
+        if record.get("file_sha256") != _sha256(vault.read(snip)):
             return None  # changed outside ShadowSnip: open it as it is now
         ops = [op_from_dict(item) for item in record.get("ops", [])]
     except (OSError, ValueError, KeyError, TypeError):
         return None
     if not ops:
         return None
-    base = QImage(str(original_path))
+    base = vault.load_image(original_path)
     if base.isNull():
         return None
     doc = AnnotationDoc(base)
@@ -285,7 +286,7 @@ def move(snip: Path, new_snip: Path) -> None:
     try:
         new_record.parent.mkdir(parents=True, exist_ok=True)
         _hide(new_record.parent)
-        record = json.loads(old_record.read_text(encoding="utf-8"))
+        record = json.loads(vault.read_text(old_record))
         record["file"] = new_snip.name
         if old_original.is_file():
             old_original.replace(new_original)

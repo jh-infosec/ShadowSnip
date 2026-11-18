@@ -99,10 +99,17 @@ Undo trim; player controls styled and inset like the rest of the window.
 CVSS 3.1 scores on findings, PDF export, findings-only export in every
 format, and restoring removed snips from inside ShadowSnip.
 
-## Next: v0.16 - encrypted labs
+## Done in v0.16.0 - encrypted labs
 
-Lab folders encrypted at rest, with the unlock and recovery choices still to
-be settled.
+A password per lab, a one-time recovery key, files always encrypted on disk
+(decrypted in memory only), off by default and asked per lab.
+
+## Encrypted labs, still open
+
+- Recording straight into memory, so a clip of an encrypted lab is never a
+  plain file even while it records (Qt only records to a file path today).
+- Hiding file names too (they show how many snips and when, not what).
+- Unlocking with Windows Hello or the OS keyring as well as the password.
 
 ## Video clips, still open
 

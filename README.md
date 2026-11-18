@@ -758,6 +758,59 @@ the labs folder: no `\` or `/`, no `.` or `..`, no drive letter, none of
 else is refused with the reason, never adjusted, so a lab can never write
 outside the labs folder.
 
+### Encrypted labs
+
+A lab can be encrypted, so its snips, clips, notes, findings and `lab.md` are
+unreadable to anyone without its password: on a laptop that is lost, in a
+folder a sync client uploads, in a backup.
+
+- **New lab:** tick **Encrypt this lab** in the Start lab window and type a
+  password twice (8 characters at least; a passphrase of a few words is
+  easier to type and harder to guess). **Settings > Labs > Encrypt new labs**
+  ticks it for you.
+- **A lab you already have:** start it, then **Encrypt this lab...** in the
+  tray menu. Everything already in its folder is encrypted in place.
+- **Recovery key:** after setting a password you are shown a recovery key,
+  eight groups of four (`XVTJ-B9LY-...`). It opens the lab if the password is
+  forgotten. It is shown only that once and ShadowSnip keeps no copy: put it
+  in your password manager. The window stays up until you tick that you have
+  saved it.
+- **Resuming:** starting an encrypted lab asks for its password; **Use the
+  recovery key instead** is underneath. A lab left running when ShadowSnip
+  quit asks as ShadowSnip starts; cancel, and the lab is stopped, still locked.
+  Opened with the recovery key, you are asked for a new password straight
+  away, and get a new recovery key with it.
+- **Change lab password...** and **Decrypt this lab...** are in the tray menu
+  while the lab runs. Changing the password does not rewrite any file; it
+  issues a new recovery key, and the old one stops working.
+- **Stop lab** locks it: the key is forgotten until the password is typed again.
+
+What stays the same: every file keeps its name, so the folder still shows
+`004_2026-11-18_10-23-00.png` and how many snips there are, just not what is in
+them. Everything inside ShadowSnip works as before: the list, the viewer,
+mark-up, Outline and Preview, clips (played from memory), trimming, GIFs,
+findings and exports.
+
+What is different:
+
+| | In an encrypted lab |
+| --- | --- |
+| `lab.md` in another editor | Not possible: **Open lab.md** points you at the Preview tab |
+| **Open**, **Play in video player**, **Copy** a clip as a file | Another program gets a decrypted copy in a private temporary folder, wiped when the lab is stopped or ShadowSnip quits. The lab folder itself is never decrypted |
+| `latest.png` | Not written: it would be a plain copy outside the lab |
+| Export report | Written as a plain file, as an export is for handing over; offered in Documents rather than in the lab folder, and the window says so |
+| Recording a clip | Qt writes the video while it records, so it sits in `.recording` under the save folder until you press Stop, then is encrypted into the lab and deleted |
+| The clipboard | Plain, as always: whatever you copy, another program can paste |
+
+How it works: each lab has its own random 256-bit key that encrypts every file
+with AES-256-GCM, which also detects a file that was altered or copied in
+from another lab and refuses to show it. That key is stored in `lab.key`,
+locked twice: with your password (through scrypt, which makes guessing
+slow) and with the recovery key. Without one of the two, `lab.key` is useless.
+It does not protect against someone who can run programs as you while the
+lab is open. Encrypted labs need the `cryptography` package
+(`pip install -r requirements.txt`; the release builds include it).
+
 ## Where files go
 
 ```

@@ -53,8 +53,10 @@ def format_length(seconds: float | None) -> str:
 
 def length_of(poster_path) -> float | None:
     """The clip's length in seconds, as its poster records it, or None."""
+    import vault
+
     try:
-        reader = QImageReader(str(poster_path))
+        reader, _buffer = vault.image_reader(poster_path)
         value = reader.text(POSTER_KEY)
         return float(value) if value else None
     except (ValueError, TypeError):
@@ -106,8 +108,11 @@ def make_poster(frame: QImage, seconds: float) -> bytes:
 def copy_file(path) -> None:
     """Put a file on the clipboard, to paste into a chat or a folder."""
     import clipboard
+    import vault
 
-    clipboard.copy_files([path])
+    # An encrypted lab's clip goes on as a decrypted copy in a private temp
+    # folder (wiped when the lab locks): the program pasted into must read it.
+    clipboard.copy_files([vault.handoff(path)])
 
 
 def move_with(image_source: Path, image_target: Path) -> None:
@@ -192,7 +197,9 @@ def frames_of(video: Path, fps: int = GIF_FPS, max_seconds: int = GIF_MAX_SECOND
     sink.videoFrameChanged.connect(on_frame)
     player.mediaStatusChanged.connect(on_status)
     player.errorOccurred.connect(lambda _e, message: (state.update(error=message), loop.quit()))
-    player.setSource(QUrl.fromLocalFile(str(video)))
+    import vault
+
+    vault.media_source(player, video)
     player.setPlaybackRate(8.0)
     player.play()
     watchdog = QTimer()

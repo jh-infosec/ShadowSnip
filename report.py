@@ -206,9 +206,17 @@ def _note_block(entry: dict) -> dict:
 
 
 def default_path(folder: Path, fmt: str, scope: str = "full") -> Path:
+    """Where an export is offered to go: the lab folder, or for an encrypted lab
+    (0.16.0) the Documents folder, since an export is a plain file."""
+    import vault
+
     folder = Path(folder)
     kind = "findings" if scope == "findings" else "report"
-    return folder / f"{folder.name}-{kind}.{fmt}"
+    where = folder
+    if vault.is_encrypted_lab(folder):
+        documents = Path.home() / "Documents"
+        where = documents if documents.is_dir() else Path.home()
+    return where / f"{folder.name}-{kind}.{fmt}"
 
 
 def export(folder: Path, fmt: str, target: Path | None = None, scope: str = "full") -> Path:
@@ -233,7 +241,9 @@ def export(folder: Path, fmt: str, target: Path | None = None, scope: str = "ful
     try:
         import storage
 
-        storage.write_atomic(target, payload)
+        # Written as plain as asked, even into an encrypted lab's folder: a
+        # report is for handing over (the export window says so).
+        storage.write_atomic(target, payload, plain=True)
     except OSError as exc:
         raise ExportError(f"could not write {target}: {exc}") from exc
     return target
@@ -287,9 +297,11 @@ def _sev_chip(severity: str) -> str:
 
 
 def _data_uri(path: str) -> str | None:
+    import vault
+
     file = Path(path)
     try:
-        data = file.read_bytes()
+        data = vault.read(file)   # decrypted, for a snip in an encrypted lab
     except OSError:
         return None
     kind = _IMAGE_TYPES.get(file.suffix.lower(), "image/png")
@@ -396,10 +408,13 @@ def _picture_stream(path: str):
     """The image as something Word can hold (PNG or JPEG), and its pixel size."""
     from PIL import Image
 
-    with Image.open(path) as img:
+    import vault
+
+    data = vault.read(path)
+    with Image.open(io.BytesIO(data)) as img:
         size = img.size
         if img.format in ("PNG", "JPEG"):
-            return io.BytesIO(Path(path).read_bytes()), size
+            return io.BytesIO(data), size
         buf = io.BytesIO()
         img.convert("RGBA" if "A" in img.getbands() else "RGB").save(buf, "PNG")
         buf.seek(0)

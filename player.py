@@ -63,6 +63,7 @@ import clips
 import cliptrim
 import skins
 import storage
+import vault
 
 # Where the two places a clip plays read their choice from (config key
 # clip_player): in ShadowSnip, or handed to the computer's video player.
@@ -283,6 +284,7 @@ class ClipPlayer(QWidget):
         self._at_end = False
         self.trimming = False   # the trim bar is up
         self._pending_seek = None
+        self._source_for: Path | None = None   # the clip the media player was given
         self._busy = False      # a trim is being written
 
         self.screen_area = _Screen()
@@ -381,6 +383,7 @@ class ClipPlayer(QWidget):
         """Show this clip, stopped at its start, with its poster until it plays."""
         self.stop()
         self.video = Path(video)
+        self._source_for = None   # read the file afresh: a trim may have changed it
         self.poster = poster if poster is not None and not poster.isNull() else None
         seconds = clips.length_of(self.video.with_suffix(".png"))
         self._length_ms = int((seconds or 0) * 1000)
@@ -400,6 +403,7 @@ class ClipPlayer(QWidget):
         self.stop()
         if self._player is not None:
             self._player.setSource(QUrl())
+            self._source_for = None
         self.video = None
         self.poster = None
         self.screen_area.show_picture(None)
@@ -438,9 +442,7 @@ class ClipPlayer(QWidget):
             self.screen_area.show_picture(None)
             return
         player = self._ensure_player()
-        wanted = QUrl.fromLocalFile(str(self.video))
-        if player.source() != wanted:
-            player.setSource(wanted)
+        self._ensure_source(player)
         if self._at_end:
             player.setPosition(self.trim_bar.start if self.trimming else 0)
             self._at_end = False
@@ -450,6 +452,12 @@ class ClipPlayer(QWidget):
             if here < self.trim_bar.start or here >= self.trim_bar.end - 30:
                 player.setPosition(self.trim_bar.start)
         player.play()
+
+    def _ensure_source(self, player) -> None:
+        """Point the player at the loaded clip, decrypting it into memory in an encrypted lab."""
+        if self._source_for != self.video:
+            vault.media_source(player, self.video)
+            self._source_for = self.video
 
     def pause(self) -> None:
         if self._player is not None:
@@ -470,9 +478,7 @@ class ClipPlayer(QWidget):
         if self.video is None:
             return
         player = self._ensure_player()
-        wanted = QUrl.fromLocalFile(str(self.video))
-        if player.source() != wanted:
-            player.setSource(wanted)
+        self._ensure_source(player)
         self._at_end = False
         from PySide6.QtMultimedia import QMediaPlayer
 
@@ -494,7 +500,7 @@ class ClipPlayer(QWidget):
             return
         self.pause()
         try:
-            storage.open_file(self.video)
+            storage.open_file(vault.handoff(self.video))
         except OSError as exc:
             self.notice.emit(f"Could not open the clip: {exc}")
 
@@ -655,11 +661,11 @@ class ClipPlayer(QWidget):
             seconds = cliptrim.trim(video, start, end, progress=progress)
         except cliptrim.TrimError as exc:
             self._set_busy(False)
-            self.load(video, QImage(str(poster)))
+            self.load(video, vault.load_image(poster))
             self.notice.emit(f"Could not trim the clip: {exc}")
             return
         self._set_busy(False)
-        self.load(video, QImage(str(poster)))
+        self.load(video, vault.load_image(poster))
         self.notice.emit(f"Clip trimmed to {clips.format_length(seconds)}. Undo trim puts it back as recorded.")
         self.changed.emit(str(video))
 
@@ -674,11 +680,11 @@ class ClipPlayer(QWidget):
             seconds = cliptrim.untrim(video)
         except cliptrim.TrimError as exc:
             self._set_busy(False)
-            self.load(video, QImage(str(poster)))
+            self.load(video, vault.load_image(poster))
             self.notice.emit(f"Could not undo the trim: {exc}")
             return
         self._set_busy(False)
-        self.load(video, QImage(str(poster)))
+        self.load(video, vault.load_image(poster))
         self.notice.emit(f"Clip put back as recorded ({clips.format_length(seconds)})")
         self.changed.emit(str(video))
 
@@ -687,4 +693,5 @@ class ClipPlayer(QWidget):
         self.stop()
         if self._player is not None:
             self._player.setSource(QUrl())
+            self._source_for = None
         self.about_to_change.emit(str(video))

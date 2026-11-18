@@ -155,6 +155,9 @@ class ShadowSnipApp(QObject):
         # than one that needs a click.
         self.cfg["auto_copy"] = False
         self._refresh_menu_text()
+        # A lab left running at the last quit may be encrypted (0.16.0): ask
+        # for its password once the event loop is up.
+        QTimer.singleShot(0, self._unlock_active_lab_at_start)
 
     # -- tray --------------------------------------------------------------
     def _build_menu(self) -> None:
@@ -206,6 +209,13 @@ class ShadowSnipApp(QObject):
         self.action_export.triggered.connect(self.export_report)
         menu.addAction(self.action_export)
 
+        self.action_encrypt = QAction("Encrypt this lab...", self)
+        self.action_encrypt.triggered.connect(self.toggle_lab_encryption)
+        menu.addAction(self.action_encrypt)
+        self.action_password = QAction("Change lab password...", self)
+        self.action_password.triggered.connect(self.change_lab_password)
+        menu.addAction(self.action_password)
+
         self.action_auto = QAction("Copy on select", self)
         self.action_auto.setCheckable(True)
         self.action_auto.triggered.connect(self.toggle_auto_copy)
@@ -236,13 +246,16 @@ class ShadowSnipApp(QObject):
 
         name = lab.active_name(self.cfg)
         keeping_record = bool(self.cfg["lab_index"])
+        import vault
+
+        encrypted = bool(name) and vault.is_encrypted_lab(lab.active_folder(self.cfg))
+        self.action_encrypt.setEnabled(bool(name) and vault.available())
+        self.action_encrypt.setText("Decrypt this lab..." if encrypted else "Encrypt this lab...")
+        self.action_password.setEnabled(encrypted)
         if name:
             self.action_lab.setText(f"Stop lab ({name})")
             self.action_folder.setText("Open lab folder")
-            self.tray.setToolTip(
-                f"ShadowSnip - lab: {name} "
-                f"({lab.count(self.cfg)} snips, {lab.note_count(self.cfg)} notes)"
-            )
+            self.tray.setToolTip(self._lab_tooltip(name))
         else:
             self.action_lab.setText("Start lab...")
             self.action_folder.setText("Open save folder")
@@ -318,6 +331,13 @@ class ShadowSnipApp(QObject):
     def _on_lab_folder_changed(self, _path: str) -> None:
         self._snip_list_timer.start()
 
+    def _lab_tooltip(self, name: str) -> str:
+        import vault
+
+        locked = " (encrypted)" if vault.is_encrypted_lab(lab.active_folder(self.cfg)) else ""
+        return (f"ShadowSnip - lab: {name}{locked} "
+                f"({lab.count(self.cfg)} snips, {lab.note_count(self.cfg)} notes)")
+
     def _refresh_snip_list(self) -> None:
         """Rebuild the snip list and the tray count from the lab folder.
 
@@ -329,16 +349,15 @@ class ShadowSnipApp(QObject):
             if self.cfg.get("lab_snip_list", True):
                 self.preview.set_lab_snips(storage.history_rows(self.cfg), self._last_history_file)
             return
-        self.tray.setToolTip(
-            f"ShadowSnip - lab: {name} "
-            f"({lab.count(self.cfg)} snips, {lab.note_count(self.cfg)} notes)"
-        )
+        self.tray.setToolTip(self._lab_tooltip(name))
         if not self.cfg.get("lab_snip_list", True):
             return
         self.preview.set_lab_snips(lab.snip_rows(self.cfg), self._last_lab_file)
         folder = lab.active_folder(self.cfg)
         try:
-            md_text = (folder / lab.INDEX_NAME).read_text(encoding="utf-8")
+            import vault
+
+            md_text = vault.read_text(folder / lab.INDEX_NAME)
         except (OSError, ValueError):
             md_text = ""
         self.preview.set_lab_outline(lab.outline(self.cfg), md_text, folder)
@@ -376,17 +395,44 @@ class ShadowSnipApp(QObject):
         An existing name resumes that lab and carries on numbering from where
         it stopped, which doubles as crash recovery.
         """
+        import labkeys
+        import vault
+
         parent = self.preview if self.preview.isVisible() else None
-        name, ok = QInputDialog.getText(
-            parent, "Start lab", "Lab name:", text=lab.active_name(self.cfg)
-        )
-        if not ok or not name.strip():
+        dialog = labkeys.StartLabDialog(lab.active_name(self.cfg), bool(self.cfg.get("lab_encrypt_default")),
+                                        self._lab_exists, parent)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
+        name, encrypt, password = dialog.values()
+        if not name:
+            return
+        try:
+            target = lab.folder(self.cfg, name)
+        except lab.LabError as exc:
+            self._warn(str(exc))
+            return
+        previous = lab.active_folder(self.cfg)
+        # An encrypted lab is unlocked before anything in it is read (0.16.0).
+        if vault.is_encrypted_lab(target) and not vault.is_unlocked(target):
+            if not self._unlock(target, name):
+                return
+        recovery = ""
+        if encrypt:
+            try:
+                target.mkdir(parents=True, exist_ok=True)
+                recovery = vault.create(target, password)
+            except (OSError, ValueError) as exc:
+                self._warn(f"The lab could not be encrypted: {exc}")
+                return
         try:
             folder = lab.start(self.cfg, name)
         except lab.LabError as exc:
             self._warn(str(exc))
             return
+        if previous is not None and previous != folder:
+            vault.lock(previous)
+        if recovery:
+            labkeys.RecoveryKeyDialog(name, recovery, parent).exec()
 
         self.cfg["active_lab"] = name.strip()
         self._persist()
@@ -556,9 +602,13 @@ class ShadowSnipApp(QObject):
         self._persist()
 
     def stop_lab(self) -> None:
+        import vault
+
         name = lab.active_name(self.cfg)
         total = lab.count(self.cfg)
+        folder = lab.active_folder(self.cfg)
         lab.stop(self.cfg)
+        vault.lock(folder)   # an encrypted lab's key is forgotten as it stops
         self._last_lab_file = ""
         self._persist()
         self._refresh_menu_text()
@@ -571,6 +621,121 @@ class ShadowSnipApp(QObject):
                 build_icon(),
                 3000,
             )
+
+    # -- encrypted labs (0.16.0) -------------------------------------------------
+    def _lab_exists(self, name: str) -> bool:
+        try:
+            return lab.folder(self.cfg, name).is_dir()
+        except lab.LabError:
+            return False
+
+    def _unlock(self, folder: Path, name: str) -> bool:
+        """Ask for an encrypted lab's password until it opens or the window is cancelled."""
+        import labkeys
+        import vault
+
+        def attempt(password=None, recovery=None):
+            vault.unlock(folder, password=password, recovery=recovery)
+
+        dialog = labkeys.UnlockDialog(name, attempt, self._dialog_parent())
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        if dialog.recovered:
+            # In with the recovery key: the password is probably forgotten,
+            # so set a new one now (which also issues a new recovery key).
+            self.preview.set_status(f"{name} opened with its recovery key. Set a new password from the tray menu.")
+            self._change_lab_password(folder, name, after_recovery=True)
+        return True
+
+    def _unlock_active_lab_at_start(self) -> None:
+        """A lab left running when ShadowSnip last quit is encrypted: ask before using it."""
+        import vault
+
+        folder = lab.active_folder(self.cfg)
+        if folder is None or not vault.is_encrypted_lab(folder) or vault.is_unlocked(folder):
+            return
+        name = lab.active_name(self.cfg)
+        if not self._unlock(folder, name):
+            lab.stop(self.cfg)
+            self._persist()
+            self.preview.set_status(f"Lab {name} is encrypted and was left locked. Start it again to unlock it.")
+        self._refresh_menu_text()
+
+    def toggle_lab_encryption(self) -> None:
+        """Encrypt the running lab, or turn an encrypted one back into a plain one."""
+        import labkeys
+        import vault
+
+        folder = lab.active_folder(self.cfg)
+        name = lab.active_name(self.cfg)
+        if folder is None:
+            return
+        parent = self._dialog_parent()
+        if vault.is_encrypted_lab(folder):
+            answer = QMessageBox.question(
+                parent, "Decrypt lab",
+                f"Decrypt {name}? Every file in its folder is written back as a plain file "
+                "that anything on this computer can read, and lab.key is deleted.")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            try:
+                count = vault.decrypt_folder(folder)
+            except OSError as exc:
+                self._warn(f"The lab could not be decrypted: {exc}")
+                return
+            self.preview.set_status(f"{name} decrypted ({count} files). It is a plain folder again.")
+            self._refresh_menu_text()
+            return
+        dialog = labkeys.PasswordDialog(
+            "Encrypt lab", f"Every file in {name} will be encrypted, and stays encrypted. "
+            "Snips, notes and lab.md open with this password.", parent=parent)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            recovery = vault.create(folder, dialog.values()[1])
+            count = vault.encrypt_folder(folder)
+        except OSError as exc:
+            self._warn(f"The lab could not be encrypted: {exc}")
+            return
+        labkeys.RecoveryKeyDialog(name, recovery, parent).exec()
+        self.preview.set_status(f"{name} encrypted ({count} files).")
+        self._refresh_menu_text()
+
+    def change_lab_password(self) -> None:
+        folder = lab.active_folder(self.cfg)
+        if folder is not None:
+            self._change_lab_password(folder, lab.active_name(self.cfg))
+
+    def _change_lab_password(self, folder: Path, name: str, after_recovery: bool = False) -> None:
+        import labkeys
+        import vault
+
+        if not vault.is_encrypted_lab(folder):
+            return
+        parent = self._dialog_parent()
+        dialog = labkeys.PasswordDialog(
+            "Change password",
+            (f"{name} was opened with its recovery key. Choose a new password; a new "
+             "recovery key replaces the old one.") if after_recovery else
+            f"A new password for {name}. The files are not rewritten; a new recovery key replaces the old one.",
+            ask_current=not after_recovery, parent=parent)
+        while dialog.exec() == QDialog.DialogCode.Accepted:
+            current, new = dialog.values()
+            try:
+                if after_recovery:
+                    found = vault.vault_for(folder)
+                    recovery = vault.rewrap(folder, found, new)
+                else:
+                    recovery = vault.change_password(folder, new, old_password=current)
+            except vault.WrongKey:
+                dialog.show_error("The current password is not right.")
+                continue
+            except OSError as exc:
+                dialog.show_error(str(exc))
+                continue
+            labkeys.RecoveryKeyDialog(name, recovery, parent).exec()
+            self.preview.set_status(f"{name} has a new password and a new recovery key.")
+            return
 
     def _fill_labs_menu(self) -> None:
         """Rebuilt each time it opens, so new labs appear without a restart."""
@@ -874,6 +1039,13 @@ class ShadowSnipApp(QObject):
         if not path.is_file():
             self.preview.set_status("There is no lab.md yet. It is written with the first snip or note.")
             return
+        import vault
+
+        if vault.is_encrypted_lab(folder):
+            # Another editor cannot read it, and a decrypted copy it saved
+            # into would be thrown away: read it on the Preview tab instead.
+            self.preview.set_status("This lab is encrypted, so lab.md opens only inside ShadowSnip: see the Preview tab.")
+            return
         try:
             storage.open_file(path)
         except OSError as exc:
@@ -895,8 +1067,10 @@ class ShadowSnipApp(QObject):
             self.preview.set_status(f"{filename} is no longer in the {where} folder.")
             self._refresh_menu_text()
             return
+        import vault
+
         try:
-            storage.open_file(path)
+            storage.open_file(vault.handoff(path))
         except OSError as exc:
             self.preview.set_status(f"Could not open {filename}: {exc}")
 
@@ -1056,10 +1230,12 @@ class ShadowSnipApp(QObject):
             return
         folder = lab.active_folder(self.cfg)
         import report_dialogs
+        import vault
 
         dialog = report_dialogs.ExportDialog(
             self.cfg.get("report_format", "html"), self.cfg.get("report_scope", "full"),
-            len(lab.findings(self.cfg)), report.docx_available(), self._dialog_parent())
+            len(lab.findings(self.cfg)), report.docx_available(), self._dialog_parent(),
+            encrypted=vault.is_encrypted_lab(folder))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         fmt, scope = dialog.values()
@@ -1563,7 +1739,9 @@ class ShadowSnipApp(QObject):
             caption_cb = None
             if in_lab and self.cfg["lab_index"] and self.cfg["lab_caption"]:
                 caption_cb = self._caption_setter(poster_path.name)
-            self.preview.show_clip(saved, QImage(str(poster_path)), message,
+            import vault
+
+            self.preview.show_clip(saved, vault.load_image(poster_path), message,
                                    folder_path=poster_path.parent if in_lab else None,
                                    caption_cb=caption_cb)
         self._finish_busy()
@@ -1709,12 +1887,19 @@ class ShadowSnipApp(QObject):
         latest_path: Path | None = None
         lab_path: Path | None = None
         history_path: Path | None = None
-        try:
-            latest_path = storage.save_latest(
-                result.disk.data, result.disk.ext, self.cfg
-            )
-        except OSError as exc:
-            notes.append(f"could not write to the save folder ({exc})")
+        import vault
+
+        if lab.is_active(self.cfg) and vault.is_encrypted_lab(lab.active_folder(self.cfg)):
+            # latest.png is a plain copy outside the lab: an encrypted lab's
+            # snips are only ever written into the lab, encrypted (0.16.0).
+            pass
+        else:
+            try:
+                latest_path = storage.save_latest(
+                    result.disk.data, result.disk.ext, self.cfg
+                )
+            except OSError as exc:
+                notes.append(f"could not write to the save folder ({exc})")
 
         # The second destination gets its own attempt. A lab can sit on a
         # different drive from the save folder, and a full or read-only save
@@ -1954,7 +2139,10 @@ class ShadowSnipApp(QObject):
         )
 
     def quit(self) -> None:
+        import vault
+
         self.preview.flush_edits()
+        vault.lock_all()   # wipes any decrypted copies handed to other programs
         self.toast.hide()
         self.autocopy.release()
         if hasattr(self.hotkeys, "release_all"):

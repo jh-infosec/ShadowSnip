@@ -1,6 +1,47 @@
 # Changelog
 
-## Latest: 0.15.0
+## Latest: 0.16.0
+
+**Added**: **encrypted labs**. A lab can be encrypted when it is started (tick
+**Encrypt this lab** in the new Start lab window) or later (**Encrypt this
+lab...** in the tray menu, which encrypts what is already there). Every file
+in the lab folder is encrypted at rest with AES-256-GCM under a key of the
+lab's own, and stays encrypted: ShadowSnip decrypts into memory as it reads,
+never to disk. Choices made with you:
+
+- a **password per lab**, typed when the lab is started or resumed;
+- a **recovery key**, shown once (eight groups of four), that opens the lab
+  if the password is forgotten; using it asks for a new password at once;
+- files **always encrypted on disk**, even while the lab is open;
+- **off by default**, asked per lab; Settings > Labs > **Encrypt new labs**
+  ticks it for every new one.
+
+Also **Change lab password...** (no file rewritten; a new recovery key
+replaces the old) and **Decrypt this lab...** in the tray menu. Stop lab
+locks it, and a lab left running at quit asks for its password at start.
+
+Everything reads through the new `vault.py`: the list, thumbnails, hover
+previews, the viewer and its kept marks, lab.md in Preview, removed snips,
+clips (played from memory), trimming, GIF export and all three report
+formats. `storage.write_atomic` encrypts any write inside an unlocked lab and
+refuses any write inside a locked one, so no code path can leave a plain file
+there. A file altered, damaged or copied in from another lab is refused, not
+shown. A lab half way through being encrypted still opens, and Encrypt this
+lab finishes it.
+
+Where a plain copy is unavoidable it is kept out of the lab and short-lived:
+another program opening a snip or clip, or pasting a clip as a file, gets a
+decrypted copy in a private temp folder wiped when the lab locks or
+ShadowSnip quits. `latest.png` is not written for an encrypted lab's snips.
+Exports stay plain files, offered in Documents, and the export window says so.
+
+**Changed**: Start lab is a small window of its own (name, and for a new lab
+whether to encrypt it) instead of a plain text box.
+
+**New dependency**: `cryptography` (in requirements.txt). scrypt comes from
+Python's hashlib.
+
+## 0.15.0
 
 The report release.
 

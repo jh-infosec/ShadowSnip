@@ -251,6 +251,12 @@ def start(cfg: dict, name: str) -> Path:
 
     _ensure_gitignore(root(cfg))
 
+    import vault
+
+    if vault.is_encrypted_lab(target) and not vault.is_unlocked(target):
+        # Reading it would give nothing, and a blank record must not be
+        # written over the encrypted one (the write would be refused anyway).
+        raise LabError(f"'{name}' is an encrypted lab: unlock it with its password first.")
     state = _load_state(target)
     if not state:
         state = _blank_state(name)
@@ -428,7 +434,13 @@ def save(data: bytes, ext: str, cfg: dict, companion: Path | None = None) -> Pat
         # A video clip (0.14.0): the snip is its poster, and the clip itself
         # moves in beside it under the same name before lab.md is written,
         # so the index links to it from the start.
-        Path(companion).replace(path.with_suffix(Path(companion).suffix))
+        import vault
+
+        moved_to = path.with_suffix(Path(companion).suffix)
+        if vault.vault_for(moved_to) is not None:
+            vault.seal(Path(companion), moved_to)   # encrypted into an encrypted lab
+        else:
+            Path(companion).replace(moved_to)
 
     if cfg.get("lab_index", True):
         state = _load_state(target) or _blank_state(target.name)
@@ -1608,9 +1620,13 @@ def _next_note_id(state: dict) -> str:
 
 
 def _load_state(target: Path) -> dict:
+    import vault
+
     try:
-        with open(target / STATE_NAME, "r", encoding="utf-8") as fh:
-            state = json.load(fh)
+        # Decrypted when the lab is encrypted (0.16.0). A locked lab reads as
+        # empty; writing to it is refused (vault.guard), so that cannot
+        # overwrite anything.
+        state = json.loads(vault.read_text(target / STATE_NAME))
     except (OSError, ValueError):
         return {}
     return state if isinstance(state, dict) else {}

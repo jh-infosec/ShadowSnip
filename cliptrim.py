@@ -92,9 +92,16 @@ def reencode(source: Path, target: Path, start_ms: int, end_ms: int, progress=No
     start_us, end_us = int(start_ms) * 1000, int(end_ms) * 1000
     if end_us - start_us < MIN_KEEP_MS * 1000:
         raise TrimError("Keep at least a fraction of a second.")
+    import vault
+
     target = Path(target)
     if target.exists():
         target.unlink()
+    # Qt writes the new clip itself, so inside an encrypted lab it writes to
+    # the private temp folder and the result is encrypted into place after.
+    written_to = vault.scratch(target) or target
+    if written_to.exists():
+        written_to.unlink()
 
     loop = QEventLoop()
     state = {"error": "", "first": None, "last_us": -1, "sent": 0, "decoded_all": False,
@@ -149,7 +156,7 @@ def reencode(source: Path, target: Path, start_ms: int, end_ms: int, progress=No
         encoder.setQuality(QMediaRecorder.Quality.HighQuality)
         encoder.setVideoFrameRate(state["fps"])
         encoder.setVideoResolution(size)
-        encoder.setOutputLocation(QUrl.fromLocalFile(str(target)))
+        encoder.setOutputLocation(QUrl.fromLocalFile(str(written_to)))
         encoder.record()
 
     def on_frame(frame) -> None:
@@ -212,7 +219,10 @@ def reencode(source: Path, target: Path, start_ms: int, end_ms: int, progress=No
     encoder.errorOccurred.connect(lambda _e, message: fail(message or "The trimmed clip could not be written."))
     stall.timeout.connect(lambda: fail("Trimming stopped making progress."))
 
-    player.setSource(QUrl.fromLocalFile(str(source)))
+    try:
+        vault.media_source(player, source)
+    except OSError as exc:
+        raise TrimError(str(exc)) from exc
     player.setPlaybackRate(TRIM_RATE)
     if start_us > 0:
         player.setPosition(int(start_ms))
@@ -225,14 +235,21 @@ def reencode(source: Path, target: Path, start_ms: int, end_ms: int, progress=No
     if state["error"] or not state["done"]:
         if encoder.recorderState() != QMediaRecorder.RecorderState.StoppedState:
             encoder.stop()
+        _discard(written_to)
         _discard(target)
         raise TrimError(state["error"] or "The trimmed clip could not be written.")
-    written = Path(encoder.actualLocation().toLocalFile() or target)
-    if written != target and written.is_file():
-        os.replace(written, target)
-    if not target.is_file() or target.stat().st_size == 0:
-        _discard(target)
+    written = Path(encoder.actualLocation().toLocalFile() or written_to)
+    if written != written_to and written.is_file():
+        os.replace(written, written_to)
+    if not written_to.is_file() or written_to.stat().st_size == 0:
+        _discard(written_to)
         raise TrimError("The trimmed clip could not be written.")
+    if written_to != target:
+        try:
+            vault.seal(written_to, target)
+        except OSError as exc:
+            _discard(written_to)
+            raise TrimError(f"The trimmed clip could not be encrypted into the lab: {exc}") from exc
     seconds = (state["last_us"] - start_us) / 1_000_000 + 1 / state["fps"]
     return state["first"], seconds
 
@@ -304,7 +321,9 @@ def _length(video: Path) -> float:
         lambda status: loop.quit() if status in (QMediaPlayer.MediaStatus.LoadedMedia,
                                                  QMediaPlayer.MediaStatus.InvalidMedia) else None)
     QTimer.singleShot(5000, loop.quit)
-    player.setSource(QUrl.fromLocalFile(str(video)))
+    import vault
+
+    vault.media_source(player, video)
     if not found["ms"]:
         loop.exec()
     found["ms"] = found["ms"] or player.duration()

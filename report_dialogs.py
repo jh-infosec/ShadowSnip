@@ -269,7 +269,8 @@ class ExportDialog(QDialog):
         ("pdf", "PDF (.pdf)", "Fixed pages with page numbers, ready to hand over."),
     )
 
-    def __init__(self, fmt: str, scope: str, findings: int, docx_ok: bool = True, parent=None):
+    def __init__(self, fmt: str, scope: str, findings: int, docx_ok: bool = True, parent=None,
+                 encrypted: bool = False):
         super().__init__(parent)
         self.setWindowTitle("Export report")
         self.setMinimumWidth(460)
@@ -319,6 +320,13 @@ class ExportDialog(QDialog):
             hint.setWordWrap(True)
             hint.setObjectName("FieldLabel")
             layout.addWidget(hint)
+
+        if encrypted:
+            warning = QLabel("This lab is encrypted, but the export is not: it is a plain file for "
+                             "handing over. Keep it somewhere safe.")
+            warning.setWordWrap(True)
+            warning.setStyleSheet("color: #f0a020;")
+            layout.addWidget(warning)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         self.btn_export = buttons.addButton("Export...", QDialogButtonBox.ButtonRole.AcceptRole)

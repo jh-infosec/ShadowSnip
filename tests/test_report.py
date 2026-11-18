@@ -385,7 +385,10 @@ def test_new_labs_can_start_with_the_phases(shadow, monkeypatch):
     import app as app_mod
 
     shadow.cfg["lab_methodology"] = True
-    monkeypatch.setattr(app_mod.QInputDialog, "getText", lambda *a, **k: ("fresh", True))
+    import labkeys
+
+    monkeypatch.setattr(labkeys.StartLabDialog, "exec", lambda d: 1)
+    monkeypatch.setattr(labkeys.StartLabDialog, "values", lambda d: ("fresh", False, ""))
     shadow.start_lab()
     assert lab.sections(shadow.cfg)[:5] == list(lab.METHODOLOGY)
 

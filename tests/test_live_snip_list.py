@@ -84,9 +84,10 @@ def test_starting_a_lab_over_a_snip_lists_that_snip(shadow, monkeypatch):
     image = QImage(120, 80, QImage.Format.Format_RGB32)
     image.fill(QColor(90, 10, 10))
     s._handle_snip(image)  # no lab yet
-    monkeypatch.setattr(
-        app_mod.QInputDialog, "getText", lambda *a, **k: ("box", True)
-    )
+    import labkeys
+
+    monkeypatch.setattr(labkeys.StartLabDialog, "exec", lambda d: 1)
+    monkeypatch.setattr(labkeys.StartLabDialog, "values", lambda d: ("box", False, ""))
     monkeypatch.setattr(s.preview, "isVisible", lambda: True)
 
     s.start_lab()

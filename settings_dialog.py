@@ -368,6 +368,11 @@ class SettingsDialog(QDialog):
         self.lab_methodology_check.setChecked(cfg["lab_methodology"])
         self.lab_methodology_check.setEnabled(cfg["lab_index"])
         self.lab_index_check.toggled.connect(self.lab_methodology_check.setEnabled)
+        self.lab_encrypt_check = QCheckBox("Encrypt new labs")
+        self.lab_encrypt_check.setToolTip(
+            "Start lab ticks Encrypt this lab for a new lab. Each lab still gets its own password."
+        )
+        self.lab_encrypt_check.setChecked(bool(cfg.get("lab_encrypt_default")))
 
         # The skin: a list to pick from, and a button that steps through them.
         self.skin_combo = QComboBox()
@@ -458,6 +463,7 @@ class SettingsDialog(QDialog):
         labs.addRow(self.lab_index_check)
         labs.addRow(self.lab_caption_check)
         labs.addRow(self.lab_methodology_check)
+        labs.addRow(self.lab_encrypt_check)
 
         # Outside the tabs, so they are always on screen whichever tab is open.
         buttons = QDialogButtonBox(
@@ -690,6 +696,7 @@ class SettingsDialog(QDialog):
         cfg["lab_index"] = self.lab_index_check.isChecked()
         cfg["lab_caption"] = self.lab_caption_check.isChecked()
         cfg["lab_methodology"] = self.lab_methodology_check.isChecked()
+        cfg["lab_encrypt_default"] = self.lab_encrypt_check.isChecked()
         cfg["skin"] = self.skin_combo.currentData() or "original"
         return cfg
 

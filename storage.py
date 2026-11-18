@@ -51,7 +51,18 @@ def replace_with_retry(source, target, attempts: int = REPLACE_ATTEMPTS, wait: f
             sleep(wait * (attempt + 1))
 
 
-def write_atomic(path: Path, data: bytes) -> Path:
+def write_atomic(path: Path, data: bytes, plain: bool = False) -> Path:
+    """Write a whole file at once: a temp file beside it, then a rename.
+
+    Inside an encrypted lab (0.16.0) the bytes are encrypted first, and a
+    locked one refuses the write (vault.guard). `plain=True` is for a file
+    the user asked to have readable, such as an export, and skips that.
+    """
+    path = Path(path)
+    if not plain:
+        import vault
+
+        data = vault.guard(path, data)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     try:

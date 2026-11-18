@@ -1,6 +1,8 @@
 PySide6>=6.8
 Pillow>=10.0
 python-docx>=1.1
+# Encrypted labs (0.16.0): AES-256-GCM and HKDF. scrypt comes with Python.
+cryptography>=42.0
 pywin32>=306; sys_platform == "win32"
 # Copy text and Quick redact (0.10.0) read text with Windows' own OCR engine,
 # reached through these. Linux uses the tesseract program instead

@@ -43,6 +43,8 @@ clips.py             a clip's poster, finding the video beside it, GIF export
 player.py            playing a clip inside ShadowSnip (main window and full-size view), the trim bar
 cliptrim.py          trimming a clip: re-encoding the part kept, keeping and restoring the original
 cvss.py              CVSS 3.1 vectors: parsing, base score, rating
+vault.py             encrypted labs: keys, encrypting files, every decrypting reader
+labkeys.py           the encrypted-lab windows: start, unlock, recovery key, new password
 reportpdf.py         the PDF report, laid out with QTextDocument and painted onto QPdfWriter
 removedview.py       the Removed snips window: list, preview, Restore
 clipcheck.py         run by hand: does video recording work on this machine?
@@ -295,6 +297,38 @@ then the records (the snip and the notes removed with it, matched by the
 same `removed` stamp), inserting them before the first later-numbered snip.
 If lab.json cannot be written, the files go back into `removed/`, so folder
 and record never disagree.
+
+## Encrypted labs (0.16.0)
+
+`vault.py` holds the unlocked labs (`_open`: resolved folder to `Vault`, the
+data key in memory) and is the only place files in a lab are encrypted or
+decrypted. Encryption is per file, AES-256-GCM, the lab's id as associated
+data, and recognised by an 8-byte magic rather than by name, so names (and
+everything that finds files by name: numbering, the list, sidecars, clips
+beside posters, removed/) are untouched, and a half-converted lab still reads.
+
+Two choke points keep it from leaking:
+
+- **Writes**: `storage.write_atomic` passes every write through
+  `vault.guard()`. Inside an unlocked lab the bytes are encrypted; inside a
+  locked one (any folder up to three levels above with a `lab.key`) the write
+  raises `Locked`. `plain=True` is for user exports and Save as.
+- **Reads**: `vault.read`, `read_text`, `load_image`, `image_reader`,
+  `image_size` and `media_source` replace direct file reads in lab, edits,
+  imageops, labsnips, player, preview, removedview, clips, cliptrim, report and
+  reportpdf. Plain files pass straight through, so labs that are not
+  encrypted, and the history folder, behave exactly as before.
+
+Qt can only record or re-encode video to a file path, so a recording (in
+`.recording` under the save folder) and a trim (in the vault's private temp
+folder, `vault.scratch`) are written plain and then sealed into the lab
+(`vault.seal`). Anything handed to another program goes through
+`vault.handoff`, a decrypted copy in that temp folder; `lock()` wipes it, and
+`quit()` locks every lab.
+
+`lab.start()` refuses an encrypted lab that is not unlocked, because
+`_load_state` of a locked lab reads as empty and a blank record would
+otherwise be written (it would be refused by guard() anyway).
 
 ## The snip pipeline
 

@@ -127,7 +127,11 @@ def clipboard_png_from_file(path, cfg: dict) -> tuple[bytes, Image.Image]:
     reduced when it was taken, so it is only re-encoded as PNG, not processed
     again. Raises OSError if the file cannot be read as an image.
     """
-    with Image.open(path) as opened:
+    import io
+
+    import vault
+
+    with Image.open(io.BytesIO(vault.read(path))) as opened:
         opened.load()
         image = opened.convert("RGBA" if "A" in opened.getbands() else "RGB")
     level = int(cfg.get("png_compress_level", 6))
