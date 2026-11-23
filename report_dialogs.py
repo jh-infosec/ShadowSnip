@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -157,41 +158,54 @@ class FindingDialog(QDialog):
         data["cvss"] = self.cvss_vector.text().strip() if self._cvss_ok() else ""
         return data
 
-    # -- CVSS 3.1 (0.15.0) ---------------------------------------------------------
+    # -- CVSS 3.1 (0.15.0) and 4.0 (0.17.0) -------------------------------------------
     def _build_cvss(self, vector: str) -> None:
-        """A tick box, the vector as text, and a picker per base metric, kept in step.
+        """A tick box, a version, the vector as text, and a picker per base metric, kept in step.
 
         Paste a vector from a CVE or NVD, or build one with the pickers; the
         score and rating show as you go, and the severity follows the rating.
+        Pasting a 4.0 vector switches the pickers to 4.0's eleven metrics.
         """
         self._syncing = True   # the pickers fill in quietly while being built
-        self.use_cvss = QCheckBox("Score it with CVSS 3.1")
+        self.use_cvss = QCheckBox("Score it with CVSS")
         self.use_cvss.setToolTip("The severity then follows the CVSS rating, and reports show the score")
+        self.cvss_version = QComboBox()
+        for version in cvss.VERSIONS:
+            self.cvss_version.addItem(f"CVSS {version}", version)
+        self.cvss_version.setToolTip("3.1 is what most exams and CVE records still use; 4.0 is the newer standard")
+        self.cvss_version.currentIndexChanged.connect(self._cvss_version_picked)
         self.cvss_vector = QLineEdit()
-        self.cvss_vector.setPlaceholderText("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")
         self.cvss_vector.setFont(_mono())
         self.cvss_score = QLabel("")
         self.cvss_score.setObjectName("CvssScore")
         self.cvss_score.setMinimumWidth(self.cvss_score.fontMetrics().horizontalAdvance("10.0 Critical") + 12)
-        self.cvss_combos: dict[str, QComboBox] = {}
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(4)
-        for index, (key, name, choices) in enumerate(cvss.METRICS):
-            combo = QComboBox()
-            for code, label in choices:
-                combo.addItem(label, code)
-            combo.setToolTip(f"{name} ({key})")
-            combo.currentIndexChanged.connect(self._cvss_from_pickers)
-            self.cvss_combos[key] = combo
-            caption = QLabel(name)
-            caption.setObjectName("FieldLabel")
-            row, col = divmod(index, 4)
-            grid.addWidget(caption, row * 2, col)
-            grid.addWidget(combo, row * 2 + 1, col)
+        self.cvss_pickers: dict[str, dict[str, QComboBox]] = {}
+        self.cvss_grids = QStackedWidget()
+        for version in cvss.VERSIONS:
+            page = QWidget()
+            grid = QGridLayout(page)
+            grid.setContentsMargins(0, 0, 0, 0)
+            grid.setHorizontalSpacing(10)
+            grid.setVerticalSpacing(4)
+            combos: dict[str, QComboBox] = {}
+            columns = 4
+            for index, (key, name, choices) in enumerate(cvss.metrics_for(version)):
+                combo = QComboBox()
+                for code, label in choices:
+                    combo.addItem(label, code)
+                combo.setToolTip(f"{name} ({key})")
+                combo.currentIndexChanged.connect(self._cvss_from_pickers)
+                combos[key] = combo
+                caption = QLabel(name)
+                caption.setObjectName("FieldLabel")
+                row, col = divmod(index, columns)
+                grid.addWidget(caption, row * 2, col)
+                grid.addWidget(combo, row * 2 + 1, col)
+            self.cvss_pickers[version] = combos
+            self.cvss_grids.addWidget(page)
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
+        top.addWidget(self.cvss_version)
         top.addWidget(self.cvss_vector, 1)
         top.addWidget(self.cvss_score)
         self.cvss_box = QWidget()
@@ -199,8 +213,9 @@ class FindingDialog(QDialog):
         box_layout.setContentsMargins(0, 0, 0, 4)
         box_layout.setSpacing(6)
         box_layout.addLayout(top)
-        box_layout.addLayout(grid)
+        box_layout.addWidget(self.cvss_grids)
 
+        self._show_version(cvss.version_of(vector) or "3.1")
         self._syncing = False
         self.cvss_vector.textChanged.connect(self._cvss_from_text)
         self.use_cvss.toggled.connect(self._cvss_toggled)
@@ -209,6 +224,27 @@ class FindingDialog(QDialog):
             self._cvss_from_pickers()   # a starting vector, from the pickers' first values
         self.use_cvss.setChecked(bool(vector))
         self._cvss_toggled(bool(vector))
+
+    @property
+    def cvss_combos(self) -> dict[str, QComboBox]:
+        """The pickers of the version showing."""
+        return self.cvss_pickers[self._cvss_shown]
+
+    def _show_version(self, version: str) -> None:
+        version = "4.0" if version == "4.0" else "3.1"
+        self._cvss_shown = version
+        self.cvss_grids.setCurrentIndex(cvss.VERSIONS.index(version))
+        was = self.cvss_version.blockSignals(True)
+        self.cvss_version.setCurrentIndex(cvss.VERSIONS.index(version))
+        self.cvss_version.blockSignals(was)
+        self.cvss_vector.setPlaceholderText(
+            "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N" if version == "4.0"
+            else "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")
+
+    def _cvss_version_picked(self, _index: int) -> None:
+        """A different version chosen: start from its pickers (vectors do not translate)."""
+        self._show_version(self.cvss_version.currentData())
+        self._cvss_from_pickers(force=True)
 
     def _cvss_ok(self) -> bool:
         if not self.use_cvss.isChecked():
@@ -227,21 +263,26 @@ class FindingDialog(QDialog):
             self._cvss_from_text(self.cvss_vector.text())
         self.adjustSize()
 
-    def _cvss_from_pickers(self, *_args) -> None:
+    def _cvss_from_pickers(self, *_args, force: bool = False) -> None:
         if self._syncing:
             return
+        version = self._cvss_shown
         metrics = {key: combo.currentData() for key, combo in self.cvss_combos.items()}
-        version = "3.1"
         try:
-            version = cvss.parse(self.cvss_vector.text())[0]
+            text_version, current = cvss.parse(self.cvss_vector.text())
         except cvss.CvssError:
-            pass
+            text_version, current = "", {}
+        if version == "4.0" and text_version == "4.0" and not force:
+            # Keep threat, environmental and supplemental metrics a pasted vector had.
+            metrics = {**current, **metrics}
+        if version == "3.1" and text_version == "3.0" and not force:
+            version = "3.0"
         self.cvss_vector.setText(cvss.vector_of(metrics, version))
 
     def _cvss_from_text(self, text: str) -> None:
         try:
             canonical, score, rating = cvss.score(text)
-            _version, metrics = cvss.parse(text)
+            version, metrics = cvss.parse(text)
         except cvss.CvssError as exc:
             self.cvss_score.setText("Not scored")
             self.cvss_score.setToolTip(str(exc))
@@ -249,6 +290,7 @@ class FindingDialog(QDialog):
             return
         self._syncing = True
         try:
+            self._show_version("4.0" if version == "4.0" else "3.1")
             for key, combo in self.cvss_combos.items():
                 combo.setCurrentIndex(max(0, combo.findData(metrics[key])))
         finally:
@@ -270,10 +312,13 @@ class ExportDialog(QDialog):
     )
 
     def __init__(self, fmt: str, scope: str, findings: int, docx_ok: bool = True, parent=None,
-                 encrypted: bool = False):
+                 encrypted: bool = False, meta: dict | None = None, template: str = "",
+                 lab_name: str = ""):
         super().__init__(parent)
         self.setWindowTitle("Export report")
-        self.setMinimumWidth(460)
+        self.setMinimumWidth(520)
+        meta = dict(meta or {})
+        self._lab_name = lab_name
 
         heading = QLabel("Format")
         heading.setObjectName("FieldLabel")
@@ -321,6 +366,12 @@ class ExportDialog(QDialog):
             hint.setObjectName("FieldLabel")
             layout.addWidget(hint)
 
+        self._build_front_matter(layout, meta, template)
+        for button in self.format_buttons.values():
+            button.toggled.connect(self._sync_front_matter)
+        self.scope_full.toggled.connect(self._sync_front_matter)
+        self._sync_front_matter()
+
         if encrypted:
             warning = QLabel("This lab is encrypted, but the export is not: it is a plain file for "
                              "handing over. Keep it somewhere safe.")
@@ -339,6 +390,112 @@ class ExportDialog(QDialog):
     def values(self) -> tuple[str, str]:
         fmt = next(key for key, button in self.format_buttons.items() if button.isChecked())
         return fmt, "findings" if self.scope_findings.isChecked() else "full"
+
+    # -- the front matter and the Word template (0.17.0) -----------------------------------
+    def _build_front_matter(self, layout, meta: dict, template: str) -> None:
+        heading = QLabel("Front pages")
+        heading.setObjectName("FieldLabel")
+        layout.addSpacing(6)
+        layout.addWidget(heading)
+        self.cover = QCheckBox("Cover page")
+        self.cover.setToolTip("A first page with the title, who it is for and by, the date and the finding counts")
+        self.cover.setChecked(bool(meta.get("cover")))
+        self.toc = QCheckBox("Table of contents")
+        self.toc.setToolTip("The sections with their page numbers (Word numbers them when it opens the file)")
+        self.toc.setChecked(bool(meta.get("toc")))
+        row = QHBoxLayout()
+        row.addWidget(self.cover)
+        row.addWidget(self.toc)
+        row.addStretch(1)
+        layout.addLayout(row)
+        self.title = QLineEdit(meta.get("title", ""))
+        self.client = QLineEdit(meta.get("client", ""))
+        self.client.setPlaceholderText("The client, or Hack The Box, or OffSec")
+        self.author = QLineEdit(meta.get("author", ""))
+        self.author.setPlaceholderText("Your name, as it goes on the report")
+        self.date = QLineEdit(meta.get("date", ""))
+        import report
+
+        self.date.setPlaceholderText(report.normalise_meta(None, "x")["date"] + " (today)")
+        self.details = QWidget()
+        form = QFormLayout(self.details)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.addRow("Title", self.title)
+        form.addRow("Prepared for", self.client)
+        form.addRow("Prepared by", self.author)
+        form.addRow("Date", self.date)
+        layout.addWidget(self.details)
+
+        self.template_path = template or ""
+        self.template_label = QLabel("")
+        self.template_label.setWordWrap(True)
+        self.template_label.setObjectName("FieldLabel")
+        self.btn_template = QPushButton("Choose...")
+        self.btn_template.setToolTip(
+            "A .docx or .dotx with your styles, logo, headers and cover. Write {{report}} where the "
+            "report goes, and {{title}}, {{client}}, {{author}}, {{date}} or {{lab}} anywhere to have them filled in.")
+        self.btn_template.clicked.connect(self._choose_template)
+        self.btn_no_template = QPushButton("No template")
+        self.btn_no_template.clicked.connect(lambda: self._set_template(""))
+        self.template_row = QWidget()
+        tpl = QHBoxLayout(self.template_row)
+        tpl.setContentsMargins(0, 0, 0, 0)
+        caption = QLabel("Word template")
+        tpl.addWidget(caption)
+        tpl.addWidget(self.template_label, 1)
+        tpl.addWidget(self.btn_template)
+        tpl.addWidget(self.btn_no_template)
+        layout.addWidget(self.template_row)
+        self.cover.toggled.connect(self._sync_front_matter)
+        self.toc.toggled.connect(self._sync_front_matter)
+        self._set_template(self.template_path)
+
+    def _choose_template(self) -> None:
+        from pathlib import Path
+
+        from PySide6.QtWidgets import QFileDialog
+
+        start = str(Path(self.template_path).parent) if self.template_path else str(Path.home())
+        chosen, _ = QFileDialog.getOpenFileName(self, "Word template", start, "Word templates (*.docx *.dotx)")
+        if chosen:
+            self._set_template(chosen)
+
+    def _set_template(self, path: str) -> None:
+        from pathlib import Path
+
+        self.template_path = path or ""
+        self.template_label.setText(Path(path).name if path else "None: ShadowSnip's own layout")
+        self.template_label.setToolTip(path)
+        self.btn_no_template.setEnabled(bool(path))
+        self._sync_front_matter()
+
+    def _sync_front_matter(self, *_args) -> None:
+        if not hasattr(self, "template_row"):
+            return
+        import report
+
+        fmt = self.values()[0]
+        word = fmt == "docx"
+        self.template_row.setVisible(word)
+        templated = word and bool(self.template_path)
+        # A template brings its own cover; its {{placeholders}} still use the details.
+        self.cover.setEnabled(not templated)
+        self.cover.setToolTip("The template has its own cover" if templated else
+                              "A first page with the title, who it is for and by, the date and the finding counts")
+        self.details.setVisible(self.cover.isChecked() or templated)
+        self.title.setPlaceholderText(report.default_title(self._lab_name or "Lab", self.values()[1]))
+        self.adjustSize()
+
+    def front_matter(self) -> dict:
+        """The cover and contents choices and details, as report.normalise_meta takes them."""
+        templated = self.values()[0] == "docx" and bool(self.template_path)
+        return {"cover": self.cover.isChecked() and not templated, "toc": self.toc.isChecked(),
+                "title": self.title.text().strip(), "client": self.client.text().strip(),
+                "author": self.author.text().strip(), "date": self.date.text().strip(),
+                "cover_wanted": self.cover.isChecked()}
+
+    def template(self) -> str:
+        return self.template_path if self.values()[0] == "docx" else ""
 
 
 class OutputDialog(QDialog):

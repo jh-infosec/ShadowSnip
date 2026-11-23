@@ -15,6 +15,19 @@ one-cell table with a coloured left edge, and command output a shaded cell.
 Pages are A4 with a footer on each: the lab's name and "Page n of m". An
 image is never split across pages (Qt moves a line that does not fit to the
 next page, and an image is one line).
+
+## Cover page and contents (0.17.0)
+
+Asked for in the Export window. The cover is a page of its own: the lab's
+name, the report's title, who it is for and by, the date, and how many
+findings of each severity. It has no footer, but counts as page 1.
+
+The contents list the findings summary and the section headings (two levels)
+with their page numbers. To know them, the body is laid out first, on its
+own, and each heading's page read from where Qt placed it; then the contents
+are laid out, and their page count added to every number. Cover, contents and
+body are three documents painted one after another onto the same PDF, so
+laying out one never moves another.
 """
 
 from __future__ import annotations
@@ -41,6 +54,10 @@ MARGINS_MM = (16, 16, 14, 16)
 # read as they would on a web page.
 DPI = 96
 FOOTER_PX = 28
+# How far down the page the cover starts.
+COVER_DROP = 0.3
+# A heading this close to the foot of a page moves to the next one.
+ORPHAN_PX = 90
 BASE_PT = 10
 # Images wider than this are downscaled before going in, to keep the file a
 # sensible size; they are drawn at most page width anyway.
@@ -95,12 +112,16 @@ class _Builder:
         return f'<img src="{name}" width="{width}" height="{height}">'
 
 
-def build(data: dict, document: QTextDocument, text_width: int) -> str:
-    """The QTextDocument markup for a report model (see report.model)."""
+def build(data: dict, document: QTextDocument, text_width: int, title: bool = True) -> str:
+    """The QTextDocument markup for a report model (see report.model).
+
+    `title` False leaves out the lab's name at the top, for a report with a cover.
+    """
     out = _Builder(document, text_width)
-    out.add(f'<h1 style="font-size:22pt; margin-bottom:2px;">{_esc(data["name"])}</h1>')
-    if report.subtitle(data):
-        out.add(f'<p style="color:{_DIM}; margin-top:0;">{_esc(report.subtitle(data))}</p>')
+    if title:
+        out.add(f'<h1 style="font-size:22pt; margin-bottom:2px;">{_esc(data["name"])}</h1>')
+        if report.subtitle(data):
+            out.add(f'<p style="color:{_DIM}; margin-top:0;">{_esc(report.subtitle(data))}</p>')
 
     if data["findings"]:
         out.add('<h2 style="font-size:15pt;">Findings summary</h2>')
@@ -126,7 +147,7 @@ def build(data: dict, document: QTextDocument, text_width: int) -> str:
                     "</tr></table>")
             facts = []
             if block.get("score") is not None:
-                facts.append(f"CVSS 3.1 <b>{block['score']:.1f}</b>")
+                facts.append(f"CVSS {report.cvss_version(block)} <b>{block['score']:.1f}</b>")
             if block.get("host"):
                 facts.append(f"Affected host: {_esc(block['host'])}")
             body = [f"<p>{''.join(head)}</p>", chip]
@@ -174,6 +195,94 @@ def build(data: dict, document: QTextDocument, text_width: int) -> str:
     return "\n".join(out.parts)
 
 
+def cover_markup(data: dict, meta: dict) -> str:
+    """The cover page: name, title, who for and by, date, the severity counts."""
+    parts = ['<p style="color:#5c5c66; font-size:11pt; letter-spacing:1px;">'
+             f"{_esc(data['name']).upper()}</p>",
+             f'<h1 style="font-size:28pt; margin-top:6px; margin-bottom:30px;">{_esc(meta["title"])}</h1>',
+             '<table cellspacing="0" cellpadding="4">']
+    for label, key in (("Prepared for", "client"), ("Prepared by", "author"), ("Date", "date")):
+        if meta[key]:
+            parts.append(f'<tr><td style="color:{_DIM}; padding-right:24px;">{label}</td>'
+                         f"<td>{_esc(meta[key])}</td></tr>")
+    parts.append("</table>")
+    counts = report.severity_counts(data["findings"])
+    if counts:
+        cells = "".join(f"{_sev_cell(name)}<td style=\"padding:2px 14px 2px 6px;\">{count}</td>"
+                        for name, count in counts)
+        parts.append(f'<p style="margin-top:36px; color:{_DIM};">Findings</p>'
+                     f'<table cellspacing="0" cellpadding="0"><tr>{cells}</tr></table>')
+    return "\n".join(parts)
+
+
+def heading_pages(document: QTextDocument, page_height: float) -> list[tuple[int, str, int]]:
+    """(level, text, page from 0) for each heading in a laid-out document."""
+    layout = document.documentLayout()
+    out = []
+    block = document.begin()
+    while block.isValid():
+        level = block.blockFormat().headingLevel()
+        if level:
+            top = layout.blockBoundingRect(block).top()
+            out.append((level, block.text().strip(), int(top // page_height)))
+        block = block.next()
+    return out
+
+
+def keep_headings_with_text(document: QTextDocument, page_height: float, room: float = ORPHAN_PX) -> int:
+    """Move a heading stranded at the foot of a page to the top of the next.
+
+    QTextDocument has no keep-with-next, so a section's heading can end a
+    page with its content on the following one. A heading starting within
+    `room` of the page's end gets a page break before it, and the document is
+    laid out again. Returns how many were moved.
+    """
+    from PySide6.QtGui import QTextBlockFormat, QTextCursor, QTextFormat
+
+    moved = 0
+    for _round in range(20):   # each move can shift the headings after it
+        layout = document.documentLayout()
+        stranded = None
+        block = document.begin()
+        while block.isValid():
+            if block.blockFormat().headingLevel():
+                rect = layout.blockBoundingRect(block)
+                into = rect.top() % page_height
+                if into > page_height - room and rect.top() > 0:
+                    stranded = block
+                    break
+            block = block.next()
+        if stranded is None:
+            return moved
+        cursor = QTextCursor(stranded)
+        fmt = QTextBlockFormat()
+        fmt.setPageBreakPolicy(QTextFormat.PageBreakFlag.PageBreak_AlwaysBefore)
+        cursor.mergeBlockFormat(fmt)
+        moved += 1
+    return moved
+
+
+def contents_markup(entries: list[tuple[int, str, int]]) -> str:
+    """The contents page: each heading with its page number at the right."""
+    rows = []
+    for level, text, page in entries:
+        indent = 0 if level <= 2 else 18
+        weight = "600" if level <= 2 else "400"
+        rows.append(f'<tr><td style="padding:3px 0 3px {indent}px; font-weight:{weight};">{_esc(text)}</td>'
+                    f'<td align="right" style="padding:3px 0; color:{_DIM};">{page}</td></tr>')
+    return (f'<h2 style="font-size:18pt; margin-bottom:12px;">Contents</h2>'
+            f'<table width="100%" cellspacing="0" cellpadding="0">{"".join(rows)}</table>')
+
+
+def _document(font: QFont, width: float, page_height: float) -> QTextDocument:
+    document = QTextDocument()
+    document.setDocumentMargin(0)
+    document.setDefaultFont(font)
+    document.setDefaultStyleSheet(f"body {{ color: {_INK}; }} pre {{ margin: 0; }}")
+    document.setPageSize(QSizeF(width, page_height))
+    return document
+
+
 def to_pdf(data: dict) -> bytes:
     """The report as PDF bytes. Needs a running QGuiApplication (ShadowSnip always has one)."""
     payload = QByteArray()
@@ -188,16 +297,33 @@ def to_pdf(data: dict) -> bytes:
                                      QMarginsF(left, top, right, bottom), QPageLayout.Unit.Millimeter))
     width, height = writer.width(), writer.height()
     page_height = height - FOOTER_PX
-
-    document = QTextDocument()
-    document.setDocumentMargin(0)
+    meta = data.get("meta") or report.normalise_meta(None, data["name"], data.get("scope", "full"))
     font = QFont()
     font.setPointSizeF(BASE_PT)
-    document.setDefaultFont(font)
-    document.setDefaultStyleSheet(f"body {{ color: {_INK}; }} pre {{ margin: 0; }}")
-    document.setPageSize(QSizeF(width, page_height))
-    document.setHtml(build(data, document, width))
-    pages = max(1, document.pageCount())
+
+    document = _document(font, width, page_height)
+    document.setHtml(build(data, document, width, title=not meta["cover"]))
+    keep_headings_with_text(document, page_height)
+    body_pages = max(1, document.pageCount())
+    # (document, pages, footer, how far down the page it starts)
+    parts: list[tuple[QTextDocument, int, bool, float]] = []
+    if meta["cover"]:
+        cover = _document(font, width, page_height)
+        cover.setHtml(cover_markup(data, meta))
+        # A third of the way down, as covers are (QTextDocument has no top margin to give it).
+        parts.append((cover, 1, False, page_height * COVER_DROP))
+    if meta["toc"]:
+        entries = [(level, text, page) for level, text, page in heading_pages(document, page_height)
+                   if level <= 3 and not (level == 1)]
+        before = len(parts)
+        toc = _document(font, width, page_height)
+        toc.setHtml(contents_markup([(level, text, 0) for level, text, _page in entries]))
+        toc_pages = max(1, toc.pageCount())
+        first_body_page = before + toc_pages + 1   # pages are numbered from 1
+        toc.setHtml(contents_markup([(level, text, first_body_page + page) for level, text, page in entries]))
+        parts.append((toc, max(1, toc.pageCount()), True, 0.0))
+    parts.append((document, body_pages, True, 0.0))
+    pages = sum(part[1] for part in parts)
 
     painter = QPainter()
     if not painter.begin(writer):
@@ -205,21 +331,27 @@ def to_pdf(data: dict) -> bytes:
     try:
         footer_font = QFont(font)
         footer_font.setPointSizeF(8)
-        for page in range(pages):
-            if page:
-                writer.newPage()
-            painter.save()
-            painter.setClipRect(QRectF(0, 0, width, page_height))
-            painter.translate(0, -page * page_height)
-            document.drawContents(painter, QRectF(0, page * page_height, width, page_height))
-            painter.restore()
-            painter.setFont(footer_font)
-            painter.setPen(QColor(_DIM))
-            painter.drawLine(0, height - FOOTER_PX + 6, width, height - FOOTER_PX + 6)
-            footer = QRectF(0, height - FOOTER_PX + 8, width, FOOTER_PX - 8)
-            painter.drawText(footer, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, data["name"])
-            painter.drawText(footer, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                             f"Page {page + 1} of {pages}")
+        number = 0
+        for part, count, footed, drop in parts:
+            for page in range(count):
+                if number:
+                    writer.newPage()
+                number += 1
+                painter.save()
+                painter.setClipRect(QRectF(0, 0, width, page_height))
+                painter.translate(0, drop - page * page_height)
+                part.drawContents(painter, QRectF(0, page * page_height, width, page_height))
+                painter.restore()
+                if not footed:
+                    continue
+                painter.setFont(footer_font)
+                painter.setPen(QColor(_DIM))
+                painter.drawLine(0, height - FOOTER_PX + 6, width, height - FOOTER_PX + 6)
+                footer = QRectF(0, height - FOOTER_PX + 8, width, FOOTER_PX - 8)
+                painter.drawText(footer, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                                 meta["title"] if meta["cover"] else data["name"])
+                painter.drawText(footer, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                                 f"Page {number} of {pages}")
     finally:
         painter.end()
     buffer.close()

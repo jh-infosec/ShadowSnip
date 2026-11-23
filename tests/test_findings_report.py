@@ -82,7 +82,7 @@ def test_vectors_are_read_leniently_and_written_canonically():
     ("AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H", "Missing A"),
     ("AV:X/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "AV:X"),
     ("AV:N/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "twice"),
-    ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N", "3.0 and 3.1"),
+    ("CVSS:2.0/AV:N/AC:L/Au:N/C:P/I:P/A:P", "3.0, 3.1 and 4.0"),
     ("AV/AC:L", "not a metric"),
     ("A" * 300, "too long"),
 ])
@@ -107,7 +107,7 @@ def test_the_score_decides_the_severity(cfg_lab):
     md = _md(cfg_lab)
     assert "| # | Finding | Severity | CVSS | Host |" in md
     assert "| 1 | 10.10.10.3 / SMB | Critical | 9.8 | 10.10.10.3 |" in md
-    assert "> CVSS 3.1 base score: 9.8 (`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`)" in md
+    assert "> CVSS 3.1 score: 9.8 (`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`)" in md
 
 
 def test_a_vector_that_does_not_score_is_dropped(cfg_lab):

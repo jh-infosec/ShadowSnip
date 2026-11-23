@@ -482,6 +482,29 @@ def set_caption(cfg: dict, filename: str, caption: str) -> bool:
     return False
 
 
+def report_details(cfg: dict) -> dict:
+    """The running lab's report title and client, as last exported (0.17.0)."""
+    target = active_folder(cfg)
+    state = _load_state(target) if target is not None else {}
+    details = state.get("report") if isinstance(state.get("report"), dict) else {}
+    return {key: str(details.get(key, "") or "")[:200] for key in ("title", "client")}
+
+
+def set_report_details(cfg: dict, title: str, client: str) -> None:
+    """Remember the report title and client with the lab (in lab.json)."""
+    target = active_folder(cfg)
+    if target is None:
+        return
+    state = _load_state(target)
+    if not state:
+        return
+    wanted = {"title": " ".join(str(title or "").split())[:200], "client": " ".join(str(client or "").split())[:200]}
+    if state.get("report") == wanted:
+        return
+    state["report"] = wanted
+    _save_state(target, state, cfg)
+
+
 def set_clip_seconds(cfg: dict, filename: str, seconds) -> bool:
     """A clip in the active lab was trimmed: record its new length and re-render lab.md."""
     target = active_folder(cfg)
@@ -1519,7 +1542,9 @@ def _render_finding(item: dict) -> list[str]:
     lines = [f"> **Finding: {item['severity']}**"]
     score = finding_score(item)
     if score is not None:
-        lines.append(f"> CVSS 3.1 base score: {score:.1f} (`{item['cvss']}`)")
+        import cvss
+
+        lines.append(f"> CVSS {cvss.version_of(item['cvss'])} score: {score:.1f} (`{item['cvss']}`)")
     if item.get("host"):
         lines.append(f"> Affected host: {item['host']}")
     lines.append("")

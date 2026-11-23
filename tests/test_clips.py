@@ -272,7 +272,33 @@ def test_copying_a_clip_copies_the_video(panel):
     panel.copy_requested.connect(asked.append)
     panel.copy_selected()
     assert asked == []  # not the poster image
-    assert QApplication.clipboard().mimeData().urls()[0].toLocalFile().endswith(".mp4")
+    assert _clipboard_files()[0].endswith(".mp4")
+
+
+def _clipboard_files() -> list[str]:
+    """The files on the clipboard.
+
+    On Windows they are read the way they were written, straight from the
+    Windows clipboard: Qt's own view of it catches up a moment later, so
+    asking Qt straight away sometimes found it empty.
+    """
+    import sys
+
+    if sys.platform == "win32":
+        try:
+            import win32clipboard as clip
+            import win32con
+        except ImportError:
+            pass
+        else:
+            import clipboard
+
+            clipboard._open_with_retry(clip)
+            try:
+                return list(clip.GetClipboardData(win32con.CF_HDROP))
+            finally:
+                clip.CloseClipboard()
+    return [url.toLocalFile() for url in QApplication.clipboard().mimeData().urls()]
 
 
 # -- the controls and the app -------------------------------------------------------------------

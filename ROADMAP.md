@@ -54,12 +54,26 @@ Findings (severity, host, description, impact, remediation) with a summary
 table, export to a self-contained HTML page or a Word document, command output
 filed as code blocks, and the methodology phases laid out in one click.
 
+## Done in v0.17.0 - the exam-grade report
+
+CVSS 4.0, a cover page and table of contents in every format, and exporting
+into your own Word template.
+
 ## The report, still open
 
-- Exporting into a client's own Word template (styles and cover page).
-- CVSS 4.0 vectors (3.1 is scored today; 4.0's score comes from a lookup
-  table, not a formula).
-- A cover page and table of contents in the PDF.
+- Clickable contents in the PDF (Qt's PDF writer does not make links from
+  QTextDocument anchors).
+- An executive summary section, written once per lab and placed after the cover.
+
+## Next: v0.18 - lab safety
+
+Auto-lock an encrypted lab after a set idle time, record clips straight into
+memory, optionally hide file names, unlock with Windows Hello.
+
+## Then: v0.19 - faster day to day, v0.20 - install and share
+
+The clipboard history strip, a Copy as menu, marks on clips; then run at
+login, a Kali .deb or AppImage, an update check and a release page.
 
 ## Later - integration
 
@@ -196,9 +210,6 @@ is drawn, and Quick redact learning the lab's targets.
 
 ## Open questions
 
-- Whether lab folders should be encrypted at rest. Labs collect exactly the
-  material that should not sit in plain text: hashes, tokens, internal
-  hostnames. The `.gitignore` stops the obvious accident, not the disk.
 - Whether a lab should stop itself after a period of inactivity. The badge and
   tooltip make an engaged lab visible, but neither stops one running for days.
 - Whether to add a second registered clipboard format some paste targets

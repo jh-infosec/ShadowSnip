@@ -1232,15 +1232,31 @@ class ShadowSnipApp(QObject):
         import report_dialogs
         import vault
 
+        details = lab.report_details(self.cfg)
+        remembered = {"cover": self.cfg.get("report_cover", False), "toc": self.cfg.get("report_toc", False),
+                      "author": self.cfg.get("report_author", ""), **details}
         dialog = report_dialogs.ExportDialog(
             self.cfg.get("report_format", "html"), self.cfg.get("report_scope", "full"),
             len(lab.findings(self.cfg)), report.docx_available(), self._dialog_parent(),
-            encrypted=vault.is_encrypted_lab(folder))
+            encrypted=vault.is_encrypted_lab(folder), meta=remembered,
+            template=self.cfg.get("report_template", ""), lab_name=lab.active_name(self.cfg))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         fmt, scope = dialog.values()
+        meta = dialog.front_matter()
         self.cfg["report_format"], self.cfg["report_scope"] = fmt, scope
+        # Remembered: the choices and your name for every lab; the title and
+        # client for this lab only (0.17.0).
+        self.cfg["report_cover"] = meta["cover_wanted"]
+        self.cfg["report_toc"] = meta["toc"]
+        self.cfg["report_author"] = meta["author"]
+        if fmt == "docx":
+            self.cfg["report_template"] = dialog.template_path
         self._persist()
+        try:
+            lab.set_report_details(self.cfg, meta["title"], meta["client"])
+        except lab.LabError:
+            pass   # the export still goes ahead; only the remembering failed
         filters = {
             "html": "Web page, images inside (*.html)",
             "docx": "Word document (*.docx)",
@@ -1256,7 +1272,8 @@ class ShadowSnipApp(QObject):
         if path.suffix.lower() != f".{fmt}":
             path = path.with_name(path.name + f".{fmt}") if path.suffix else path.with_suffix(f".{fmt}")
         try:
-            written = report.export(folder, fmt, path, scope=scope)
+            written = report.export(folder, fmt, path, scope=scope, meta=meta,
+                                    template=dialog.template() or None)
         except report.ExportError as exc:
             self._warn(str(exc))
             return

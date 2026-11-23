@@ -1,6 +1,38 @@
 # Changelog
 
-## Latest: 0.16.0
+## Latest: 0.17.0
+
+The exam-grade report release.
+
+**Added**: **CVSS 4.0**. The finding window has a version choice (3.1 or 4.0);
+4.0 shows its eleven base metrics, and pasting a vector switches to its
+version. 4.0 scores come from a port of FIRST's own calculator (its 270
+macrovector scores and its algorithm, BSD-2-Clause), checked against Red Hat's
+independent implementation for all 104,976 base vectors and 20,000 more with
+threat and environmental metrics: no differences. Reports and lab.md now say
+which version a score is ("CVSS 4.0 score: 9.3"). 3.1 stays the default.
+
+**Added**: **cover page** and **table of contents**, for all three formats,
+ticked in the Export window. The cover has the title, Prepared for, Prepared
+by, the date and the finding counts per severity. The PDF's contents have page
+numbers (the body is laid out first and the pages read back); the web page's
+are links; Word gets a real contents field that Word fills in on opening.
+
+**Added**: **Word templates**. Choose a `.docx` or `.dotx` and the Word export
+is written into it, in its styles, with its headers, footers and cover.
+`{{report}}` marks where the report goes; `{{title}}`, `{{client}}`,
+`{{author}}`, `{{date}}` and `{{lab}}` are filled in anywhere, including when
+Word has split them across several runs. Templates without heading or table
+styles still export.
+
+**Fixed**: in the PDF, a section heading could end a page with its content on
+the next; it now moves to the next page with its content.
+
+Remembered: cover and contents choices, your name and the template in
+settings (`report_cover`, `report_toc`, `report_author`, `report_template`);
+the report title and client per lab, in lab.json.
+
+## 0.16.0
 
 **Added**: **encrypted labs**. A lab can be encrypted when it is started (tick
 **Encrypt this lab** in the new Start lab window) or later (**Encrypt this

@@ -42,7 +42,7 @@ recordbar.py         the red frame and the Pause/Stop bar while a clip records
 clips.py             a clip's poster, finding the video beside it, GIF export
 player.py            playing a clip inside ShadowSnip (main window and full-size view), the trim bar
 cliptrim.py          trimming a clip: re-encoding the part kept, keeping and restoring the original
-cvss.py              CVSS 3.1 vectors: parsing, base score, rating
+cvss.py              CVSS 3.1 and 4.0 vectors: parsing, scores, rating
 vault.py             encrypted labs: keys, encrypting files, every decrypting reader
 labkeys.py           the encrypted-lab windows: start, unlock, recovery key, new password
 reportpdf.py         the PDF report, laid out with QTextDocument and painted onto QPdfWriter
@@ -297,6 +297,38 @@ then the records (the snip and the notes removed with it, matched by the
 same `removed` stamp), inserting them before the first later-numbered snip.
 If lab.json cannot be written, the files go back into `removed/`, so folder
 and record never disagree.
+
+## Report front pages, templates and CVSS 4.0 (0.17.0)
+
+`report.model(folder, scope, meta)` carries `meta` (title, client, author,
+date, cover, toc; `normalise_meta` fills the gaps), and `report.contents()`
+lists what a table of contents shows, with anchors the HTML headings carry.
+
+The PDF is three QTextDocuments painted in turn: cover, contents, body. The
+body is laid out first; `heading_pages()` reads each heading's page from
+`blockBoundingRect().top() // page_height`, and `keep_headings_with_text()`
+gives any heading within `ORPHAN_PX` of a page's foot a page break before it
+(QTextDocument has no keep-with-next), repeating until none is stranded. The
+contents are laid out once with zero page numbers to learn how many pages they
+take, then again with the real numbers offset by cover and contents pages.
+
+The Word export opens the template (a `.dotx` has its content type rewritten
+in memory so python-docx will open it), fills placeholders paragraph by
+paragraph (joined text, so split runs are found; the paragraph keeps its
+first run's formatting), builds the report at the end of the body as before,
+then moves every element added (everything after the old end, before
+`sectPr`) to just before the `{{report}}` paragraph and removes it. Headings
+and grids fall back to direct formatting when the template lacks the styles.
+The contents are a `TOC \o "1-3" \h \z \u` field marked dirty, with
+`updateFields` set in settings.xml.
+
+CVSS 4.0 (`cvss.score_40`) follows FIRST's `cvss_score.js` step for step,
+including its quirks (the choice between the two lower macrovectors when EQ3
+and EQ6 are both 0), and rounds half up after adding 10^-6, as FIRST's current
+calculator and Red Hat's library do; without that, 522 of the 104,976 base
+vectors came out 0.1 low. `tests/test_cvss40.py` hashes all base scores
+against a digest made with Red Hat's package and checks 400 stored samples
+with threat and environmental metrics.
 
 ## Encrypted labs (0.16.0)
 

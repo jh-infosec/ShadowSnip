@@ -525,15 +525,20 @@ are its evidence. Set the **Section** box (`10.10.10.3 / SMB`, say) and press
 | Field | |
 | --- | --- |
 | Severity | Critical, High, Medium, Low or Info |
-| Score it with CVSS 3.1 | Optional. Paste a vector (`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`, from a CVE or NVD) or build one with the eight pickers. The base score and rating show as you go (9.8 Critical), and the severity follows the rating (None shows as Info) |
+| Score it with CVSS | Optional. Choose **CVSS 3.1** or **CVSS 4.0**, then paste a vector (`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`, or a 4.0 one, from a CVE or NVD) or build one with the pickers (8 for 3.1, 11 for 4.0). Pasting a vector switches to its version. The score and rating show as you go (9.8 Critical), and the severity follows the rating (None shows as Info) |
 | Affected host | Filled in from the breadcrumb when it starts with an address or hostname |
 | Description, Impact, Remediation | Free text |
 
-The score is worked out the way the FIRST specification says, rounding
-included, so it matches NVD's calculator. Only the base metrics count;
-temporal ones in a pasted vector are ignored. Findings with a score show it in
-the summary table's **CVSS** column and under the finding, with the vector;
-within a severity, the higher score comes first.
+A 3.1 score is worked out the way the FIRST specification says, rounding
+included, so it matches NVD's calculator; only the base metrics count. A 4.0
+score comes from FIRST's own calculator (its table of 270 expert-set scores,
+ported with its licence), and matches Red Hat's independent implementation on
+every one of the 104,976 possible base vectors. Threat (`E`) and
+environmental metrics in a pasted 4.0 vector count towards its score, as in
+FIRST's calculator; supplemental ones are kept in the vector only. Findings
+with a score show it in the summary table's **CVSS** column and under the
+finding with its version and vector; within a severity, the higher score comes
+first. 3.1 stays the default: it is what OSCP, CPTS and most CVE records use.
 
 `lab.md` gets a **Findings summary** table at the top, most severe first, and
 a finding block straight under the section's heading, above its evidence. In
@@ -590,6 +595,38 @@ and remembers both for next time:
 The default name is `<lab>-report.<format>` (or `<lab>-findings.<format>`) in
 the lab folder. The Word export needs `python-docx` (`pip install -r
 requirements.txt`); the release builds include it. The PDF needs nothing extra.
+
+#### Cover page and contents
+
+Under **Front pages** in the Export window:
+
+- **Cover page**: a first page with the lab's name, the title (*Lame
+  penetration test report* unless you give one), **Prepared for**, **Prepared
+  by**, the date (today unless you give one) and how many findings of each
+  severity. Your name is remembered for every lab; the title and client are
+  remembered with the lab, in `lab.json`.
+- **Table of contents**: the findings summary and the section headings, two
+  levels deep. In the PDF with page numbers (a heading never ends a page with
+  its content on the next); in the web page as links; in Word as a real Word
+  contents field, which Word fills in when it opens the file (say Yes when it
+  asks to update fields).
+
+#### Your own Word template
+
+For a client's or your own house style, pick a **Word template** (`.docx` or
+`.dotx`) in the Export window when Word is the format; it is remembered.
+The template's styles, page size, headers, footers, logo and cover are kept,
+and the report is written into it using its heading styles.
+
+| In the template | Becomes |
+| --- | --- |
+| `{{report}}` on a line of its own | Where the report goes. Without it, the report goes after everything in the template, on a new page |
+| `{{title}}`, `{{client}}`, `{{author}}`, `{{date}}` | The details from the Export window, anywhere: body, tables, headers, footers |
+| `{{lab}}` | The lab's name |
+
+A template brings its own cover, so ShadowSnip does not add one. A template
+that has no heading or table styles still works: headings come out as bold
+text and tables get plain borders.
 
 ### Sections
 

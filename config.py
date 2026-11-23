@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.16.0"
+APP_VERSION = "0.17.0"
 
 
 def config_dir() -> Path:
@@ -64,6 +64,11 @@ DEFAULTS = {
     # Export report (0.15.0): the format and what goes in, as last chosen.
     "report_format": "html",
     "report_scope": "full",
+    # Front pages and Word template (0.17.0). The title and client are kept per lab, in lab.json.
+    "report_cover": False,
+    "report_toc": False,
+    "report_author": "",
+    "report_template": "",
     # Where the always-overwritten snip and any history land.
     "save_dir": str(default_save_dir()),
     # Base name of the file that gets replaced on every snip.
@@ -343,4 +348,8 @@ def _sanitise(cfg: dict) -> dict:
         cfg["report_format"] = "html"
     if cfg.get("report_scope") not in ("full", "findings"):
         cfg["report_scope"] = "full"
+    for key in ("report_cover", "report_toc"):
+        cfg[key] = bool(cfg.get(key))
+    for key in ("report_author", "report_template"):
+        cfg[key] = str(cfg.get(key) or "")[:500]
     return cfg
