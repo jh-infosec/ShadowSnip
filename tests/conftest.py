@@ -102,3 +102,67 @@ def _empty_clipboard_at_the_end():
 
     if QApplication.instance() is not None:
         QApplication.clipboard().clear()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Tear the test windows down while Python can still see them (0.18.1).
+
+    The suite opens hundreds of ShadowSnip windows. Left for PySide to destroy
+    at interpreter exit, one of them can be reached through a Python wrapper
+    whose C++ object Qt has already deleted, and the process dies with a
+    segfault after every test has passed (exit code 139 on GitHub's Linux
+    runner, about three runs in four). Closing and deleting them here, and
+    letting Qt run the deletions, leaves nothing for that last sweep.
+    """
+    try:
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from PySide6.QtWidgets import QApplication
+    except ImportError:
+        return
+    app = QApplication.instance()
+    if app is None:
+        return
+    import gc
+
+    for widget in list(QApplication.topLevelWidgets()):
+        try:
+            widget.hide()
+            widget.deleteLater()
+        except RuntimeError:  # already gone on the C++ side
+            pass
+    for _ in range(3):
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        app.processEvents()
+        gc.collect()
+
+
+def _annotation(text: str) -> str:
+    """GitHub's workflow-command escaping for a message."""
+    return str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """On GitHub Actions, name each failing test in an annotation (0.18.1).
+
+    A run's logs need a GitHub sign-in to read, but its annotations show on
+    the public run page. So every failure (and collection error) is also
+    printed as an ::error line, with the test's file and line and the last
+    lines of what went wrong, which is enough to see why a build failed
+    without the log.
+    """
+    import os
+
+    if not os.environ.get("GITHUB_ACTIONS"):
+        return
+    reports = terminalreporter.stats.get("failed", []) + terminalreporter.stats.get("error", [])
+    for report in reports[:10]:
+        path, line, _name = report.location
+        text = getattr(report, "longreprtext", "") or str(report.longrepr)
+        tail = "\n".join(text.strip().splitlines()[-12:])
+        title = f"{report.when} failed: {report.nodeid}"
+        terminalreporter.write_line(
+            f"::error file=tests/{Path(path).name},line={(line or 0) + 1},"
+            f"title={_annotation(title).replace(',', ';').replace(':', ' ')}::{_annotation(tail)}"
+        )
+    if len(reports) > 10:
+        terminalreporter.write_line(f"::error title=More failures::{len(reports) - 10} more failed; see the log.")

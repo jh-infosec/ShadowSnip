@@ -108,9 +108,9 @@ class StartLabDialog(QDialog):
         self.encrypt.setChecked(bool(encrypt_default) and vault.available())
         self.encrypt.setEnabled(vault.available())
         self.passwords = NewPassword()
-        self.hide = QCheckBox("Hide file names while it is locked")
-        self.hide.setToolTip(HIDE_TIP)
-        self.passwords.layout().addRow("", self.hide)
+        self.hide_check = QCheckBox("Hide file names while it is locked")
+        self.hide_check.setToolTip(HIDE_TIP)
+        self.passwords.layout().addRow("", self.hide_check)
         self.note = _hint("")
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         self.btn_start = buttons.addButton("Start", QDialogButtonBox.ButtonRole.AcceptRole)
@@ -157,7 +157,7 @@ class StartLabDialog(QDialog):
 
     def hide_names(self) -> bool:
         """Whether the new encrypted lab should hide its file names while locked (0.18.0)."""
-        return self.values()[1] and self.hide.isChecked()
+        return self.values()[1] and self.hide_check.isChecked()
 
 
 class UnlockDialog(QDialog):
@@ -313,10 +313,10 @@ class PasswordDialog(QDialog):
         self.setMinimumWidth(440)
         self.current = _password_box("The password it opens with now") if ask_current else None
         self.passwords = NewPassword("New password" if ask_current else "Password")
-        self.hide = QCheckBox("Hide file names while it is locked")
-        self.hide.setToolTip(HIDE_TIP)
-        self.hide.setVisible(offer_hide)
-        self.passwords.layout().addRow("", self.hide)
+        self.hide_check = QCheckBox("Hide file names while it is locked")
+        self.hide_check.setToolTip(HIDE_TIP)
+        self.hide_check.setVisible(offer_hide)
+        self.passwords.layout().addRow("", self.hide_check)
         self.error = _error()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         self.btn_ok = buttons.addButton(title.rstrip("."), QDialogButtonBox.ButtonRole.AcceptRole)

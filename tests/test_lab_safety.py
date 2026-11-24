@@ -311,13 +311,13 @@ def test_dialogs_offer_hiding_names():
     start = labkeys.StartLabDialog("", False, exists=lambda name: False)
     start.name.setText("fresh")
     start.encrypt.setChecked(True)
-    start.hide.setChecked(True)
+    start.hide_check.setChecked(True)
     assert start.hide_names()
     start.encrypt.setChecked(False)
     assert not start.hide_names()
     encrypting = labkeys.PasswordDialog("Encrypt lab", "x", offer_hide=True)
     changing = labkeys.PasswordDialog("Change password", "x", ask_current=True)
-    assert not encrypting.hide.isHidden() and changing.hide.isHidden()
+    assert not encrypting.hide_check.isHidden() and changing.hide_check.isHidden()
 
 
 def test_settings_for_locking():

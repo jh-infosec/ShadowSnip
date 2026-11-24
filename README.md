@@ -44,7 +44,8 @@ ShadowSnip records that structure while the work is happening instead:
 
 It is built for Hack The Box and similar labs, practice exams, and client
 engagements alike. See [Known limits](#known-limits) before using it on client
-data: lab folders are not encrypted.
+data: lab folders are only encrypted if you choose to
+[encrypt the lab](#encrypted-labs).
 
 ## What it does differently
 
@@ -1050,10 +1051,11 @@ See `BUILD.md` for building both and for starting ShadowSnip at login.
   lost; it just looks like the feature stopped working. If it is happening
   constantly on a box you work in every day, say so and the ownership check
   can be made configurable.
-- **Lab folders are not encrypted, and notes make that sharper.** Screenshots
-  taken during a lab routinely contain hashes, tokens and internal hostnames,
-  and they sit on disk in plain sight. Notes put the same material there as
-  *searchable text* — a password typed into a note is a password in a plain
-  file. A `.gitignore` is written into the labs root so none of it reaches a
-  repository by accident, but that is the only protection there is so far.
-  Treat a labs folder the way you would treat the engagement data itself.
+- **A lab is only encrypted if you encrypt it, and notes make that sharper.**
+  Screenshots taken during a lab routinely contain hashes, tokens and internal
+  hostnames. In a lab that is not [encrypted](#encrypted-labs) they sit on
+  disk in plain sight, and notes put the same material there as *searchable
+  text*: a password typed into a note is a password in a plain file. A
+  `.gitignore` is written into the labs root so none of it reaches a
+  repository by accident. For client work, encrypt the lab, and treat the
+  labs folder the way you would treat the engagement data itself.

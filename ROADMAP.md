@@ -65,6 +65,11 @@ into your own Word template.
   QTextDocument anchors).
 - An executive summary section, written once per lab and placed after the cover.
 
+## Done in v0.18.1 - builds pass again
+
+The Linux test run's exit crash fixed and failing tests named in public
+annotations, so tagged releases publish again.
+
 ## Done in v0.18.0 - lab safety
 
 Lock without stopping, auto-lock on idle and with the computer, hidden file

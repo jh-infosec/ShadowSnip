@@ -1,6 +1,27 @@
 # Changelog
 
-## Latest: 0.18.0
+## Latest: 0.18.1
+
+Fixes the GitHub builds, which had failed on every push since 0.14.0, so no
+release after 0.13.0 was published.
+
+**Fixed**: the Linux test run ended in a segfault (exit code 139) about three
+times in four, after every test had passed. PySide destroys the windows left
+over at interpreter exit, and on the way reached one whose C++ side Qt had
+already deleted. `tests/conftest.py` now hides and deletes every test window
+at the end of the session, while Python can still see them. Found by running
+the suite as GitHub does (clean Ubuntu 24.04, non-root, four cores) and
+checking the exit code, not only the last line.
+
+**Fixed**: the Start lab and password windows had a checkbox named `hide`,
+which hid the window's own `hide()` method: calling it raised "QCheckBox
+object is not callable". It is `hide_check` now.
+
+**Added**: on GitHub Actions each failing test is also printed as an
+annotation, with its file, line and the end of its error. A run's log needs a
+GitHub sign-in to read; its annotations are on the public run page.
+
+## 0.18.0
 
 The lab safety release.
 

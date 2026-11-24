@@ -837,7 +837,7 @@ class ShadowSnipApp(QObject):
             return
         try:
             recovery = vault.create(folder, dialog.values()[1])
-            if dialog.hide.isChecked():
+            if dialog.hide_check.isChecked():
                 vault.set_hide_names(folder, True)
             count = vault.encrypt_folder(folder)
         except OSError as exc:

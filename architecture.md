@@ -332,6 +332,19 @@ vectors came out 0.1 low. `tests/test_cvss40.py` hashes all base scores
 against a digest made with Red Hat's package and checks 400 stored samples
 with threat and environmental metrics.
 
+## Test run on GitHub (0.18.1)
+
+`tests/conftest.py` ends the session by hiding and deleting every top-level
+window and running Qt's deferred deletions. Without it, PySide's own sweep at
+interpreter exit could reach a window whose C++ object was already gone and
+segfault after a fully passing run (exit code 139 on the Linux runner). When
+`GITHUB_ACTIONS` is set, `pytest_terminal_summary` also prints each failure
+as an `::error` workflow command, so the public run page names the failing
+tests and their errors without the signed-in log.
+
+Widgets never take a QWidget method's name as an attribute: a dialog's
+`self.hide = QCheckBox(...)` hid `hide()` and broke the session cleanup.
+
 ## Lab safety (0.18.0)
 
 A lab can be the running lab and locked at once: `active_lab` is set,
