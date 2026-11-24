@@ -17,6 +17,17 @@ checking the exit code, not only the last line.
 which hid the window's own `hide()` method: calling it raised "QCheckBox
 object is not callable". It is `hide_check` now.
 
+**Fixed**: on Linux, video clips need PulseAudio's client library
+(`libpulse0`): PySide6's QtMultimedia will not load without it. GitHub's
+runner did not have it, so every clip test failed there. The workflow
+installs it, `install.sh` lists it with the other missing packages, and
+recording or trimming without it now says to install it instead of showing
+the raw "libpulse.so.0: cannot open shared object file".
+
+**Fixed**: the test that copies a clip as a file read the clipboard through
+Qt, which on GitHub's Windows runner was still empty; it reads the Windows
+clipboard directly, as the other clip copy test already did.
+
 **Added**: on GitHub Actions each failing test is also printed as an
 annotation, with its file, line and the end of its error. A run's log needs a
 GitHub sign-in to read; its annotations are on the public run page.

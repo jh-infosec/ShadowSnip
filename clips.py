@@ -105,6 +105,19 @@ def make_poster(frame: QImage, seconds: float) -> bytes:
     return bytes(data.data())
 
 
+def multimedia_problem(exc: BaseException) -> str:
+    """What to tell someone whose Qt video module will not load (0.18.1).
+
+    On Linux, PySide6's QtMultimedia links against PulseAudio's client
+    library, so without libpulse0 every clip feature fails to import.
+    """
+    text = str(exc)
+    if "libpulse" in text:
+        return ("Video clips need PulseAudio's client library, which is not installed: "
+                "sudo apt install libpulse0")
+    return f"Qt's video module could not be loaded ({text})."
+
+
 def copy_file(path) -> None:
     """Put a file on the clipboard, to paste into a chat or a folder."""
     import clipboard

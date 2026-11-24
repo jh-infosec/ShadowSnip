@@ -342,6 +342,11 @@ segfault after a fully passing run (exit code 139 on the Linux runner). When
 as an `::error` workflow command, so the public run page names the failing
 tests and their errors without the signed-in log.
 
+On Linux, PySide6's QtMultimedia links against `libpulse.so.0`; without it
+the import fails. `recorder.start` and `cliptrim.reencode` turn that
+ImportError into their own error with `clips.multimedia_problem`, which names
+the package to install, and the workflow and `install.sh` see to `libpulse0`.
+
 Widgets never take a QWidget method's name as an attribute: a dialog's
 `self.hide = QCheckBox(...)` hid `hide()` and broke the session cleanup.
 

@@ -51,6 +51,7 @@ LDCONFIG="$(command -v ldconfig || echo /sbin/ldconfig)"
 if [[ -x "$LDCONFIG" ]]; then
   libs="$("$LDCONFIG" -p 2>/dev/null || true)"
   [[ "$libs" == *libxcb-cursor.so.0* ]] || missing+=("libxcb-cursor0")
+  [[ "$libs" == *libpulse.so.0* ]] || missing+=("libpulse0")
 fi
 command -v xprop >/dev/null 2>&1 || missing+=("x11-utils")
 command -v tesseract >/dev/null 2>&1 || missing+=("tesseract-ocr")
@@ -59,6 +60,7 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   for pkg in "${missing[@]}"; do
     case "$pkg" in
       libxcb-cursor0) echo "  libxcb-cursor0  Qt needs it to open any window on X11" ;;
+      libpulse0)      echo "  libpulse0       Qt's video and sound module needs it, for video clips" ;;
       x11-utils)      echo "  x11-utils       provides xprop, used to skip password managers in copy on select" ;;
       tesseract-ocr)  echo "  tesseract-ocr   optional: reads the text in a snip, for Copy text and Quick redact" ;;
     esac

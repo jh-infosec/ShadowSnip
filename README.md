@@ -83,12 +83,14 @@ python main.py
 
 ### From source, Linux
 
-Needs Python 3.10+ and two system packages: `libxcb-cursor0`, which Qt needs to
-open a window on X11, and `x11-utils`, which provides `xprop` for copy on
-select.
+Needs Python 3.10+ and three system packages: `libxcb-cursor0`, which Qt needs
+to open a window on X11, `x11-utils`, which provides `xprop` for copy on
+select, and `libpulse0`, without which Qt's video module (video clips) will not
+load. Desktop installs of Kali, Debian and Ubuntu usually have `libpulse0`
+already.
 
 ```bash
-sudo apt install python3-venv libxcb-cursor0 x11-utils
+sudo apt install python3-venv libxcb-cursor0 x11-utils libpulse0
 git clone https://github.com/jh-infosec/ShadowSnip.git
 cd ShadowSnip
 bash install.sh         # makes a .venv, installs a `shadowsnip` command and a menu entry

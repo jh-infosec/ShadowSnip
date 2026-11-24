@@ -166,12 +166,17 @@ class Recorder(QObject):
 
     # -- control -----------------------------------------------------------
     def start(self) -> None:
-        from PySide6.QtMultimedia import (
-            QAudioInput,
-            QMediaCaptureSession,
-            QMediaRecorder,
-            QVideoFrameInput,
-        )
+        try:
+            from PySide6.QtMultimedia import (
+                QAudioInput,
+                QMediaCaptureSession,
+                QMediaRecorder,
+                QVideoFrameInput,
+            )
+        except ImportError as exc:  # e.g. libpulse0 missing on Linux (0.18.1)
+            import clips
+
+            raise RecorderError(clips.multimedia_problem(exc)) from exc
 
         first = self._grab(self.screen, self.rect)
         if first.isNull():

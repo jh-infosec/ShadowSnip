@@ -77,15 +77,18 @@ def reencode(source: Path, target: Path, start_ms: int, end_ms: int, progress=No
     Returns the first frame and the new length in seconds. `progress(fraction)`
     is called as it goes; returning False cancels (TrimError).
     """
-    from PySide6.QtMultimedia import (
-        QMediaCaptureSession,
-        QMediaMetaData,
-        QMediaPlayer,
-        QMediaRecorder,
-        QVideoFrame,
-        QVideoFrameInput,
-        QVideoSink,
-    )
+    try:
+        from PySide6.QtMultimedia import (
+            QMediaCaptureSession,
+            QMediaMetaData,
+            QMediaPlayer,
+            QMediaRecorder,
+            QVideoFrame,
+            QVideoFrameInput,
+            QVideoSink,
+        )
+    except ImportError as exc:  # e.g. libpulse0 missing on Linux (0.18.1)
+        raise TrimError(clips.multimedia_problem(exc)) from exc
 
     import recorder as rec_mod
 

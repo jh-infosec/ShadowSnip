@@ -144,9 +144,32 @@ def test_a_clip_is_copied_as_a_file(tmp_path):
     video = tmp_path / "c.mp4"
     video.write_bytes(b"x")
     clips.copy_file(video)
-    urls = QApplication.clipboard().mimeData().urls()
+    # Read the way it was written (CF_HDROP on Windows): on GitHub's Windows
+    # runner Qt's view of the clipboard was still empty at this point.
     # Compared as paths: read back on Windows they come with forward slashes.
-    assert [Path(u.toLocalFile()) for u in urls] == [video]
+    assert [Path(name) for name in _clipboard_files()] == [video]
+
+
+def test_a_missing_libpulse_is_explained():
+    message = clips.multimedia_problem(ImportError("libpulse.so.0: cannot open shared object file"))
+    assert "sudo apt install libpulse0" in message
+    assert "could not be loaded" in clips.multimedia_problem(ImportError("something else"))
+
+
+def test_recording_without_qt_multimedia_says_why(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_multimedia(name, *args, **kwargs):
+        if name == "PySide6.QtMultimedia":
+            raise ImportError("libpulse.so.0: cannot open shared object file")
+        return real_import(name, *args, **kwargs)
+
+    rec = recorder.Recorder(QRect(0, 0, 32, 32), Path("x.mp4"))
+    monkeypatch.setattr(builtins, "__import__", no_multimedia)
+    with pytest.raises(recorder.RecorderError, match="libpulse0"):
+        rec.start()
 
 
 def test_moving_a_poster_takes_its_clip(tmp_path):
