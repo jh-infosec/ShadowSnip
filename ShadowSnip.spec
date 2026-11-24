@@ -24,6 +24,7 @@ a = Analysis(
         "winrt.windows.media.ocr",
         "winrt.windows.graphics.imaging",
         "winrt.windows.security.cryptography",
+        "winrt.windows.security.credentials",
         "winrt.windows.storage.streams",
         "winrt.windows.foundation",
         "winrt.windows.foundation.collections",

@@ -822,9 +822,51 @@ folder a sync client uploads, in a backup.
   issues a new recovery key, and the old one stops working.
 - **Stop lab** locks it: the key is forgotten until the password is typed again.
 
-What stays the same: every file keeps its name, so the folder still shows
-`004_2026-11-18_10-23-00.png` and how many snips there are, just not what is in
-them. Everything inside ShadowSnip works as before: the list, the viewer,
+#### Locking without stopping
+
+**Lock lab** in the tray menu locks an encrypted lab but keeps it the running
+lab. Its key is forgotten, the snip list and the snip on screen are hidden
+behind a lock, and anything decrypted for another program is wiped. The next
+thing that needs it (a snip, a clip, **Unlock lab...** in the list or the tray)
+asks for the password. A snip taken while it is locked is still copied to the
+clipboard; if you cancel the password, it is not saved anywhere, since an
+encrypted lab's snips are never written in the clear.
+
+It also locks by itself (**Settings > Labs**):
+
+- **after 15 minutes idle** by default (0 to 240; Never). Idle means nobody
+  has touched the computer: Windows asks the system, X11 the screensaver
+  extension, and elsewhere ShadowSnip times its own use. A clip being recorded
+  holds it off.
+- **when the computer locks or sleeps** (on by default): Win+L, the lid, the
+  lock screen, suspend; on Linux, logind's lock and sleep signals.
+
+#### Hiding file names
+
+**Hide file names while locked** (a box when encrypting, or in the tray menu
+while it runs) gives every file a random name each time the lab locks, so a
+locked lab's folder shows neither how many snips there are nor when they were
+taken. The real names are kept, encrypted, in `lab.names`, written before
+anything is renamed, and come back when it is unlocked, even after a power cut
+half way through. Folder names (`removed`, `.edits`) and the lab's own name
+stay. A sync client sees every file renamed at each lock and unlock.
+
+#### Windows Hello
+
+**Unlock with Windows Hello on this PC** (tray menu, while the lab is
+unlocked) lets face, fingerprint or PIN open the lab on this PC: the unlock
+window asks Hello first, with the password underneath. Hello keeps a private
+key in the TPM; ShadowSnip has it sign a random challenge and turns the
+signature into the key that opens a copy of the lab's key, stored in
+`%LOCALAPPDATA%\ShadowSnip\hello`. Without this PC's TPM and your Hello sign-in
+that copy is useless, and it never travels with the lab folder. If Hello is
+reset the copy stops working and the password still does. It needs Windows
+Hello set up in Windows and the `winrt-Windows.Security.Credentials` package
+(in requirements.txt; the release build includes it).
+
+What stays the same: unless names are hidden, every file keeps its name, so
+the folder still shows `004_2026-11-18_10-23-00.png` and how many snips there
+are, just not what is in them. Everything inside ShadowSnip works as before: the list, the viewer,
 mark-up, Outline and Preview, clips (played from memory), trimming, GIFs,
 findings and exports.
 
@@ -836,7 +878,7 @@ What is different:
 | **Open**, **Play in video player**, **Copy** a clip as a file | Another program gets a decrypted copy in a private temporary folder, wiped when the lab is stopped or ShadowSnip quits. The lab folder itself is never decrypted |
 | `latest.png` | Not written: it would be a plain copy outside the lab |
 | Export report | Written as a plain file, as an export is for handing over; offered in Documents rather than in the lab folder, and the window says so |
-| Recording a clip | Qt writes the video while it records, so it sits in `.recording` under the save folder until you press Stop, then is encrypted into the lab and deleted |
+| Recording a clip | Qt can only record to a file, so the video is written into the private temporary folder while it records (in RAM, `/dev/shm`, on Linux), then encrypted into the lab when you press Stop. A private folder left behind by a crash is deleted the next time ShadowSnip starts |
 | The clipboard | Plain, as always: whatever you copy, another program can paste |
 
 How it works: each lab has its own random 256-bit key that encrypts every file

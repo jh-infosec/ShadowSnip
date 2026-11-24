@@ -1,6 +1,45 @@
 # Changelog
 
-## Latest: 0.17.0
+## Latest: 0.18.0
+
+The lab safety release.
+
+**Added**: **locking a lab without stopping it**. **Lock lab** in the tray menu
+forgets an encrypted lab's key but keeps it the running lab: the list and the
+snip on screen hide behind a lock, and the next snip, clip or **Unlock lab...**
+asks for the password. A snip taken while locked is copied but, if the
+password is cancelled, not saved anywhere. A lab that was running when
+ShadowSnip quit now starts locked instead of being stopped.
+
+**Added**: **auto-lock**: after 15 idle minutes by default (Settings > Labs,
+0 to 240), measured across the whole computer on Windows and X11, and when the
+computer locks or sleeps (Windows session lock and suspend; logind on Linux).
+A clip being recorded holds it off. New module `lablock.py`.
+
+**Added**: **hiding file names while locked**, per lab (when encrypting, or in
+the tray menu). Every file gets a random name at each lock; the real ones are
+kept encrypted in `lab.names`, written first, so an interrupted rename is put
+right at the next unlock. A tampered `lab.names` cannot move files outside the
+lab.
+
+**Added**: **Windows Hello unlock**, per lab and per PC. A TPM key held by
+Windows Hello signs a random challenge; the signature (always the same for the
+same data) is turned into the key that opens a copy of the lab's key, stored
+under `%LOCALAPPDATA%\ShadowSnip\hello`. The unlock window tries Hello first.
+Decrypting the lab deletes the copy. New module `hello.py`; new Windows
+dependency `winrt-Windows.Security.Credentials`.
+
+**Changed**: decrypted copies and recordings of encrypted labs go to a private
+temporary folder (mode 700) that is in RAM on Linux (`/dev/shm`), named after
+the process, and wiped on lock and at quit; any left by a crash are deleted at
+the next start. Recordings of an encrypted lab no longer pass through
+`.recording` in the save folder.
+
+**Fixed**: Stop lab while a clip records is refused rather than wiping the
+recording. The unlock window's switch to the recovery key worked only once the
+window was on screen.
+
+## 0.17.0
 
 The exam-grade report release.
 

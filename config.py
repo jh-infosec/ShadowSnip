@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.17.0"
+APP_VERSION = "0.18.0"
 
 
 def config_dir() -> Path:
@@ -141,6 +141,10 @@ DEFAULTS = {
     "lab_methodology": False,
     # Encrypted labs (0.16.0): whether Start lab ticks "Encrypt this lab" for a new one.
     "lab_encrypt_default": False,
+    # Locking an encrypted lab by itself (0.18.0): after this many idle minutes
+    # (0 = never), and when the computer locks or sleeps.
+    "lab_autolock_minutes": 15,
+    "lab_lock_with_session": True,
     # The list of the running lab's snips beside the image in the preview
     # window. Toggled with the Snip list button; remembered between runs.
     "lab_snip_list": True,
@@ -302,6 +306,7 @@ def _sanitise(cfg: dict) -> dict:
         "close_hint_shown",
         "lab_methodology",
         "lab_encrypt_default",
+        "lab_lock_with_session",
         "prtsc_snip",
         "snip_magnifier",
         "clip_microphone",
@@ -342,6 +347,11 @@ def _sanitise(cfg: dict) -> dict:
     except (TypeError, ValueError):
         minutes = 10
     cfg["clip_max_minutes"] = min(60, max(1, minutes))
+    try:
+        idle = int(cfg.get("lab_autolock_minutes", 15))
+    except (TypeError, ValueError):
+        idle = 15
+    cfg["lab_autolock_minutes"] = min(240, max(0, idle))
     if cfg.get("clip_player") not in ("app", "external"):
         cfg["clip_player"] = "app"
     if cfg.get("report_format") not in ("html", "docx", "pdf"):

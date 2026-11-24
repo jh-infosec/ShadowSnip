@@ -1332,6 +1332,8 @@ class LabSnipsPanel(QWidget):
     clip_changed = Signal(str)
     # Show the removed snips, to put some back (0.15.0).
     removed_requested = Signal()
+    # The running lab is locked; unlock it (0.18.0).
+    unlock_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1459,8 +1461,37 @@ class LabSnipsPanel(QWidget):
         layout.setContentsMargins(6, 0, 0, 0)
         layout.setSpacing(6)
         layout.addWidget(self.title)
+        layout.addWidget(self._build_locked(), 1)
         layout.addWidget(self.splitter, 1)
         self._show_detail("")
+
+    def _build_locked(self) -> QWidget:
+        """What shows instead of the list while the running lab is locked (0.18.0)."""
+        self.locked_panel = QWidget()
+        self.locked_text = QLabel("")
+        self.locked_text.setWordWrap(True)
+        self.locked_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.locked_text.setObjectName("SnipWhere")
+        self.btn_unlock = QPushButton("Unlock lab...")
+        self.btn_unlock.clicked.connect(self.unlock_requested.emit)
+        box = QVBoxLayout(self.locked_panel)
+        box.addStretch(1)
+        box.addWidget(self.locked_text)
+        box.addWidget(self.btn_unlock, 0, Qt.AlignmentFlag.AlignHCenter)
+        box.addStretch(2)
+        self.locked_panel.hide()
+        return self.locked_panel
+
+    def set_locked(self, lab_name: str) -> None:
+        """Hide the list and say the lab is locked (a name), or show the list again ('')."""
+        locked = bool(lab_name)
+        self.locked_panel.setVisible(locked)
+        self.splitter.setVisible(not locked)
+        if locked:
+            self.hide_viewer()
+            self.locked_text.setText(
+                f"\U0001F512  {lab_name} is locked.\n\nIts snips stay encrypted until it is unlocked. "
+                "A snip taken now asks for the password before it is filed.")
 
     def _build_detail(self) -> QWidget:
         panel = QWidget()

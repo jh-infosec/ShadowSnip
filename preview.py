@@ -167,6 +167,8 @@ class PreviewWindow(QWidget):
     clip_changed = Signal(str)
     # Show the removed snips (0.15.0).
     removed_requested = Signal()
+    # Unlock the running lab (0.18.0).
+    unlock_requested = Signal()
     # From the full-size viewer: a lab snip about to be shown, and one edited.
     lab_snip_loading = Signal(str)
     lab_snip_edited = Signal(str, QImage)
@@ -277,6 +279,7 @@ class PreviewWindow(QWidget):
         self.snips_panel.finding_requested.connect(self.finding_requested.emit)
         self.snips_panel.clip_about_to_change.connect(self._clip_about_to_change)
         self.snips_panel.removed_requested.connect(self.removed_requested.emit)
+        self.snips_panel.unlock_requested.connect(self.unlock_requested.emit)
         self.snips_panel.clip_changed.connect(self._on_clip_changed)
         # Short names for the parts other code and the tests reach for.
         self.snips_list = self.snips_panel.list
@@ -859,6 +862,20 @@ class PreviewWindow(QWidget):
         self.player.pause()
         super().closeEvent(event)
         self.closed.emit()
+
+    def hide_for_lock(self) -> None:
+        """The lab locked: nothing of it stays on screen (0.18.0)."""
+        self.flush_edits()
+        self.snips_panel.hide_viewer()
+        if self._clip is not None:
+            self.player.unload()
+        self._show_canvas()
+        self._image = None
+        self.canvas.load(None)
+        self.tools.set_available(False)
+        self.canvas.set_message("\U0001F512  The lab is locked")
+        self.forget_snip_on_screen()
+        self.snips_panel.set_outline({}, "", None)
 
     def forget_snip_on_screen(self) -> None:
         """The snip on screen was removed from the lab: stop offering lab actions for it."""

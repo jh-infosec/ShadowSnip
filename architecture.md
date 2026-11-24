@@ -43,7 +43,9 @@ clips.py             a clip's poster, finding the video beside it, GIF export
 player.py            playing a clip inside ShadowSnip (main window and full-size view), the trim bar
 cliptrim.py          trimming a clip: re-encoding the part kept, keeping and restoring the original
 cvss.py              CVSS 3.1 and 4.0 vectors: parsing, scores, rating
-vault.py             encrypted labs: keys, encrypting files, every decrypting reader
+vault.py             encrypted labs: keys, encrypting files, every decrypting reader, hidden names, private temp
+lablock.py           locking an encrypted lab by itself: idle time, the computer locking or sleeping
+hello.py             Windows Hello: a TPM-signed challenge that unlocks a copy of a lab's key
 labkeys.py           the encrypted-lab windows: start, unlock, recovery key, new password
 reportpdf.py         the PDF report, laid out with QTextDocument and painted onto QPdfWriter
 removedview.py       the Removed snips window: list, preview, Restore
@@ -329,6 +331,46 @@ calculator and Red Hat's library do; without that, 522 of the 104,976 base
 vectors came out 0.1 low. `tests/test_cvss40.py` hashes all base scores
 against a digest made with Red Hat's package and checks 400 stored samples
 with threat and environmental metrics.
+
+## Lab safety (0.18.0)
+
+A lab can be the running lab and locked at once: `active_lab` is set,
+`lab.key` exists, and `vault._open` has no entry. `app._lab_locked()` tests
+exactly that. `lock_lab()` clears the screen (`PreviewWindow.hide_for_lock`:
+flushes edits, closes the viewer, unloads players, empties the outline) and
+calls `vault.lock()`; `LabSnipsPanel.set_locked()` swaps the list for a lock
+message with an Unlock button. Entry points that write into the lab
+(`_handle_snip`, `request_record`) call `unlock_lab()` first; writes from
+anywhere else are refused by `vault.guard` as before.
+
+`lablock.AutoLock` polls every 20 s: system idle (`GetLastInputInfo`, or
+XScreenSaver through ctypes) where it can be measured, ShadowSnip's own last
+use otherwise (`touch()` on each snip and unlock), the smaller of the two.
+It has no Qt parent: owned by the app in Python only, because with both a Qt
+parent and a Python owner PySide freed it twice at interpreter exit (heap
+corruption in roughly half the test runs). `lablock.SessionWatcher` uses a
+native event filter for `WM_WTSSESSION_CHANGE`/`WM_POWERBROADCAST` after
+`WTSRegisterSessionNotification` on the main window, and logind's `Lock` and
+`PrepareForSleep` over the system D-Bus on Linux.
+
+Hidden names: `vault.lock()` calls `hide_names()` when `lab.key` says
+`hide_names`. It writes `lab.names` (encrypted: hidden relative path to real
+one) before renaming anything, then renames file by file within each folder;
+`_opened()` (every unlock path) calls `reveal_names()`, which renames back
+whatever is still hidden, skips anything that resolves outside the lab, and
+deletes `lab.names` only when all went back. `decrypt_folder` forgets the key
+directly rather than through `lock()`, so it never hides a plain lab's names.
+
+Windows Hello (`hello.py`): `KeyCredentialManager` opens or creates one
+credential for ShadowSnip; its RSA key signs a 32-byte random challenge stored
+per lab, and HKDF-SHA256 of the signature is the AES-GCM key wrapping the data
+key. Enrolling signs twice and refuses a signer whose signatures differ. WinRT
+calls run on a worker thread under `asyncio.run`, with the Qt loop pumped
+while Hello's prompt is up. `hello.signer` is the seam the tests replace.
+
+The private temp folder (`vault.private_temp`) is `shadowsnip-<pid>-*` in
+`/dev/shm` on Linux, the system temp elsewhere, chmod 700;
+`clean_stale_temp()` at start removes any whose process is gone.
 
 ## Encrypted labs (0.16.0)
 

@@ -14,6 +14,7 @@ in capture order. Nothing else about the pipeline changes.
 from __future__ import annotations
 
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -105,6 +106,21 @@ class ShadowSnipApp(QObject):
         self.preview.export_requested.connect(self.export_report)
         self.preview.clip_changed.connect(self._on_clip_trimmed)
         self.preview.removed_requested.connect(self.show_removed)
+        self.preview.unlock_requested.connect(self.unlock_lab)
+        # Encrypted labs lock themselves after idle time and when the computer
+        # locks or sleeps (0.18.0).
+        import lablock
+
+        self.autolock = lablock.AutoLock(
+            minutes=lambda: self.cfg.get("lab_autolock_minutes", lablock.DEFAULT_MINUTES),
+            active=self._lab_unlocked_and_encrypted,
+            # No Qt parent: owned by this object in Python only. With the app
+            # as parent too, PySide freed it twice at exit and corrupted the heap.
+            busy=lambda: getattr(self, "recorder", None) is not None)
+        self.autolock.due.connect(self.lock_lab)
+        self.session_watch = lablock.SessionWatcher(QApplication.instance(), self.preview, self)
+        self.session_watch.locking.connect(
+            lambda why: self.lock_lab(why) if self.cfg.get("lab_lock_with_session", True) else None)
 
         # The snip list follows the lab folder itself rather than relying on
         # every code path that writes into it remembering to refresh. A snip,
@@ -154,10 +170,16 @@ class ShadowSnipApp(QObject):
         # quietly running while every toggle in the app reads "off" is worse
         # than one that needs a click.
         self.cfg["auto_copy"] = False
+        import vault
+
+        vault.clean_stale_temp()   # decrypted copies left by a crash (0.18.0)
         self._refresh_menu_text()
         # A lab left running at the last quit may be encrypted (0.16.0): ask
         # for its password once the event loop is up.
-        QTimer.singleShot(0, self._unlock_active_lab_at_start)
+        # Only when a lab was running at start: a timer left pending on an app
+        # with no lab would otherwise ask about whatever lab it has later.
+        if lab.active_folder(self.cfg) is not None:
+            QTimer.singleShot(0, self._unlock_active_lab_at_start)
 
     # -- tray --------------------------------------------------------------
     def _build_menu(self) -> None:
@@ -215,6 +237,17 @@ class ShadowSnipApp(QObject):
         self.action_password = QAction("Change lab password...", self)
         self.action_password.triggered.connect(self.change_lab_password)
         menu.addAction(self.action_password)
+        self.action_lock = QAction("Lock lab", self)
+        self.action_lock.triggered.connect(self.toggle_lab_lock)
+        menu.addAction(self.action_lock)
+        self.action_hide_names = QAction("Hide file names while locked", self)
+        self.action_hide_names.setCheckable(True)
+        self.action_hide_names.toggled.connect(self.set_hide_lab_names)
+        menu.addAction(self.action_hide_names)
+        self.action_hello = QAction("Unlock with Windows Hello on this PC", self)
+        self.action_hello.setCheckable(True)
+        self.action_hello.toggled.connect(self.set_lab_hello)
+        menu.addAction(self.action_hello)
 
         self.action_auto = QAction("Copy on select", self)
         self.action_auto.setCheckable(True)
@@ -249,9 +282,26 @@ class ShadowSnipApp(QObject):
         import vault
 
         encrypted = bool(name) and vault.is_encrypted_lab(lab.active_folder(self.cfg))
-        self.action_encrypt.setEnabled(bool(name) and vault.available())
+        locked = encrypted and not vault.is_unlocked(lab.active_folder(self.cfg))
+        self.action_encrypt.setEnabled(bool(name) and vault.available() and not locked)
         self.action_encrypt.setText("Decrypt this lab..." if encrypted else "Encrypt this lab...")
-        self.action_password.setEnabled(encrypted)
+        self.action_password.setEnabled(encrypted and not locked)
+        self.action_lock.setVisible(encrypted)
+        self.action_lock.setText("Unlock lab..." if locked else "Lock lab")
+        folder = lab.active_folder(self.cfg)
+        import hello
+
+        for action, shown, checked in (
+            (self.action_hide_names, encrypted, encrypted and vault.hides_names(folder)),
+            (self.action_hello, encrypted and sys.platform == "win32" and hello.available(),
+             encrypted and vault.hello_enrolled(folder)),
+        ):
+            was = action.blockSignals(True)
+            action.setVisible(shown)
+            action.setEnabled(not locked)
+            action.setChecked(bool(checked))
+            action.blockSignals(was)
+        self.preview.snips_panel.set_locked(name if locked else "")
         if name:
             self.action_lab.setText(f"Stop lab ({name})")
             self.action_folder.setText("Open lab folder")
@@ -421,6 +471,8 @@ class ShadowSnipApp(QObject):
             try:
                 target.mkdir(parents=True, exist_ok=True)
                 recovery = vault.create(target, password)
+                if dialog.hide_names():
+                    vault.set_hide_names(target, True)
             except (OSError, ValueError) as exc:
                 self._warn(f"The lab could not be encrypted: {exc}")
                 return
@@ -604,6 +656,9 @@ class ShadowSnipApp(QObject):
     def stop_lab(self) -> None:
         import vault
 
+        if getattr(self, "recorder", None) is not None:
+            self.preview.set_status("Stop the clip being recorded first.")
+            return
         name = lab.active_name(self.cfg)
         total = lab.count(self.cfg)
         folder = lab.active_folder(self.cfg)
@@ -637,7 +692,12 @@ class ShadowSnipApp(QObject):
         def attempt(password=None, recovery=None):
             vault.unlock(folder, password=password, recovery=recovery)
 
-        dialog = labkeys.UnlockDialog(name, attempt, self._dialog_parent())
+        import hello
+
+        use_hello = None
+        if vault.hello_enrolled(folder) and hello.available():
+            use_hello = lambda: vault.unlock_with_hello(folder)  # noqa: E731
+        dialog = labkeys.UnlockDialog(name, attempt, self._dialog_parent(), try_hello=use_hello)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
         if dialog.recovered:
@@ -646,6 +706,90 @@ class ShadowSnipApp(QObject):
             self.preview.set_status(f"{name} opened with its recovery key. Set a new password from the tray menu.")
             self._change_lab_password(folder, name, after_recovery=True)
         return True
+
+    def _lab_unlocked_and_encrypted(self) -> bool:
+        import vault
+
+        folder = lab.active_folder(self.cfg)
+        return folder is not None and vault.is_encrypted_lab(folder) and vault.is_unlocked(folder)
+
+    def _lab_locked(self) -> bool:
+        """A lab is running, it is encrypted, and its key is not held."""
+        import vault
+
+        folder = lab.active_folder(self.cfg)
+        return folder is not None and vault.is_encrypted_lab(folder) and not vault.is_unlocked(folder)
+
+    def set_hide_lab_names(self, on: bool) -> None:
+        """Hide (or stop hiding) the running encrypted lab's file names while it is locked."""
+        import vault
+
+        folder = lab.active_folder(self.cfg)
+        if folder is None or not vault.is_encrypted_lab(folder):
+            return
+        try:
+            vault.set_hide_names(folder, on)
+        except OSError as exc:
+            self._warn(f"Could not change that: {exc}")
+        self.preview.set_status("File names will be hidden whenever the lab locks." if on
+                                else "File names will stay as they are when the lab locks.")
+        self._refresh_menu_text()
+
+    def set_lab_hello(self, on: bool) -> None:
+        """Keep (or drop) a Windows Hello copy of the running lab's key on this PC."""
+        import hello
+        import vault
+
+        folder = lab.active_folder(self.cfg)
+        if folder is None or not vault.is_unlocked(folder):
+            return
+        try:
+            vault.set_hello(folder, on)
+        except hello.HelloCancelled:
+            self.preview.set_status("Windows Hello was cancelled; nothing changed.")
+        except (hello.HelloError, OSError) as exc:
+            self._warn(f"Windows Hello could not be set up: {exc}")
+        else:
+            self.preview.set_status(
+                "This PC will unlock the lab with Windows Hello. The password still works everywhere." if on
+                else "Windows Hello no longer unlocks this lab on this PC.")
+        self._refresh_menu_text()
+
+    def lock_lab(self, reason: str = "") -> bool:
+        """Lock the running encrypted lab but keep it running (0.18.0). Returns whether it locked."""
+        import vault
+
+        if not self._lab_unlocked_and_encrypted():
+            return False
+        if getattr(self, "recorder", None) is not None:
+            return False   # a clip is being recorded into it
+        folder = lab.active_folder(self.cfg)
+        name = lab.active_name(self.cfg)
+        self.preview.hide_for_lock()
+        vault.lock(folder)
+        self._refresh_menu_text()
+        message = f"Lab {name} locked{(' ' + reason) if reason else ''}."
+        self.preview.set_status(message)
+        try:
+            self.toast.show_message(message)
+        except AttributeError:
+            pass
+        return True
+
+    def unlock_lab(self) -> bool:
+        """Ask for the running lab's password. Returns whether it is unlocked now."""
+        if not self._lab_locked():
+            return True
+        ok = self._unlock(lab.active_folder(self.cfg), lab.active_name(self.cfg))
+        self.autolock.touch()
+        self._refresh_menu_text()
+        return ok
+
+    def toggle_lab_lock(self) -> None:
+        if self._lab_locked():
+            self.unlock_lab()
+        else:
+            self.lock_lab()
 
     def _unlock_active_lab_at_start(self) -> None:
         """A lab left running when ShadowSnip last quit is encrypted: ask before using it."""
@@ -656,9 +800,9 @@ class ShadowSnipApp(QObject):
             return
         name = lab.active_name(self.cfg)
         if not self._unlock(folder, name):
-            lab.stop(self.cfg)
-            self._persist()
-            self.preview.set_status(f"Lab {name} is encrypted and was left locked. Start it again to unlock it.")
+            # It stays the running lab, locked (0.18.0): the next snip, or
+            # Unlock lab, asks again.
+            self.preview.set_status(f"Lab {name} is locked. Unlock it from the snip list or the tray menu.")
         self._refresh_menu_text()
 
     def toggle_lab_encryption(self) -> None:
@@ -688,11 +832,13 @@ class ShadowSnipApp(QObject):
             return
         dialog = labkeys.PasswordDialog(
             "Encrypt lab", f"Every file in {name} will be encrypted, and stays encrypted. "
-            "Snips, notes and lab.md open with this password.", parent=parent)
+            "Snips, notes and lab.md open with this password.", parent=parent, offer_hide=True)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
             recovery = vault.create(folder, dialog.values()[1])
+            if dialog.hide.isChecked():
+                vault.set_hide_names(folder, True)
             count = vault.encrypt_folder(folder)
         except OSError as exc:
             self._warn(f"The lab could not be encrypted: {exc}")
@@ -1642,6 +1788,9 @@ class ShadowSnipApp(QObject):
             return
         if self.busy:
             return
+        if self._lab_locked() and not self.unlock_lab():
+            self.preview.set_status("The lab is locked, so no clip was started.")
+            return
         self.cancel_delayed_snip()
         self._purpose = "record"
         self.request_snip()
@@ -1652,7 +1801,14 @@ class ShadowSnipApp(QObject):
         import recordbar
         import recorder
 
+        import vault
+
         temp = storage.save_dir(self.cfg) / ".recording"
+        found = vault.vault_for(lab.active_folder(self.cfg)) if lab.is_active(self.cfg) else None
+        if found is not None:
+            # An encrypted lab's clip is recorded into the private temp folder
+            # (RAM on Linux), then encrypted into the lab when it stops (0.18.0).
+            temp = found.handoff_dir() / "recording"
         try:
             temp.mkdir(parents=True, exist_ok=True)
             path = temp / f"clip_{datetime.now():%Y-%m-%d_%H-%M-%S}.mp4"
@@ -1922,7 +2078,12 @@ class ShadowSnipApp(QObject):
         # different drive from the save folder, and a full or read-only save
         # folder is no reason to also lose the copy filed into the lab.
         in_lab = lab.is_active(self.cfg)
+        self.autolock.touch()
         try:
+            if in_lab and self._lab_locked() and not self.unlock_lab():
+                # Locked and not unlocked: the snip is on the clipboard, but
+                # an encrypted lab's snip is never written anywhere plain.
+                raise lab.LabError("the lab is locked, so the snip was copied but not saved")
             if in_lab:
                 # The lab folder is the history for as long as it is engaged,
                 # so the same snip does not land in three places at once.

@@ -14,4 +14,6 @@ winrt-Windows.Globalization>=2.0; sys_platform == "win32"
 winrt-Windows.Graphics.Imaging>=2.0; sys_platform == "win32"
 winrt-Windows.Media.Ocr>=2.0; sys_platform == "win32"
 winrt-Windows.Security.Cryptography>=2.0; sys_platform == "win32"
+# Unlocking encrypted labs with Windows Hello (0.18.0).
+winrt-Windows.Security.Credentials>=2.0; sys_platform == "win32"
 winrt-Windows.Storage.Streams>=2.0; sys_platform == "win32"

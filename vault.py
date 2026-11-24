@@ -64,6 +64,7 @@ import json
 import os
 import secrets
 import shutil
+import sys
 import tempfile
 import uuid
 from pathlib import Path
@@ -71,7 +72,13 @@ from pathlib import Path
 MAGIC = b"SSVAULT1"
 KEY_NAME = "lab.key"
 # Never encrypted: the key file and git's ignore list.
+NAMES_NAME = "lab.names"
+# Never encrypted: the key file and git's ignore list. (lab.names is
+# encrypted, but by vault itself, and is never renamed.)
 PLAIN_NAMES = frozenset({KEY_NAME, ".gitignore"})
+# Kept out of the hide-names pass as well.
+FIXED_NAMES = PLAIN_NAMES | {NAMES_NAME}
+TEMP_PREFIX = "shadowsnip-"
 FORMAT = 1
 NONCE = 12
 # scrypt cost. The tests lower SCRYPT_N; real labs use 2^17.
@@ -193,7 +200,7 @@ class Vault:
 
     def handoff_dir(self) -> Path:
         if self._handoff is None or not self._handoff.is_dir():
-            self._handoff = Path(tempfile.mkdtemp(prefix="shadowsnip-"))
+            self._handoff = private_temp()
         return self._handoff
 
     def wipe_handoff(self) -> None:
@@ -207,6 +214,67 @@ class Vault:
 
 
 _open: dict[Path, Vault] = {}
+
+
+# -- the private temp folder (0.18.0) -------------------------------------------------------------
+def temp_root() -> Path | None:
+    """Where private temp folders go: RAM on Linux (/dev/shm), the system temp elsewhere."""
+    shm = Path("/dev/shm")
+    if sys.platform.startswith("linux") and shm.is_dir() and os.access(shm, os.W_OK | os.X_OK):
+        return shm
+    return None
+
+
+def private_temp() -> Path:
+    """A new folder only this user can read, named for this process, wiped by lock() or at next start."""
+    folder = Path(tempfile.mkdtemp(prefix=f"{TEMP_PREFIX}{os.getpid()}-", dir=temp_root()))
+    try:
+        os.chmod(folder, 0o700)
+    except OSError:
+        pass
+    return folder
+
+
+def _process_alive(pid: int) -> bool:
+    if pid == os.getpid():
+        return True
+    if sys.platform == "win32":
+        import ctypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)   # QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return code.value == 259   # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def clean_stale_temp() -> int:
+    """Delete private temp folders left by a ShadowSnip that ended without locking (a crash, a power cut)."""
+    removed = 0
+    for base in {temp_root(), Path(tempfile.gettempdir())}:
+        base = base or Path(tempfile.gettempdir())
+        try:
+            entries = list(base.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            if not entry.is_dir() or not entry.name.startswith(TEMP_PREFIX):
+                continue
+            pid_text = entry.name[len(TEMP_PREFIX):].split("-", 1)[0]
+            if pid_text.isdigit() and _process_alive(int(pid_text)):
+                continue
+            shutil.rmtree(entry, ignore_errors=True)
+            removed += 1
+    return removed
 
 
 def _key_path(folder: Path) -> Path:
@@ -425,7 +493,7 @@ def create(folder, password: str) -> str:
     return recovery
 
 
-def _record(lab_id: str, data_key: bytes, password: str, recovery: str) -> dict:
+def _record(lab_id: str, data_key: bytes, password: str, recovery: str, hide_names: bool = False) -> dict:
     aad = lab_id.encode("utf-8")
     salt = os.urandom(16)
     recovery_salt = os.urandom(16)
@@ -433,6 +501,7 @@ def _record(lab_id: str, data_key: bytes, password: str, recovery: str) -> dict:
         "format": FORMAT,
         "id": lab_id,
         "cipher": "AES-256-GCM",
+        "hide_names": bool(hide_names),
         "password": {"kdf": "scrypt", "n": SCRYPT_N, "r": SCRYPT_R, "p": SCRYPT_P, "salt": _b64(salt),
                      **_wrap(_password_key(password, salt, SCRYPT_N, SCRYPT_R, SCRYPT_P), data_key, aad)},
         "recovery": {"kdf": "hkdf-sha256", "salt": _b64(recovery_salt),
@@ -480,18 +549,168 @@ def unlock(folder, password: str | None = None, recovery: str | None = None) -> 
     folder = Path(folder)
     record = _read_key(folder)
     key = _data_key(record, password, recovery)
-    vault = Vault(folder, str(record["id"]), key)
-    _open[folder.resolve()] = vault
-    return vault
+    return _opened(folder, record, key)
+
+
+def _opened(folder: Path, record: dict, key: bytes) -> Vault:
+    found = Vault(folder, str(record["id"]), key)
+    _open[folder.resolve()] = found
+    reveal_names(folder)
+    return found
+
+
+def unlock_with_hello(folder) -> Vault:
+    """Open an encrypted lab with Windows Hello on this PC (0.18.0). Raises hello.HelloError."""
+    import hello
+
+    folder = Path(folder)
+    record = _read_key(folder)
+    key = hello.data_key(str(record["id"]))
+    return _opened(folder, record, key)
+
+
+def hello_enrolled(folder) -> bool:
+    import hello
+
+    try:
+        return hello.is_enrolled(str(_read_key(Path(folder))["id"]))
+    except VaultError:
+        return False
+
+
+def set_hello(folder, on: bool) -> None:
+    """Keep (or stop keeping) a Windows Hello copy of an unlocked lab's key on this PC."""
+    import hello
+
+    found = _open.get(Path(folder).resolve())
+    if found is None:
+        raise Locked("Unlock the lab first.")
+    if on:
+        hello.enroll(found.lab_id, found._key)
+    else:
+        hello.forget(found.lab_id)
 
 
 def lock(folder) -> None:
-    """Forget the lab's key and wipe its temporary copies."""
+    """Forget the lab's key and wipe its temporary copies (hiding file names first, if the lab asks)."""
     if folder is None:
         return
-    found = _open.pop(Path(folder).resolve(), None)
+    folder = Path(folder)
+    if folder.resolve() in _open:
+        try:
+            if hides_names(folder):
+                hide_names(folder)
+        except OSError:
+            pass   # names stay as they are; the files are still encrypted
+    found = _open.pop(folder.resolve(), None)
     if found is not None:
         found.forget()
+
+
+# -- hiding file names while locked (0.18.0) -----------------------------------------------------
+def hides_names(folder) -> bool:
+    try:
+        return bool(_read_key(Path(folder)).get("hide_names"))
+    except VaultError:
+        return False
+
+
+def set_hide_names(folder, on: bool) -> None:
+    """Turn hiding file names on or off for an encrypted lab (takes effect at the next lock)."""
+    folder = Path(folder)
+    record = _read_key(folder)
+    record["hide_names"] = bool(on)
+    _write_key(folder, record)
+
+
+def _name_files(folder: Path):
+    for path in sorted(Path(folder).rglob("*")):
+        if path.is_file() and path.name not in FIXED_NAMES and not path.name.endswith(".tmp"):
+            yield path
+
+
+def hide_names(folder) -> int:
+    """Give every file in an unlocked lab a random name, keeping the real ones in lab.names.
+
+    lab.names (encrypted) is written before anything is renamed, listing every
+    rename, so a stop half way is put right by reveal_names(). Folders keep
+    their names (removed, .edits). Returns how many files were renamed.
+    """
+    import storage
+
+    folder = Path(folder)
+    found = _open.get(folder.resolve())
+    if found is None:
+        raise Locked("Unlock the lab first.")
+    mapping = _read_names(folder, found)
+    taken = set(mapping)
+    plan = []
+    for path in _name_files(folder):
+        relative = path.relative_to(folder).as_posix()
+        if relative in mapping:
+            continue   # hidden already
+        while True:
+            hidden = (path.parent / secrets.token_hex(12)).relative_to(folder).as_posix()
+            if hidden not in taken and not (folder / hidden).exists():
+                break
+        taken.add(hidden)
+        mapping[hidden] = relative
+        plan.append((path, folder / hidden))
+    if not plan:
+        return 0
+    storage.write_atomic(folder / NAMES_NAME, json.dumps({"format": 1, "names": mapping}).encode("utf-8"))
+    for real, hidden in plan:
+        try:
+            real.replace(hidden)
+        except OSError:
+            pass   # left under its real name; reveal_names() copes with either
+    return len(plan)
+
+
+def _read_names(folder: Path, found: Vault) -> dict:
+    path = folder / NAMES_NAME
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(found.decrypt(path.read_bytes(), NAMES_NAME))
+        names = data.get("names", {})
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return {str(k): str(v) for k, v in names.items()} if isinstance(names, dict) else {}
+
+
+def reveal_names(folder) -> int:
+    """Put back the real names hide_names() replaced, and remove lab.names. Returns how many."""
+    folder = Path(folder)
+    found = _open.get(folder.resolve())
+    if found is None or not (folder / NAMES_NAME).is_file():
+        return 0
+    mapping = _read_names(folder, found)
+    restored = 0
+    for hidden, real in mapping.items():
+        source, target = folder / hidden, folder / real
+        if not _inside(folder, source) or not _inside(folder, target):
+            continue
+        if source.is_file() and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                source.replace(target)
+                restored += 1
+            except OSError:
+                return restored   # lab.names stays, so the next unlock finishes
+    try:
+        (folder / NAMES_NAME).unlink()
+    except OSError:
+        pass
+    return restored
+
+
+def _inside(folder: Path, path: Path) -> bool:
+    try:
+        path.resolve().relative_to(folder.resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def lock_all() -> None:
@@ -513,8 +732,9 @@ def change_password(folder, new_password: str, old_password: str | None = None,
     record = _read_key(folder)
     key = _data_key(record, old_password, recovery)
     fresh = new_recovery_key()
-    _write_key(folder, _record(str(record["id"]), key, new_password, fresh))
-    _open[folder.resolve()] = Vault(folder, str(record["id"]), key)
+    _write_key(folder, _record(str(record["id"]), key, new_password, fresh, record.get("hide_names", False)))
+    if folder.resolve() not in _open:
+        _opened(folder, record, key)
     return fresh
 
 
@@ -524,13 +744,13 @@ def rewrap(folder, found: Vault, new_password: str) -> str:
     if problem:
         raise VaultError(problem)
     fresh = new_recovery_key()
-    _write_key(Path(folder), _record(found.lab_id, found._key, new_password, fresh))
+    _write_key(Path(folder), _record(found.lab_id, found._key, new_password, fresh, hides_names(folder)))
     return fresh
 
 
 def _files(folder: Path):
     for path in sorted(Path(folder).rglob("*")):
-        if path.is_file() and path.name not in PLAIN_NAMES and not path.name.endswith(".tmp"):
+        if path.is_file() and path.name not in FIXED_NAMES and not path.name.endswith(".tmp"):
             yield path
 
 
@@ -575,6 +795,12 @@ def decrypt_folder(folder, progress=None) -> int:
         temp = path.with_name(path.name + ".plain.tmp")
         temp.write_bytes(plain)
         storage.replace_with_retry(temp, path)
-    lock(folder)
+    # Forgotten directly, not through lock(): a plain lab has no names to hide.
+    found = _open.pop(folder.resolve(), None)
+    if found is not None:
+        import hello
+
+        hello.forget(found.lab_id)
+        found.forget()
     _key_path(folder).unlink()
     return len(todo)

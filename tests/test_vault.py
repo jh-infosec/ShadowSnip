@@ -529,7 +529,9 @@ def test_a_lab_left_running_is_unlocked_or_stopped_at_start(shadow, monkeypatch)
     vault.lock(folder)   # as after a restart
     monkeypatch.setattr(labkeys.UnlockDialog, "exec", lambda d: 0)
     shadow._unlock_active_lab_at_start()
-    assert lab.active_name(shadow.cfg) == "" and not vault.is_unlocked(folder)
+    # 0.18.0: it keeps running, locked.
+    assert lab.active_name(shadow.cfg) == "secret" and not vault.is_unlocked(folder)
+    assert shadow._lab_locked() and not shadow.preview.snips_panel.locked_panel.isHidden()
 
 
 def test_encrypting_and_decrypting_the_running_lab_from_the_menu(shadow, monkeypatch):

@@ -65,12 +65,12 @@ into your own Word template.
   QTextDocument anchors).
 - An executive summary section, written once per lab and placed after the cover.
 
-## Next: v0.18 - lab safety
+## Done in v0.18.0 - lab safety
 
-Auto-lock an encrypted lab after a set idle time, record clips straight into
-memory, optionally hide file names, unlock with Windows Hello.
+Lock without stopping, auto-lock on idle and with the computer, hidden file
+names while locked, Windows Hello unlock, private temp in RAM on Linux.
 
-## Then: v0.19 - faster day to day, v0.20 - install and share
+## Next: v0.19 - faster day to day, then v0.20 - install and share
 
 The clipboard history strip, a Copy as menu, marks on clips; then run at
 login, a Kali .deb or AppImage, an update check and a release page.
@@ -120,10 +120,11 @@ A password per lab, a one-time recovery key, files always encrypted on disk
 
 ## Encrypted labs, still open
 
-- Recording straight into memory, so a clip of an encrypted lab is never a
-  plain file even while it records (Qt only records to a file path today).
-- Hiding file names too (they show how many snips and when, not what).
-- Unlocking with Windows Hello or the OS keyring as well as the password.
+- Recording straight into memory on Windows too (Qt records to a file path;
+  on Linux that path is in RAM, on Windows a private temp folder).
+- Unlocking with the OS keyring on Linux, as Windows Hello does on Windows.
+- Hello's prompt can open behind ShadowSnip's window on some setups; the
+  window-handle variant of the sign request would fix that.
 
 ## Video clips, still open
 

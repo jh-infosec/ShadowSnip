@@ -25,6 +25,10 @@ from PySide6.QtWidgets import (
 import vault
 
 
+HIDE_TIP = ("While the lab is locked its files get random names, so the folder does not show how "
+            "many snips there are or when they were taken. The names come back when it is unlocked.")
+
+
 def _hint(text: str) -> QLabel:
     label = QLabel(text)
     label.setWordWrap(True)
@@ -104,6 +108,9 @@ class StartLabDialog(QDialog):
         self.encrypt.setChecked(bool(encrypt_default) and vault.available())
         self.encrypt.setEnabled(vault.available())
         self.passwords = NewPassword()
+        self.hide = QCheckBox("Hide file names while it is locked")
+        self.hide.setToolTip(HIDE_TIP)
+        self.passwords.layout().addRow("", self.hide)
         self.note = _hint("")
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         self.btn_start = buttons.addButton("Start", QDialogButtonBox.ButtonRole.AcceptRole)
@@ -148,17 +155,32 @@ class StartLabDialog(QDialog):
         wanted = self.encrypt.isChecked() and self.is_new()
         return self.name.text().strip(), wanted, self.passwords.value() if wanted else ""
 
+    def hide_names(self) -> bool:
+        """Whether the new encrypted lab should hide its file names while locked (0.18.0)."""
+        return self.values()[1] and self.hide.isChecked()
+
 
 class UnlockDialog(QDialog):
     """The password (or the recovery key) for an encrypted lab, tried before closing."""
 
-    def __init__(self, lab_name: str, try_unlock, parent=None):
-        """`try_unlock(password=..., recovery=...)` raises vault.VaultError when it does not open."""
+    def __init__(self, lab_name: str, try_unlock, parent=None, try_hello=None):
+        """`try_unlock(password=..., recovery=...)` raises vault.VaultError when it does not open.
+
+        `try_hello()` (0.18.0), when given, unlocks with Windows Hello; it is
+        tried as soon as the window shows, and the password stays underneath.
+        """
         super().__init__(parent)
         self.setWindowTitle(f"Unlock {lab_name}")
         self.setMinimumWidth(420)
         self._try = try_unlock
+        self._try_hello = try_hello
+        self._hello_tried = False
         self.recovered = False
+        self.used_hello = False
+        self.btn_hello = QPushButton("Use Windows Hello")
+        self.btn_hello.setToolTip("Face, fingerprint or PIN, as set up in Windows")
+        self.btn_hello.clicked.connect(self._attempt_hello)
+        self.btn_hello.setVisible(try_hello is not None)
         self.password = _password_box("The lab's password")
         self.recovery = QLineEdit()
         self.recovery.setPlaceholderText("XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX")
@@ -176,6 +198,7 @@ class UnlockDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
         layout.addWidget(_hint(f"{lab_name} is encrypted. Its snips, notes and lab.md open with its password."))
+        layout.addWidget(self.btn_hello)
         layout.addWidget(self.password)
         layout.addWidget(self.recovery)
         layout.addWidget(self.use_recovery, 0, Qt.AlignmentFlag.AlignLeft)
@@ -183,8 +206,35 @@ class UnlockDialog(QDialog):
         layout.addWidget(buttons)
         self.password.setFocus()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._try_hello is not None and not self._hello_tried:
+            self._hello_tried = True
+            from PySide6.QtCore import QTimer
+
+            QTimer.singleShot(150, self._attempt_hello)
+
+    def _attempt_hello(self) -> None:
+        import hello
+
+        self._hello_tried = True
+        try:
+            self._try_hello()
+        except hello.HelloCancelled:
+            self.error.setText("Windows Hello was cancelled. Use the password, or try Hello again.")
+            self.error.show()
+            self.password.setFocus()
+            return
+        except (hello.HelloError, vault.VaultError) as exc:
+            self.error.setText(f"{exc} The password still works.")
+            self.error.show()
+            self.password.setFocus()
+            return
+        self.used_hello = True
+        self.accept()
+
     def _toggle_recovery(self) -> None:
-        using = not self.recovery.isVisible()
+        using = self.recovery.isHidden()
         self.recovery.setVisible(using)
         self.password.setVisible(not using)
         self.use_recovery.setText("Use the password instead" if using else "Use the recovery key instead")
@@ -192,7 +242,7 @@ class UnlockDialog(QDialog):
         (self.recovery if using else self.password).setFocus()
 
     def _attempt(self) -> None:
-        using_recovery = self.recovery.isVisible()
+        using_recovery = not self.recovery.isHidden()
         try:
             if using_recovery:
                 self._try(recovery=self.recovery.text())
@@ -256,12 +306,17 @@ class RecoveryKeyDialog(QDialog):
 class PasswordDialog(QDialog):
     """A new password for an encrypted lab, or for encrypting one."""
 
-    def __init__(self, title: str, intro: str, ask_current: bool = False, parent=None):
+    def __init__(self, title: str, intro: str, ask_current: bool = False, parent=None,
+                 offer_hide: bool = False):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumWidth(440)
         self.current = _password_box("The password it opens with now") if ask_current else None
         self.passwords = NewPassword("New password" if ask_current else "Password")
+        self.hide = QCheckBox("Hide file names while it is locked")
+        self.hide.setToolTip(HIDE_TIP)
+        self.hide.setVisible(offer_hide)
+        self.passwords.layout().addRow("", self.hide)
         self.error = _error()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         self.btn_ok = buttons.addButton(title.rstrip("."), QDialogButtonBox.ButtonRole.AcceptRole)

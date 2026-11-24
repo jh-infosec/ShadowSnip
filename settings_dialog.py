@@ -373,6 +373,17 @@ class SettingsDialog(QDialog):
             "Start lab ticks Encrypt this lab for a new lab. Each lab still gets its own password."
         )
         self.lab_encrypt_check.setChecked(bool(cfg.get("lab_encrypt_default")))
+        # 0.18.0: an encrypted lab locks by itself.
+        self.lab_autolock_spin = QSpinBox()
+        self.lab_autolock_spin.setRange(0, 240)
+        self.lab_autolock_spin.setSuffix(" min idle")
+        self.lab_autolock_spin.setSpecialValueText("Never")
+        self.lab_autolock_spin.setValue(int(cfg.get("lab_autolock_minutes", 15)))
+        self.lab_autolock_spin.setToolTip(
+            "Lock a running encrypted lab when nobody has used the computer for this long. "
+            "It keeps running; the next snip asks for the password.")
+        self.lab_session_check = QCheckBox("Lock encrypted labs when the computer locks or sleeps")
+        self.lab_session_check.setChecked(bool(cfg.get("lab_lock_with_session", True)))
 
         # The skin: a list to pick from, and a button that steps through them.
         self.skin_combo = QComboBox()
@@ -464,6 +475,8 @@ class SettingsDialog(QDialog):
         labs.addRow(self.lab_caption_check)
         labs.addRow(self.lab_methodology_check)
         labs.addRow(self.lab_encrypt_check)
+        labs.addRow("Lock encrypted labs after", self.lab_autolock_spin)
+        labs.addRow(self.lab_session_check)
 
         # Outside the tabs, so they are always on screen whichever tab is open.
         buttons = QDialogButtonBox(
@@ -697,6 +710,8 @@ class SettingsDialog(QDialog):
         cfg["lab_caption"] = self.lab_caption_check.isChecked()
         cfg["lab_methodology"] = self.lab_methodology_check.isChecked()
         cfg["lab_encrypt_default"] = self.lab_encrypt_check.isChecked()
+        cfg["lab_autolock_minutes"] = self.lab_autolock_spin.value()
+        cfg["lab_lock_with_session"] = self.lab_session_check.isChecked()
         cfg["skin"] = self.skin_combo.currentData() or "original"
         return cfg
 
