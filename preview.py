@@ -163,6 +163,9 @@ class PreviewWindow(QWidget):
     snip_remove_requested = Signal(list)
     # A lab snip to put on the clipboard, from the full-size viewer.
     snip_copy_requested = Signal(str)
+    # 0.19.0, Copy as: the snip on screen in a format, and a listed snip in one.
+    copy_as_requested = Signal(str)
+    snip_copy_as_requested = Signal(str, str)
     # A clip was trimmed or put back (0.14.2): its length and poster changed.
     clip_changed = Signal(str)
     # Show the removed snips (0.15.0).
@@ -228,6 +231,7 @@ class PreviewWindow(QWidget):
         self.canvas.edited.connect(self._on_canvas_edited)
         self.canvas.save_as_requested.connect(self.save_as)
         self.canvas.copy_requested.connect(self.copy_image)
+        self.canvas.copy_as_requested.connect(self.copy_image_as)
         # Edits are saved a moment after the last one, not on every stroke:
         # each save re-encodes the snip and rewrites up to four files.
         self._edit_timer = QTimer(self)
@@ -249,6 +253,9 @@ class PreviewWindow(QWidget):
         self.view.addWidget(self.canvas)
         self.view.addWidget(self.player)
         image_layout.addWidget(self.view, 1)
+        # 0.19.0: the newest snips under the picture, made once the list exists
+        # (it shares the list's thumbnails); see recentstrip.py.
+        self._image_layout = image_layout
 
         # The caption for the snip on screen, shown while a lab is engaged.
         # Locked until double-clicked, so a stray click cannot change it, and
@@ -267,6 +274,7 @@ class PreviewWindow(QWidget):
         self.snips_panel.setVisible(False)
         self.snips_panel.remove_requested.connect(self.snip_remove_requested.emit)
         self.snips_panel.copy_requested.connect(self.snip_copy_requested.emit)
+        self.snips_panel.copy_as_requested.connect(self.snip_copy_as_requested.emit)
         self.snips_panel.new_snip_requested.connect(self.new_snip_requested.emit)
         self.snips_panel.status_message.connect(self.set_status)
         self.snips_panel.viewer_loading.connect(self.lab_snip_loading.emit)
@@ -286,6 +294,15 @@ class PreviewWindow(QWidget):
         self.snips_title = self.snips_panel.title
         self.btn_remove_snip = self.snips_panel.btn_remove
         self.btn_open_snip = self.snips_panel.btn_open
+
+        from recentstrip import RecentStrip
+
+        self.recent = RecentStrip(self.snips_panel._thumbs)
+        self.recent.setVisible(False)
+        self.recent.copy_requested.connect(self._copy_recent)
+        self.recent.copy_as_requested.connect(self.snip_copy_as_requested.emit)
+        self.recent.expand_requested.connect(self._expand_recent)
+        self._image_layout.addWidget(self.recent)
 
         # The image and, during a lab, the list of what is in it side by side.
         # A splitter so the list can be dragged wider when the captions are
@@ -359,6 +376,9 @@ class PreviewWindow(QWidget):
         self.btn_auto.clicked.connect(self.auto_copy_toggled.emit)
         self.btn_save.clicked.connect(self.save_as)
         self.btn_copy.clicked.connect(self.copy_image)
+        # Right-click: Copy as (0.19.0).
+        self.btn_copy.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.btn_copy.customContextMenuRequested.connect(self._copy_as_menu)
         self.btn_folder.clicked.connect(self.open_folder)
         self.btn_settings.clicked.connect(self.settings_requested.emit)
         self.btn_close.clicked.connect(self.close)
@@ -668,11 +688,13 @@ class PreviewWindow(QWidget):
     def set_annotation_prefs(self, prefs: dict) -> None:
         self.tools.set_prefs(prefs)
         self.canvas.prefs = dict(self.tools.prefs)
+        self.player.annotation_prefs = dict(self.tools.prefs)
         self.snips_panel.set_annotation_prefs(self.tools.prefs)
 
     def _on_annotation_prefs(self, prefs: dict) -> None:
         before = dict(self.canvas.prefs)
         self.canvas.prefs = dict(prefs)
+        self.player.annotation_prefs = dict(prefs)
         # 0.13.0: with a mark selected, a new colour or size applies to it.
         self.canvas.restyle_selected(before, prefs)
         self.snips_panel.set_annotation_prefs(prefs)
@@ -836,7 +858,22 @@ class PreviewWindow(QWidget):
 
     def set_lab_snips(self, rows, current_file: str = "") -> None:
         """Fill the lab snip list from lab.snip_rows(). See labsnips.py."""
+        rows = list(rows)
         self.snips_panel.set_rows(rows, current_file)
+        self.recent.set_rows(rows)
+
+    def set_recent_strip(self, on: bool) -> None:
+        """Settings > Appearance: show the recent strip under the picture (0.19.0)."""
+        self.recent.set_wanted(on)
+
+    def _copy_recent(self, filename: str) -> None:
+        """A click in the recent strip: copied exactly as from the list."""
+        self.snips_panel.select(filename)
+        self.snips_panel.copy_selected()
+
+    def _expand_recent(self, filename: str) -> None:
+        self.snips_panel.select(filename)
+        self.snips_panel.expand()
 
     def set_lab_outline(self, data: dict, md_text: str = "", md_folder=None) -> None:
         self.snips_panel.set_outline(data, md_text, md_folder)
@@ -876,6 +913,7 @@ class PreviewWindow(QWidget):
         self.canvas.set_message("\U0001F512  The lab is locked")
         self.forget_snip_on_screen()
         self.snips_panel.set_outline({}, "", None)
+        self.recent.clear()
 
     def forget_snip_on_screen(self) -> None:
         """The snip on screen was removed from the lab: stop offering lab actions for it."""
@@ -1055,6 +1093,29 @@ class PreviewWindow(QWidget):
             QMessageBox.warning(self, "ShadowSnip", f"Could not copy: {exc}")
             return
         self.status.setText("Clip copied as a file" if self._clip is not None else "Copied to the clipboard again")
+
+    def copy_image_as(self, fmt: str) -> None:
+        """Copy as (0.19.0): the snip on screen, mark-up included, in another format."""
+        if self._clip is not None or self._copy_again is None:
+            return
+        self.flush_edits()
+        self.copy_as_requested.emit(fmt)
+
+    def _copy_as_menu(self, pos) -> None:
+        if self._clip is not None or self._copy_again is None:
+            return
+        import annotate
+        import copyas
+
+        menu = QMenu(self)
+        menu.setStyleSheet(skins.style(annotate.MENU_STYLE))
+        for fmt, label in copyas.FORMATS:
+            menu.addAction(f"Copy as {label}").triggered.connect(lambda _c=False, f=fmt: self.copy_image_as(f))
+        self._popup_copy_menu(menu, self.btn_copy.mapToGlobal(pos))
+
+    def _popup_copy_menu(self, menu: QMenu, where) -> None:
+        """One place to show it, so the tests can stand in."""
+        menu.exec(where)
 
     def open_folder(self) -> None:
         if self._folder_path is None:

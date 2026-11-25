@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.18.1"
+APP_VERSION = "0.19.0"
 
 
 def config_dir() -> Path:
@@ -145,6 +145,9 @@ DEFAULTS = {
     # (0 = never), and when the computer locks or sleeps.
     "lab_autolock_minutes": 15,
     "lab_lock_with_session": True,
+    # The recent strip under the picture (0.19.0): the newest snips, a click
+    # copies one again.
+    "recent_strip": True,
     # The list of the running lab's snips beside the image in the preview
     # window. Toggled with the Snip list button; remembered between runs.
     "lab_snip_list": True,
@@ -307,6 +310,7 @@ def _sanitise(cfg: dict) -> dict:
         "lab_methodology",
         "lab_encrypt_default",
         "lab_lock_with_session",
+        "recent_strip",
         "prtsc_snip",
         "snip_magnifier",
         "clip_microphone",

@@ -207,7 +207,7 @@ def test_the_viewer_right_click_menu(panel):
     canvas.resize(600, 400)
     centre = QPointF(canvas._target().center())
     texts = [row[0] for row in canvas.context_actions(centre) if row]
-    assert texts == ["Save as...", "Copy", "Remove from lab..."]
+    assert texts == ["Save as...", "Copy", "Copy as", "Remove from lab..."]
     canvas.set_tool("pen")
     assert [row[0] for row in canvas.context_actions(centre) if row] == texts
 

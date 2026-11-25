@@ -335,6 +335,10 @@ class SettingsDialog(QDialog):
 
         self.preview_check = QCheckBox("Show the preview window after a snip")
         self.preview_check.setChecked(cfg["show_preview"])
+        self.recent_check = QCheckBox("Show the recent strip under the picture")
+        self.recent_check.setChecked(bool(cfg.get("recent_strip", True)))
+        self.recent_check.setToolTip("Your newest snips as thumbnails: click one to copy it again, "
+                                     "double-click to open it")
 
         self.dim = QSpinBox()
         self.dim.setRange(0, 255)
@@ -422,6 +426,7 @@ class SettingsDialog(QDialog):
         appearance.addRow("", self.skin_about)
         appearance.addRow("", self.skin_picture)
         appearance.addRow(self.preview_check)
+        appearance.addRow(self.recent_check)
         appearance.addRow("Overlay dimming", self.dim)
 
         snipping = self._tab("Snipping")
@@ -704,6 +709,7 @@ class SettingsDialog(QDialog):
             self.auto_copy_blocked.text()
         )
         cfg["show_preview"] = self.preview_check.isChecked()
+        cfg["recent_strip"] = self.recent_check.isChecked()
         cfg["dim_opacity"] = self.dim.value()
         cfg["lab_root"] = self.lab_root_edit.text().strip()
         cfg["lab_index"] = self.lab_index_check.isChecked()

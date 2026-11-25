@@ -37,7 +37,7 @@ its other rows.
 them, or play to the right spot and press **Start here** (I) or **End here**
 (O). Play then plays only the part being kept. **Save trim** re-encodes that
 part (`cliptrim`), keeps the clip as recorded aside, and remakes the poster;
-**Undo trim** puts the recorded clip back. The window is told before the
+**As recorded** (Undo trim before 0.19.0) puts the recorded clip back. The window is told before the
 file changes (`about_to_change`, so any other player lets go of it; Windows
 will not replace an open file) and after (`changed`, so lists and lab.md
 show the new length).
@@ -286,6 +286,8 @@ class ClipPlayer(QWidget):
         self._pending_seek = None
         self._source_for: Path | None = None   # the clip the media player was given
         self._busy = False      # a trim is being written
+        self._frame: QImage | None = None   # the last frame shown, for Mark up (0.19.0)
+        self.annotation_prefs: dict = {}    # the window's colours and widths, for Mark up
 
         self.screen_area = _Screen()
         self.screen_area.clicked.connect(self.toggle)
@@ -306,8 +308,11 @@ class ClipPlayer(QWidget):
         self.btn_trim = QPushButton("Trim")
         self.btn_trim.setToolTip("Cut the start or end off the clip")
         self.btn_trim.clicked.connect(self.begin_trim)
-        self.btn_untrim = QPushButton("Undo trim")
-        self.btn_untrim.setToolTip("Put the clip back as it was recorded")
+        self.btn_markup = QPushButton("Mark up")
+        self.btn_markup.setToolTip("Draw arrows, labels, boxes or blur on the clip, from here or for all of it")
+        self.btn_markup.clicked.connect(self.begin_markup)
+        self.btn_untrim = QPushButton("As recorded")
+        self.btn_untrim.setToolTip("Put the clip back as it was recorded: no trim, no marks")
         self.btn_untrim.clicked.connect(self.undo_trim)
         self.btn_untrim.hide()
 
@@ -332,9 +337,10 @@ class ClipPlayer(QWidget):
         self.btn_trim_cancel.clicked.connect(self.cancel_trim)
         self.btn_trim_save = QPushButton("Save trim")
         self.btn_trim_save.setObjectName("Primary")
-        self.btn_trim_save.setToolTip("Keep only the marked part. The clip as recorded is kept, for Undo trim.")
+        self.btn_trim_save.setToolTip("Keep only the marked part. The clip as recorded is kept: As recorded brings it back.")
         self.btn_trim_save.clicked.connect(self.save_trim)
-        for button in (self.btn_play, self.btn_external, self.btn_trim, self.btn_untrim, self.btn_mark_start,
+        for button in (self.btn_play, self.btn_external, self.btn_trim, self.btn_markup, self.btn_untrim,
+                       self.btn_mark_start,
                        self.btn_mark_end, self.btn_trim_cancel, self.btn_trim_save):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
@@ -346,6 +352,7 @@ class ClipPlayer(QWidget):
         self.controls.addWidget(self.time)
         self.controls.addWidget(self.btn_untrim)
         self.controls.addWidget(self.btn_trim)
+        self.controls.addWidget(self.btn_markup)
         self.controls.addWidget(self.btn_external)
 
         self.trim_row_widget = QWidget()
@@ -385,6 +392,7 @@ class ClipPlayer(QWidget):
         self.video = Path(video)
         self._source_for = None   # read the file afresh: a trim may have changed it
         self.poster = poster if poster is not None and not poster.isNull() else None
+        self._frame = None
         seconds = clips.length_of(self.video.with_suffix(".png"))
         self._length_ms = int((seconds or 0) * 1000)
         self.slider.setRange(0, self._length_ms)
@@ -524,6 +532,7 @@ class ClipPlayer(QWidget):
             return
         image = frame.toImage()
         if not image.isNull():
+            self._frame = image
             self.screen_area.message = ""
             self.screen_area.show_picture(image)
 
@@ -600,6 +609,7 @@ class ClipPlayer(QWidget):
         self.trim_bar.setVisible(on)
         self.trim_row_widget.setVisible(on)
         self.btn_trim.setVisible(not on)
+        self.btn_markup.setVisible(not on)
         self.btn_untrim.setVisible(not on and cliptrim.is_trimmed(self.video))
         self._show_time(self.slider.value())
 
@@ -641,7 +651,8 @@ class ClipPlayer(QWidget):
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         for widget in (self.btn_play, self.btn_trim_save, self.btn_trim_cancel, self.btn_mark_start,
-                       self.btn_mark_end, self.btn_untrim, self.btn_trim, self.btn_external, self.trim_bar):
+                       self.btn_mark_end, self.btn_untrim, self.btn_trim, self.btn_markup, self.btn_external,
+                       self.trim_bar):
             widget.setEnabled(not busy)
         self.screen_area.setEnabled(not busy)
 
@@ -666,7 +677,64 @@ class ClipPlayer(QWidget):
             return
         self._set_busy(False)
         self.load(video, vault.load_image(poster))
-        self.notice.emit(f"Clip trimmed to {clips.format_length(seconds)}. Undo trim puts it back as recorded.")
+        self.notice.emit(f"Clip trimmed to {clips.format_length(seconds)}. As recorded puts it back.")
+        self.changed.emit(str(video))
+
+    # -- marks (0.19.0) -------------------------------------------------------------------
+    def current_frame(self) -> QImage | None:
+        """The frame on screen, or the clip's first frame if it has not played yet."""
+        if self._frame is not None and not self._frame.isNull():
+            return self._frame.copy()
+        if self.video is None:
+            return None
+        frames = clips.frames_of(self.video, fps=1, max_seconds=1, max_width=1_000_000)
+        return frames[0][0] if frames else None
+
+    def _markup_dialog(self, frame: QImage, at_ms: int):
+        """The Mark up window (one place, so the tests can stand in)."""
+        from clipmarks import ClipMarkupDialog
+
+        return ClipMarkupDialog(frame, at_ms, clips.format_length(self._length_ms / 1000), format_ms(at_ms),
+                                self.annotation_prefs, self.window())
+
+    def begin_markup(self) -> None:
+        """Draw on a frame; Save marks writes them onto the clip."""
+        if self.video is None or self._busy:
+            return
+        if not self.video.is_file():
+            self.notice.emit("This clip's file is no longer there")
+            return
+        self.pause()
+        at_ms = 0 if self._at_end else self.slider.value()
+        frame = self.current_frame()
+        if frame is None or frame.isNull():
+            self.notice.emit("Could not read a picture from this clip to draw on")
+            return
+        dialog = self._markup_dialog(frame, at_ms)
+        if not dialog.exec() or not dialog.has_marks():
+            return
+        self.save_marks(dialog.transform())
+
+    def save_marks(self, transform) -> None:
+        video, poster = self.video, self.video.with_suffix(".png")
+        length = self._length_ms
+        self._release_for_change(video)
+        self._set_busy(True)
+
+        def progress(fraction: float) -> None:
+            self.time.setText(f"Marking... {int(fraction * 100)}%")
+
+        try:
+            seconds = cliptrim.mark(video, transform, length, progress=progress)
+        except cliptrim.TrimError as exc:
+            self._set_busy(False)
+            self.load(video, vault.load_image(poster))
+            self.notice.emit(f"Could not mark the clip: {exc}")
+            return
+        self._set_busy(False)
+        self.load(video, vault.load_image(poster))
+        self.notice.emit(f"Marks added to the clip ({clips.format_length(seconds)}). "
+                         "As recorded puts it back.")
         self.changed.emit(str(video))
 
     def undo_trim(self) -> None:

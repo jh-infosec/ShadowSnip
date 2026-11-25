@@ -1,6 +1,33 @@
 # Changelog
 
-## Latest: 0.18.1
+## Latest: 0.19.0
+
+The faster day to day release.
+
+**Added**: **Copy as**: PNG, JPEG, WebP, a data URI or a Markdown image, from
+the right-click menu of the snip in the window, the full-size view, the snip
+list and the recent strip, and a right-click on **Copy again**. JPEG and WebP
+go on the clipboard as a file as well as bytes, so a chat or an upload box
+gets the small file; they are written to a `copies` folder in the save folder
+(the newest 10 kept), or for an encrypted lab to its private temp folder,
+wiped when it locks. The Markdown image takes the snip's caption as its alt
+text. New module `copyas.py`.
+
+**Added**: **the recent strip** under the picture: the newest snips (the
+lab's in a lab), as many as fit, up to eight. Click to copy one again,
+double-click to open it, right-click for Copy as and Expand. Settings >
+Appearance turns it off. New module `recentstrip.py`.
+
+**Added**: **marks on video clips**. **Mark up** beside Trim opens the frame
+on screen with the mark-up tools; **Save marks** draws them into every frame,
+for the whole clip or from that moment on. Blur boxes and redactions blur
+each frame's own pixels. The clip as recorded is kept. New module
+`clipmarks.py`; `cliptrim.reencode` takes a per-frame `transform`.
+
+**Changed**: **Undo trim** is now **As recorded**, since it takes marks off as
+well as a trim.
+
+## 0.18.1
 
 Fixes the GitHub builds, which had failed on every push since 0.14.0, so no
 release after 0.13.0 was published.

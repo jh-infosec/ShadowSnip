@@ -84,6 +84,7 @@ class ShadowSnipApp(QObject):
         self.preview.annotation_prefs_changed.connect(self._save_annotation_prefs)
         self.preview.set_annotation_prefs(self.cfg.get("annotation") or {})
         self.preview.snips_panel.clip_play_mode = self.cfg.get("clip_player", "app")
+        self.preview.set_recent_strip(self.cfg.get("recent_strip", True))
         # Every file the snip on screen was written to, so an edit (above all
         # a redaction) replaces each of them and leaves no original behind.
         self._snip_paths: dict[str, Path] = {}
@@ -93,6 +94,8 @@ class ShadowSnipApp(QObject):
         self.preview.closed.connect(self._on_window_closed)
         self.preview.snip_remove_requested.connect(self.remove_lab_snips)
         self.preview.snip_copy_requested.connect(self.copy_lab_snip)
+        self.preview.copy_as_requested.connect(self.copy_snip_as)
+        self.preview.snip_copy_as_requested.connect(self.copy_lab_snip_as)
         self.preview.lab_snip_loading.connect(self._before_viewer_loads)
         self.preview.lab_snip_edited.connect(self.save_lab_snip_edit)
         self.preview.snip_open_requested.connect(self.open_lab_snip)
@@ -1147,6 +1150,68 @@ class ShadowSnipApp(QObject):
         message = f"Snip {label} copied to the clipboard"
         self.preview.set_status(message)
         # The viewer is usually in front of the status line, so it says so too.
+        self.preview.viewer_message(message)
+
+    # -- Copy as (0.19.0) ---------------------------------------------------------------------
+    def _copies_folder(self) -> Path:
+        """Where a JPEG or WebP copy is written to go on the clipboard as a file.
+
+        An encrypted lab's snip goes to the lab's private temp folder, wiped
+        when it locks; anything else to a copies folder in the save folder.
+        """
+        import vault
+
+        folder = lab.active_folder(self.cfg)
+        if folder is not None and vault.is_encrypted_lab(folder):
+            found = vault.vault_for(folder)
+            if found is None:
+                raise vault.Locked("The lab is locked.")
+            return found.handoff_dir()
+        return Path(self.cfg["save_dir"]) / "copies"
+
+    def _caption_of(self, filename: str) -> str:
+        if not filename or not lab.is_active(self.cfg):
+            return ""
+        for row in lab.snip_rows(self.cfg):
+            if row.get("file") == filename:
+                return str(row.get("caption") or "")
+        return ""
+
+    def _copy_as(self, fmt: str, image, png: bytes | None, name: str, caption: str) -> str:
+        import copyas
+
+        return copyas.copy(fmt, image, png=png, folder=self._copies_folder(), name=name,
+                           caption=caption, include_dib=self.cfg["clipboard_dib_fallback"])
+
+    def copy_snip_as(self, fmt: str) -> None:
+        """Copy as, for the snip on screen (its latest edit included)."""
+        if self._last_image is None:
+            return
+        on_screen = self._last_lab_file or self._last_history_file or "snip"
+        try:
+            message = self._copy_as(fmt, self._last_image, self._last_png, Path(on_screen).stem,
+                                    self._caption_of(self._last_lab_file))
+        except Exception as exc:  # noqa: BLE001 - reported to the user
+            message = f"Could not copy: {exc}"
+        self.preview.set_status(message)
+
+    def copy_lab_snip_as(self, filename: str, fmt: str) -> None:
+        """Copy as, for a snip in the list or the full-size view."""
+        folder = self._list_folder()
+        if folder is None or not filename:
+            return
+        label = self._label_for(filename)
+        path = lab.image_in(folder, filename)
+        if path is None:
+            message = f"Snip {label} is no longer in the folder"
+        else:
+            try:
+                png, image = imageops.clipboard_png_from_file(path, self.cfg)
+                message = f"Snip {label}: " + self._copy_as(fmt, image, png, Path(filename).stem,
+                                                            self._caption_of(filename))
+            except Exception as exc:  # noqa: BLE001 - reported to the user
+                message = f"Could not copy snip {label}: {exc}"
+        self.preview.set_status(message)
         self.preview.viewer_message(message)
 
     def _on_note_from_preview(self, text: str, attach: bool) -> None:
@@ -2229,6 +2294,7 @@ class ShadowSnipApp(QObject):
         edits.enabled = bool(self.cfg.get("keep_edits", True))
         self.autocopy.configure(self.cfg)
         self.preview.snips_panel.clip_play_mode = self.cfg.get("clip_player", "app")
+        self.preview.set_recent_strip(self.cfg.get("recent_strip", True))
         if self.cfg["auto_copy"] and not self.autocopy.engaged:
             self._engage_auto_copy(announce=False)
         elif not self.cfg["auto_copy"] and self.autocopy.engaged:

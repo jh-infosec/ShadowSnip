@@ -131,6 +131,17 @@ QPushButton:disabled { color: #6c6c78; }
 """
 
 
+def add_copy_as_menu(menu: QMenu, choose) -> QMenu:
+    """The Copy as submenu (0.19.0): `choose(format)` is called with the format picked."""
+    import copyas
+
+    sub = menu.addMenu("Copy as")
+    sub.setStyleSheet(skins.style(annotate.MENU_STYLE))
+    for fmt, label in copyas.FORMATS:
+        sub.addAction(label).triggered.connect(lambda _c=False, f=fmt: choose(f))
+    return sub
+
+
 # -- thumbnails -------------------------------------------------------------
 class ThumbCache:
     """Scaled-down copies of lab images, reloaded only when the file changes.
@@ -460,6 +471,8 @@ class SnipViewer(QWidget):
     current_changed = Signal(str)
     # The file shown, to put on the clipboard or take out of the lab.
     copy_requested = Signal(str)
+    # 0.19.0: (file, format) for Copy as.
+    copy_as_requested = Signal(str, str)
     remove_requested = Signal(str)
     # Alt+N in the full-size view: a new snip (0.12.0).
     new_snip_requested = Signal()
@@ -501,6 +514,7 @@ class SnipViewer(QWidget):
         self.canvas.undo_changed.connect(self.tools.set_undo_enabled)
         self.canvas.edited.connect(self._on_edited)
         self.canvas.copy_requested.connect(self.copy_image)
+        self.canvas.copy_as_requested.connect(self.copy_image_as)
         self._edit_timer = QTimer(self)
         self._edit_timer.setSingleShot(True)
         self._edit_timer.setInterval(VIEWER_EDIT_SAVE_MS)
@@ -743,6 +757,13 @@ class SnipViewer(QWidget):
             # be in it first.
             self.flush_edits()
             self.copy_requested.emit(filename)
+
+    def copy_image_as(self, fmt: str) -> None:
+        """Copy as (0.19.0): the snip shown, mark-up included, in another format."""
+        filename = self.current_file()
+        if filename and self._clip is None:
+            self.flush_edits()
+            self.copy_as_requested.emit(filename, fmt)
 
     def save_current_as(self) -> None:
         """Save a copy of the snip shown, mark-up included, wherever you choose.
@@ -1312,6 +1333,8 @@ class LabSnipsPanel(QWidget):
     remove_requested = Signal(list)
     open_requested = Signal(str)
     copy_requested = Signal(str)
+    # 0.19.0: (file, format) for Copy as.
+    copy_as_requested = Signal(str, str)
     new_snip_requested = Signal()
     # A line for the window's status bar (Save as, Show in folder).
     status_message = Signal(str)
@@ -1961,6 +1984,7 @@ class LabSnipsPanel(QWidget):
             self.viewer = SnipViewer()
             self.viewer.current_changed.connect(self.select)
             self.viewer.copy_requested.connect(self.copy_requested.emit)
+            self.viewer.copy_as_requested.connect(self.copy_as_requested.emit)
             self.viewer.new_snip_requested.connect(self.new_snip_requested.emit)
             self.viewer.about_to_load.connect(self.viewer_loading.emit)
             self.viewer.edit_saved.connect(self.edit_saved.emit)
@@ -2058,6 +2082,8 @@ class LabSnipsPanel(QWidget):
                 action.setShortcut(QKeySequence(keys))
                 action.setShortcutVisibleInContextMenu(True)
             action.setEnabled(enabled)
+            if text == "Copy" and one and not is_clip:
+                add_copy_as_menu(menu, lambda fmt: self.copy_selected_as(fmt))
         menu.addSeparator()
         label = self.btn_remove.text() if count else "Remove"
         remove = menu.addAction(label + "...", self._emit_remove)
@@ -2088,6 +2114,13 @@ class LabSnipsPanel(QWidget):
         if filename:
             self.flush_viewer_edits()
             self.copy_requested.emit(filename)
+
+    def copy_selected_as(self, fmt: str) -> None:
+        """Copy as (0.19.0) for the selected snip; clips only copy as their video."""
+        filename = self.selected()
+        if filename and self.selected_clip() is None:
+            self.flush_viewer_edits()
+            self.copy_as_requested.emit(filename, fmt)
 
     def save_selected_as(self) -> None:
         """Save a copy of the selected snip, mark-up included, wherever you choose."""

@@ -510,7 +510,7 @@ def test_right_click_with_no_tool_offers_save_as_and_copy(canvas):
     canvas.save_as_requested.connect(lambda: asked.append("save"))
     canvas.copy_requested.connect(lambda: asked.append("copy"))
     rows = canvas.context_actions(canvas._target().center())
-    assert _labels(rows) == ["Save as...", "Copy"]
+    assert _labels(rows) == ["Save as...", "Copy", "Copy as"]
     rows[0][1]()
     rows[1][1]()
     assert asked == ["save", "copy"]
@@ -520,7 +520,7 @@ def test_on_a_redaction_with_no_tool_both_menus_show(canvas):
     canvas.doc.add(an.Redact(canvas.doc.new_id(), QRect(50, 50, 100, 60), "black"))
     canvas._refresh()
     rows = canvas.context_actions(canvas.to_widget(QPointF(100, 80)))
-    assert _labels(rows) == ["Black out this redaction", "Blur this redaction", "--", "Save as...", "Copy"]
+    assert _labels(rows) == ["Black out this redaction", "Blur this redaction", "--", "Save as...", "Copy", "Copy as"]
 
 
 @pytest.mark.parametrize("tool", ["pen", "highlighter", "eraser", "crop", "redact"])
@@ -531,7 +531,7 @@ def test_with_a_tool_in_hand_save_as_and_copy_are_still_there(canvas, tool):
     canvas.save_as_requested.connect(lambda: asked.append("save"))
     canvas.copy_requested.connect(lambda: asked.append("copy"))
     rows = canvas.context_actions(canvas._target().center())
-    assert _labels(rows) == ["Save as...", "Copy"]
+    assert _labels(rows) == ["Save as...", "Copy", "Copy as"]
     rows[0][1]()
     rows[1][1]()
     assert asked == ["save", "copy"]

@@ -75,10 +75,23 @@ annotations, so tagged releases publish again.
 Lock without stopping, auto-lock on idle and with the computer, hidden file
 names while locked, Windows Hello unlock, private temp in RAM on Linux.
 
-## Next: v0.19 - faster day to day, then v0.20 - install and share
+## Done in v0.19.0 - faster day to day
 
-The clipboard history strip, a Copy as menu, marks on clips; then run at
-login, a Kali .deb or AppImage, an update check and a release page.
+Copy as (PNG, JPEG, WebP, data URI, Markdown image), the recent strip, and
+marks drawn into video clips.
+
+## Clips, still open
+
+- Marks that show for a stretch of the clip (from one moment to another),
+  not only from a moment to the end.
+- Marks kept editable on a clip, as they are on a snip; for now they are
+  drawn in, and As recorded is the way back.
+- Keeping microphone sound through a trim or mark-up.
+
+## Next: v0.20 - install and share
+
+Run at login from Settings, a Kali .deb or AppImage, an update check against
+GitHub releases, and a tidy release page.
 
 ## Later - integration
 

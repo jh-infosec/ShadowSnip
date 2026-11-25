@@ -239,13 +239,26 @@ keys move on to the next snip or clip); right-click adds **Play in video
 player**. **Settings > Play clips** makes your video player the default
 instead. **Trim** cuts the start or end off: drag the handles on the trim
 bar, or play to the spot and press **Start here** (I) or **End here** (O),
-then **Save trim**. The clip as recorded is kept, and **Undo trim** puts it
-back. A clip with microphone sound loses the sound when trimmed. Right-click
+then **Save trim**. The clip as recorded is kept, and **As recorded** (called
+Undo trim before 0.19.0) puts it back. A clip with microphone sound loses the
+sound when trimmed or marked up. Right-click
 also adds **Save as GIF...**
 (at most 60 seconds, 10 frames a second, 800 pixels wide), and Copy, Save
 as, Show in folder and Remove work on the video. Exported reports show the
 poster with a caption naming the clip, since a report file cannot carry a
 video; the clip stays in the lab folder.
+
+**Mark up** (beside Trim, 0.19.0) draws on the clip: arrows, lines, boxes,
+labels, numbered steps, callouts, the pen and highlighter, spotlight, magnify,
+blur boxes and Redact, with the same tools and colours as a snip. Pause on the
+moment that matters (or leave it at the start), press **Mark up**, draw on
+that frame, choose **For the whole clip** or **From 0:04.2 to the end**, and
+**Save marks**. The marks are drawn into every frame of the clip, so they show
+in any video player, in a chat and in the GIF. A blur or a redaction covers
+the same area of each frame, blurring what is there in that frame. Crop,
+Text, the colour picker, Quick redact and the evidence stamp are not offered
+on a clip. The clip as recorded is kept, so **As recorded** takes the marks
+(and any trim) off again.
 
 - **Microphone**: off unless **Record the microphone** is ticked in Settings.
   The bar says "mic on" while it records. System sound is not recorded.
@@ -721,7 +734,8 @@ and the report belong to labs, so they appear once a lab starts and the list
 switches to that lab's snips.
 
 **Right-click** a snip in the list, or the picture under it, for **Expand**,
-**Copy**, **Save as...**, **Open**, **Show in folder** and **Remove...**.
+**Copy**, **Copy as**, **Save as...**, **Open**, **Show in folder** and
+**Remove...**.
 Right-clicking a snip that is not selected selects it; right-clicking inside a
 shift-click selection keeps it, so **Remove** takes them all. With the list in
 focus, `Ctrl+C` copies the selected snip rather than the one on screen. The
@@ -738,6 +752,35 @@ Section, Caption and Notes instead, and the times read the same way.
 The list needs history, which is on by default from 0.8.0 (an existing
 config has it switched on once). Turn off **Keep a timestamped copy** in
 Settings and the list stays empty outside a lab.
+
+### The recent strip
+
+Under the picture, a row of your newest snips, newest first (0.19.0): in a
+lab the lab's, otherwise your recent ones. **Click** one to put it back on the
+clipboard, exactly as Copy in the list does (a clip as its video file);
+**double-click** to open it full size; **right-click** for Copy, Copy as and
+Expand. It shows as many as fit the width, up to eight, hides while a lab is
+locked, and **Settings > Appearance > Show the recent strip** turns it off.
+
+### Copy as
+
+**Copy as** puts a snip on the clipboard in the format where it is going
+(0.19.0). It is on the right-click menu of the snip in the window, in the
+full-size view, in the snip list and in the recent strip, and on a
+right-click of **Copy again**. Mark-up is included, as with Copy.
+
+| Format | What goes on the clipboard |
+|---|---|
+| PNG image | The usual copy |
+| JPEG image (smaller) | A `.jpg` file and its bytes. Pasted into a chat, an email or an upload box, it arrives as the small JPEG rather than being turned back into a PNG |
+| WebP image (smallest) | The same, as `.webp` |
+| Data URI (text) | `data:image/png;base64,...`, for HTML, CSS or a tool that takes one |
+| Markdown image (text) | `![caption](data:image/png;base64,...)`, a self-contained image for a `.md` writeup, with the snip's caption as its alt text |
+
+JPEG and WebP copies are written to a `copies` folder in the save folder,
+which keeps the newest 10. A snip from an encrypted lab is written to that
+lab's private temporary folder instead, wiped when the lab locks, since the
+copy is not encrypted.
 
 ### The lab snip list, and removing a snip
 

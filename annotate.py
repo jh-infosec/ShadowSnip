@@ -840,6 +840,8 @@ class AnnotCanvas(QWidget):
     # From the right-click menu with no tool in hand.
     save_as_requested = Signal()
     copy_requested = Signal()
+    # 0.19.0: Copy as, with a format from copyas.FORMATS.
+    copy_as_requested = Signal(str)
     # A short message for the status line: text copied, Quick redact done.
     notice = Signal(str)
     # Redo became available or ran out (0.11.0).
@@ -1359,6 +1361,13 @@ class AnnotCanvas(QWidget):
         if self.offer_save_as:
             rows.append(("Save as...", self.save_as_requested.emit, None))
         rows.append(("Copy", self.copy_requested.emit, None))
+        if getattr(self, "offer_copy_as", True):
+            import copyas
+
+            rows.append(("Copy as", [
+                (label, lambda _c=None, f=fmt: self.copy_as_requested.emit(f), None)
+                for fmt, label in copyas.FORMATS
+            ], None))
         for label, callback in self.extra_menu_rows:
             rows.append((label, callback, None))
         return rows
@@ -3041,7 +3050,7 @@ class AnnotToolbar(QWidget):
     def _hint_for(self, tool: str | None) -> str:
         if not getattr(self, "_available", True):
             return NO_SNIP_HINT
-        text = HINTS.get(tool, "")
+        text = getattr(self, "hints", {}).get(tool) or HINTS.get(tool, "")
         if tool == "redact":
             text += " Now: " + ("black out." if self.prefs["redact_mode"] == "black" else "blur.")
         return text

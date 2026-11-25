@@ -332,6 +332,37 @@ vectors came out 0.1 low. `tests/test_cvss40.py` hashes all base scores
 against a digest made with Red Hat's package and checks 400 stored samples
 with threat and environmental metrics.
 
+## Faster day to day (0.19.0)
+
+**Copy as** (`copyas.py`). `copy(fmt, image, png=, folder=, name=, caption=)`
+puts a PIL image on the clipboard as PNG (the usual `clipboard.copy`), JPEG
+or WebP (a file in `folder`, kept to the newest 10, put on as CF_HDROP or a
+URL list plus its own MIME bytes), or text (a data URI or a Markdown image).
+The canvas menu (`AnnotCanvas.copy_as_requested`, off with `offer_copy_as`),
+the viewer, the list menu and the strip all end in two app slots:
+`copy_snip_as` for the snip on screen (`_last_image`/`_last_png`, edits
+flushed first) and `copy_lab_snip_as` for a listed file. `_copies_folder`
+picks the save folder's `copies`, or the encrypted lab's `handoff_dir`.
+
+**The recent strip** (`recentstrip.py`) is fed the same rows as the snip
+list by `PreviewWindow.set_lab_snips`, and shares its `ThumbCache`. A click
+selects that file in the list and calls the list's own `copy_selected`, so
+snips and clips copy exactly as from the list. It holds a fixed pool of
+eight tiles and refills them, rather than deleting and making buttons on
+every refresh: deleting a tile whose click was still on the stack crashed
+the test run. `_fit` hides the tiles that would be cut off at the edge.
+
+**Marks on clips** (`clipmarks.py`). `ClipMarkupDialog` is an `AnnotCanvas`
+and `AnnotToolbar` on one frame (crop, text, picker, Quick redact and stamp
+hidden). `overlay(doc, from_ms)` returns `transform(image, at_ms)`: a clone
+of the doc with the frame as its base, rendered with `render_full`, so every
+mark, blur and redaction is drawn against that frame's own pixels.
+`cliptrim.reencode(..., transform)` applies it to each frame on the way to
+the encoder (the poster is taken after it), and `cliptrim.mark` is a
+whole-clip `trim` with a transform, so the as-recorded copy and **As
+recorded** work as for a trim. `ClipPlayer.current_frame` is the frame on
+screen, or the clip's first frame read with `clips.frames_of`.
+
 ## Test run on GitHub (0.18.1)
 
 `tests/conftest.py` ends the session by hiding and deleting every top-level

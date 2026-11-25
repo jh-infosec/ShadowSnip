@@ -22,7 +22,7 @@ before you save.
 ## Keeping the original
 
 The first trim moves the original aside as `<name>.untrimmed.mp4`; later trims
-start from the current clip but leave that file alone, so **Undo trim**
+start from the current clip but leave that file alone, so **As recorded** (Undo trim before 0.19.0)
 always gets back the clip as it was recorded. It travels with the clip when
 the clip is moved or removed (`clips.move_with`). The poster is remade from
 the trimmed clip's first frame, with its new length.
@@ -71,11 +71,14 @@ def is_untrimmed_copy(path) -> bool:
     return Path(path).name.endswith(UNTRIMMED + clips.SUFFIX)
 
 
-def reencode(source: Path, target: Path, start_ms: int, end_ms: int, progress=None) -> tuple[QImage, float]:
+def reencode(source: Path, target: Path, start_ms: int, end_ms: int, progress=None,
+             transform=None) -> tuple[QImage, float]:
     """Write `start_ms`..`end_ms` of `source` to `target` as a new MP4.
 
     Returns the first frame and the new length in seconds. `progress(fraction)`
-    is called as it goes; returning False cancels (TrimError).
+    is called as it goes; returning False cancels (TrimError). `transform(image,
+    at_ms)`, when given, returns the picture to write for each frame (0.19.0,
+    marks on a clip); `at_ms` is the frame's time in the clip it came from.
     """
     try:
         from PySide6.QtMultimedia import (
@@ -182,10 +185,14 @@ def reencode(source: Path, target: Path, start_ms: int, end_ms: int, progress=No
             from PySide6.QtCore import QSize
 
             state["size"] = QSize(width, height)
-            state["first"] = image.copy(0, 0, width, height)
             begin_encoder(state["size"])
         state["last_us"] = at
-        queue.append((image.copy(0, 0, state["size"].width(), state["size"].height()), max(0, at - start_us)))
+        picture = image.copy(0, 0, state["size"].width(), state["size"].height())
+        if transform is not None:
+            picture = transform(picture, at // 1000).convertToFormat(QImage.Format.Format_ARGB32)
+        if state["first"] is None:
+            state["first"] = picture.copy()
+        queue.append((picture, max(0, at - start_us)))
         stall.start(STALL_MS)
         if progress is not None and progress(min(1.0, (at - start_us) / max(1, end_us - start_us))) is False:
             fail("Trim cancelled.")
@@ -268,13 +275,17 @@ def _write_poster(poster: Path, frame: QImage, seconds: float) -> None:
     storage.write_atomic(poster, clips.make_poster(frame, seconds))
 
 
-def trim(video, start_ms: int, end_ms: int, progress=None) -> float:
-    """Trim the clip in place, keeping the clip as recorded aside. Returns the new length."""
+def trim(video, start_ms: int, end_ms: int, progress=None, transform=None) -> float:
+    """Trim the clip in place, keeping the clip as recorded aside. Returns the new length.
+
+    With `transform` (0.19.0) every frame kept is changed by it on the way:
+    that is how marks are put on a clip (see `mark`).
+    """
     video = Path(video)
     if not video.is_file():
         raise TrimError("This clip's file is no longer there.")
     working = video.with_name(video.stem + ".trimming" + clips.SUFFIX)
-    frame, seconds = reencode(video, working, start_ms, end_ms, progress)
+    frame, seconds = reencode(video, working, start_ms, end_ms, progress, transform)
     kept = untrimmed_of(video)
     try:
         if kept.is_file():
@@ -287,6 +298,15 @@ def trim(video, start_ms: int, end_ms: int, progress=None) -> float:
         raise TrimError(f"Could not replace the clip: {exc}") from exc
     _write_poster(video.with_suffix(".png"), frame, seconds)
     return seconds
+
+
+def mark(video, transform, length_ms: int, progress=None) -> float:
+    """Draw on every frame of the whole clip with `transform` (0.19.0). Returns its length.
+
+    The clip as recorded is kept, as for a trim, so As recorded takes the
+    marks off again.
+    """
+    return trim(video, 0, max(int(length_ms), MIN_KEEP_MS) + 1000, progress, transform)
 
 
 def untrim(video) -> float:
