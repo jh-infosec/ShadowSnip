@@ -88,10 +88,18 @@ marks drawn into video clips.
   drawn in, and As recorded is the way back.
 - Keeping microphone sound through a trim or mark-up.
 
-## Next: v0.20 - install and share
+## Done in v0.20.0 - install and share
 
-Run at login from Settings, a Kali .deb or AppImage, an update check against
-GitHub releases, and a tidy release page.
+Start at sign-in from Settings, a .deb for Kali, Debian and Ubuntu, an
+opt-in update check, and release pages made from the CHANGELOG with
+SHA-256 checksums.
+
+## Install and share, still open
+
+- An AppImage, for Linux outside the Debian family.
+- Signing the Windows .exe, so SmartScreen stops warning about it (needs a
+  code-signing certificate).
+- A Kali/apt repository, so `apt upgrade` brings new versions.
 
 ## Later - integration
 

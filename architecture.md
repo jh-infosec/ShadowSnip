@@ -332,6 +332,29 @@ vectors came out 0.1 low. `tests/test_cvss40.py` hashes all base scores
 against a digest made with Red Hat's package and checks 400 stored samples
 with threat and environmental metrics.
 
+## Install and share (0.20.0)
+
+**Start at sign-in** (`autostart.py`) writes or deletes one per-user entry:
+`ShadowSnip.lnk` in the Startup folder on Windows (through WScript.Shell, from
+pywin32), `shadowsnip.desktop` in `~/.config/autostart` on Linux, in the
+shape `install.sh --autostart` writes. Both run `--tray`. The Settings box
+reads `is_enabled()` from disk rather than a saved setting, and the app's
+`_apply_login_start` changes the entry only when the box differs from it.
+
+**The update check** (`updates.py`) is one GET to GitHub's
+`releases/latest` on a daemon thread, handed back to the Qt thread through a
+signal (`ShadowSnipApp._update_answered`, `SettingsDialog._update_answer`).
+`due(cfg)` decides the daily check: only with `update_check` on, at most once
+a day by `update_last_check`. A daily check that fails or finds nothing says
+nothing; one that finds a newer version shows a tray message whose click
+opens the release page.
+
+**Packaging**: `build_deb.sh` wraps the PyInstaller binary in a `.deb`
+(`/opt/shadowsnip`, `/usr/bin/shadowsnip`, menu entry, icon, Depends on the
+Qt system libraries). `release_notes.py` turns the tag's CHANGELOG section,
+a downloads table and `SHA256SUMS.txt` into the release body. The workflow
+runs both on a tag; neither runs on an ordinary push.
+
 ## Faster day to day (0.19.0)
 
 **Copy as** (`copyas.py`). `copy(fmt, image, png=, folder=, name=, caption=)`

@@ -97,6 +97,9 @@ class HotkeyEdit(QLineEdit):
 
 
 class SettingsDialog(QDialog):
+    # (release or None, error text), from the update check's worker thread.
+    _update_answer = Signal(object, str)
+
     # The skin picked in the list, as you pick it, before Save: so the window
     # can show it straight away. Cancel puts the old one back (app.py).
     skin_changed = Signal(str)
@@ -339,6 +342,22 @@ class SettingsDialog(QDialog):
         self.recent_check.setChecked(bool(cfg.get("recent_strip", True)))
         self.recent_check.setToolTip("Your newest snips as thumbnails: click one to copy it again, "
                                      "double-click to open it")
+        # 0.20.0: start at sign-in, and the update check.
+        import autostart
+
+        self.login_check = QCheckBox("Start ShadowSnip in the tray when I sign in")
+        self.login_check.setChecked(autostart.is_enabled())
+        self.login_check.setToolTip(f"Adds or removes {autostart.describe()}")
+        self.update_check = QCheckBox("Check for a new version once a day")
+        self.update_check.setChecked(bool(cfg.get("update_check", False)))
+        self.update_check.setToolTip("Asks GitHub for the latest release. Nothing about you or your snips "
+                                     "is sent, and nothing is downloaded or installed.")
+        self.btn_check_now = QPushButton("Check now")
+        self.btn_check_now.clicked.connect(self._check_now)
+        self.update_result = QLabel("")
+        self.update_result.setWordWrap(True)
+        self.update_result.setOpenExternalLinks(True)
+        self._update_answer.connect(self._show_update_answer)
 
         self.dim = QSpinBox()
         self.dim.setRange(0, 255)
@@ -427,6 +446,13 @@ class SettingsDialog(QDialog):
         appearance.addRow("", self.skin_picture)
         appearance.addRow(self.preview_check)
         appearance.addRow(self.recent_check)
+        appearance.addRow(self.login_check)
+        update_row = QHBoxLayout()
+        update_row.addWidget(self.update_check)
+        update_row.addWidget(self.btn_check_now)
+        update_row.addStretch(1)
+        appearance.addRow(update_row)
+        appearance.addRow("", self.update_result)
         appearance.addRow("Overlay dimming", self.dim)
 
         snipping = self._tab("Snipping")
@@ -668,6 +694,42 @@ class SettingsDialog(QDialog):
 
         QDesktopServices.openUrl(QUrl(hotkey_mod.PRTSC_SETTINGS_URI))
 
+    def wants_login_start(self) -> bool:
+        return self.login_check.isChecked()
+
+    def _check_now(self) -> None:
+        """Ask GitHub once, now, whatever the daily switch says (0.20.0)."""
+        import updates
+
+        self.btn_check_now.setEnabled(False)
+        self.update_result.setText("Asking GitHub...")
+
+        def done(release, error):
+            try:
+                self._update_answer.emit(release, error)
+            except RuntimeError:   # the window was closed while it asked
+                pass
+
+        self._run_update_check(config_mod.APP_VERSION, done)
+
+    def _run_update_check(self, version: str, done) -> None:
+        """One place, so the tests can stand in for GitHub."""
+        import updates
+
+        updates.check_in_background(version, done)
+
+    def _show_update_answer(self, release, error: str) -> None:
+        import updates
+
+        self.btn_check_now.setEnabled(True)
+        if release is None:
+            self.update_result.setText(error or "Could not check.")
+            return
+        text = updates.describe(release, config_mod.APP_VERSION)
+        if updates.is_newer(release.version, config_mod.APP_VERSION):
+            text += f' <a href="{release.url}">Open the release page</a>'
+        self.update_result.setText(text)
+
     def values(self) -> dict:
         cfg = dict(self._cfg)
         cfg["hotkey"] = self.hotkey_edit.spec
@@ -710,6 +772,7 @@ class SettingsDialog(QDialog):
         )
         cfg["show_preview"] = self.preview_check.isChecked()
         cfg["recent_strip"] = self.recent_check.isChecked()
+        cfg["update_check"] = self.update_check.isChecked()
         cfg["dim_opacity"] = self.dim.value()
         cfg["lab_root"] = self.lab_root_edit.text().strip()
         cfg["lab_index"] = self.lab_index_check.isChecked()

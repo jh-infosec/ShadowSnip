@@ -68,7 +68,28 @@ GitHub has a download for each:
 | Platform | Download | Install |
 | --- | --- | --- |
 | Windows | `ShadowSnip-<version>-windows.exe` | Run it. No installer, no Python needed. |
-| Linux | `ShadowSnip-<version>-linux.tar.gz` | Unpack it and run `./install.sh` (add `--autostart` to start in the tray at login) |
+| Kali, Debian, Ubuntu | `shadowsnip_<version>_amd64.deb` | `sudo apt install ./shadowsnip_<version>_amd64.deb`, then `shadowsnip` (0.20.0) |
+| Other Linux | `ShadowSnip-<version>-linux.tar.gz` | Unpack it and run `./install.sh` (add `--autostart` to start in the tray at login) |
+
+Each release page lists what changed, which file is for which system, and
+the SHA-256 of every download (also in `SHA256SUMS.txt`): check one with
+`sha256sum -c SHA256SUMS.txt` on Linux or `Get-FileHash <file>` in PowerShell.
+The `.deb` installs to `/opt/shadowsnip` with a `shadowsnip` command and a
+menu entry, and pulls in the system packages Qt needs; `sudo apt remove
+shadowsnip` takes it off again and leaves your snips and labs alone.
+
+**Start at sign-in**: Settings > Appearance > **Start ShadowSnip in the tray
+when I sign in** (0.20.0). On Windows it adds a shortcut to your Startup
+folder, on Linux an entry in `~/.config/autostart`; unticking it removes
+them. The box shows what is really there, so an entry you made by hand, or
+with `install.sh --autostart`, shows as ticked.
+
+**Updates**: Settings > Appearance > **Check for a new version once a day**
+is off unless you turn it on. When on, ShadowSnip asks GitHub for the latest
+release once a day, a few seconds after it starts, and the tray says so when
+a newer one is out; clicking that opens its release page. **Check now** asks
+once. Nothing about you or your snips is sent, and ShadowSnip never downloads
+or installs anything itself.
 
 ### From source, Windows
 
@@ -110,7 +131,7 @@ ShadowSnip opens its window and puts an icon in the notification area. Press
 | Command output hotkey | Registered by ShadowSnip | The same, running `shadowsnip --output`; files the highlighted text (the primary selection) when there is some, else the clipboard |
 | Copy on select | A mouse hook and a synthetic Ctrl+C | X11 already puts highlighted text in the *primary selection* (what middle-click pastes); ShadowSnip copies it to the clipboard. No hook and no keystroke, so a terminal can never receive a stray Ctrl+C. Each selection is copied once it stops changing, and only if the program it was made in is the one still in front, so switching away from a password manager straight after selecting never copies from it. |
 | Settings file | `%APPDATA%\ShadowSnip\config.json` | `~/.config/shadowsnip/config.json` |
-| Start at login | A shortcut in `shell:startup`; it starts in the tray with or without `--tray` | `bash install.sh --autostart` |
+| Start at login | Settings > Appearance, or a shortcut in `shell:startup`; it starts in the tray with or without `--tray` | Settings > Appearance, or `bash install.sh --autostart` |
 | Reading text (Text tool, Quick redact) | Windows' own OCR engine | Tesseract: `sudo apt install tesseract-ocr` |
 
 Everything else (snipping, labs, sections, notes, the outline and preview,

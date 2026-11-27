@@ -1,6 +1,33 @@
 # Changelog
 
-## Latest: 0.19.0
+## Latest: 0.20.0
+
+The install and share release.
+
+**Added**: **a .deb for Kali, Debian and Ubuntu**, built with every release:
+`sudo apt install ./shadowsnip_0.20.0_amd64.deb`. It installs to
+`/opt/shadowsnip` with a `shadowsnip` command, a menu entry and the icon, and
+depends on the system packages Qt needs (libpulse0 and x11-utils included;
+tesseract-ocr recommended). New script `build_deb.sh`.
+
+**Added**: **start at sign-in** from Settings > Appearance: a shortcut in the
+Startup folder on Windows, an entry in `~/.config/autostart` on Linux, both
+starting it in the tray. The box shows what is really there. New module
+`autostart.py`.
+
+**Added**: **an update check**, off unless turned on (Settings > Appearance):
+once a day it asks GitHub for the latest release and the tray says when a
+newer one is out; clicking opens its release page. **Check now** asks once.
+Nothing is sent but the request, and nothing is downloaded or installed. New
+module `updates.py`.
+
+**Changed**: **the release page** is now that version's CHANGELOG section, a
+table of which download is for which system and how to install it, and the
+SHA-256 of every file, which also go up as `SHA256SUMS.txt`. Releases are
+named "ShadowSnip v0.20.0". New script `release_notes.py`; the workflow
+builds the .deb and the checksums.
+
+## 0.19.0
 
 The faster day to day release.
 

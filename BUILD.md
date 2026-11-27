@@ -25,7 +25,9 @@ Double-click `run_shadowsnip.pyw`. Because the extension is `.pyw`, Windows
 runs it with `pythonw.exe` and no console appears. It still depends on your
 Python install and the packages in `requirements.txt`.
 
-To run it at login: right-click `run_shadowsnip.pyw`, **Send to > Desktop**,
+To run it at login, the simplest way (0.20.0) is **Settings > Appearance >
+Start ShadowSnip in the tray when I sign in**, which makes the shortcut
+described here for you. By hand: right-click `run_shadowsnip.pyw`, **Send to > Desktop**,
 then move that shortcut into the startup folder. Press **Win+R**, type
 `shell:startup`, Enter, and drop the shortcut in. Add ` --tray` to the end of
 the shortcut's **Target** to start in the tray without opening the window.
@@ -74,6 +76,35 @@ it, and writes a `shadowsnip` command to `~/.local/bin`, a menu entry, and with
 outside your home folder and nothing needs sudo; it only tells you which
 system packages are missing. `bash install.sh --uninstall` removes it again and
 leaves your snips and labs alone.
+
+## The .deb package (0.20.0)
+
+Every release has `shadowsnip_<version>_amd64.deb`, built from the
+standalone binary by `build_deb.sh`:
+
+```bash
+sudo apt install ./shadowsnip_0.20.0_amd64.deb   # apt, so its dependencies come too
+shadowsnip
+sudo apt remove shadowsnip                       # your snips and labs stay
+```
+
+It puts the binary in `/opt/shadowsnip`, the `shadowsnip` command in
+`/usr/bin` (the same launcher `install.sh` writes, with the GIO plugin
+folder set), a menu entry and the icon. Start at sign-in stays a per-user
+choice in Settings. To build one yourself from a PyInstaller build:
+
+```bash
+bash build_deb.sh dist/ShadowSnip 0.20.0 out/
+```
+
+## Releases
+
+Pushing a `v*` tag runs the whole workflow: the tests on Windows and Linux,
+then both builds, the `.deb`, `SHA256SUMS.txt`, and a release named
+"ShadowSnip v0.20.0" whose text is that version's section of CHANGELOG.md,
+the download table and the checksums (`release_notes.py`). So write the
+CHANGELOG section before tagging; `python release_notes.py v0.20.0` shows
+the page it will make.
 
 ## The standalone binary
 

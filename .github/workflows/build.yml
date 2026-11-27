@@ -4,6 +4,11 @@
 #
 #   ShadowSnip-<tag>-windows.exe
 #   ShadowSnip-<tag>-linux.tar.gz   (binary, install.sh, icon, README)
+#   shadowsnip_<version>_amd64.deb  (Kali / Debian / Ubuntu, 0.20.0: build_deb.sh)
+#   SHA256SUMS.txt
+#
+# The release page's text is that version's CHANGELOG section, the downloads
+# and their SHA-256 (release_notes.py).
 #
 # PyInstaller only builds for the system it runs on, which is why each build
 # runs on its own platform here.
@@ -91,6 +96,7 @@ jobs:
           cp dist/ShadowSnip install.sh shadowsnip.png README.md "pkg/$name/"
           chmod +x "pkg/$name/ShadowSnip" "pkg/$name/install.sh"
           tar -C pkg -czf "out/$name.tar.gz" "$name"
+          bash build_deb.sh dist/ShadowSnip "${GITHUB_REF_NAME}" out
       - uses: actions/upload-artifact@v4
         with:
           name: shadowsnip-${{ runner.os }}
@@ -103,11 +109,17 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: out
           merge-multiple: true
+      - name: Checksums and release notes
+        run: |
+          (cd out && sha256sum -- * > SHA256SUMS.txt)
+          python3 release_notes.py "${GITHUB_REF_NAME}" out/SHA256SUMS.txt > notes.md
       - uses: softprops/action-gh-release@v2
         with:
+          name: ShadowSnip ${{ github.ref_name }}
+          body_path: notes.md
           files: out/*
-          generate_release_notes: true

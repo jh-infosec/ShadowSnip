@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+import sys
 import time
 from pathlib import Path
 
@@ -76,8 +77,28 @@ def test_jpeg_and_webp_go_on_as_small_files(tmp_path):
         message = copyas.copy(fmt, _picture(), folder=tmp_path / "copies", name="004_2026-11-24_10-00-00")
         written = tmp_path / "copies" / f"004_2026-11-24_10-00-00{suffix}"
         assert written.is_file() and written.name in message
-        urls = QApplication.clipboard().mimeData().urls()
-        assert [Path(u.toLocalFile()) for u in urls] == [written]
+        assert [Path(name) for name in _clipboard_files()] == [written]
+
+
+def _clipboard_files() -> list[str]:
+    """The files on the clipboard, read on Windows the way copyas wrote them (CF_HDROP).
+
+    Qt's view of the Windows clipboard catches up a moment later: on GitHub's
+    Windows runner it was still empty here.
+    """
+    if sys.platform == "win32":
+        try:
+            import win32clipboard as clip
+            import win32con
+        except ImportError:
+            pass
+        else:
+            clipboard._open_with_retry(clip)
+            try:
+                return list(clip.GetClipboardData(win32con.CF_HDROP))
+            finally:
+                clip.CloseClipboard()
+    return [u.toLocalFile() for u in QApplication.clipboard().mimeData().urls()]
 
 
 def test_the_copies_folder_keeps_only_the_newest(tmp_path):

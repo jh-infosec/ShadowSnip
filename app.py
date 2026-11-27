@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QFileSystemWatcher, QObject, QRect, QTimer, Qt
+from PySide6.QtCore import QFileSystemWatcher, QObject, QRect, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -51,7 +52,15 @@ from settings_dialog import SettingsDialog
 from toast import ClipToast
 
 
+# The daily update check waits this long after start, out of the way of the
+# first snip.
+UPDATE_CHECK_DELAY_MS = 8000
+
+
 class ShadowSnipApp(QObject):
+    # (release or None, error text) from the daily update check's worker thread (0.20.0).
+    _update_answered = Signal(object, str)
+
     def __init__(self, qapp, parent=None):
         super().__init__(parent)
         self.qapp = qapp
@@ -146,8 +155,15 @@ class ShadowSnipApp(QObject):
         self.tray = QSystemTrayIcon(build_icon(), self)
         self.tray.setToolTip("ShadowSnip")
         self.tray.activated.connect(self._on_tray_activated)
+        self.tray.messageClicked.connect(self._on_tray_message_clicked)
+        self._update_answered.connect(self._on_update_answer)
         self._build_menu()
         self.tray.show()
+        # 0.20.0: the daily update check, if it is on and due, once things are up.
+        import updates
+
+        if updates.due(self.cfg):
+            QTimer.singleShot(UPDATE_CHECK_DELAY_MS, self._maybe_check_for_update)
 
         # The snip overlay's windows are made now, in the background, so the
         # first snip does not wait for them; again whenever a screen comes or goes.
@@ -2283,6 +2299,9 @@ class ShadowSnipApp(QObject):
         if hotkeys_changed and not self._replace_hotkeys(new_cfg):
             return
         prtsc_changed = bool(new_cfg.get("prtsc_snip")) != bool(self.cfg.get("prtsc_snip"))
+        # A stand-in dialog in the tests has no such question: leave the entry alone.
+        if hasattr(dialog, "wants_login_start"):
+            self._apply_login_start(dialog.wants_login_start())
         self.cfg = new_cfg
         try:
             config.save(self.cfg)
@@ -2300,6 +2319,51 @@ class ShadowSnipApp(QObject):
         elif not self.cfg["auto_copy"] and self.autocopy.engaged:
             self.autocopy.release()
         self._refresh_menu_text()
+
+    # -- start at sign-in and the update check (0.20.0) ------------------------------------------
+    def _apply_login_start(self, wanted: bool) -> None:
+        import autostart
+
+        if wanted == autostart.is_enabled():
+            return
+        try:
+            autostart.set_enabled(wanted)
+        except autostart.AutostartError as exc:
+            self._warn(str(exc))
+            return
+        self.tray.showMessage("ShadowSnip", "It will start in the tray when you sign in." if wanted
+                              else "It will no longer start when you sign in.", build_icon(), 3000)
+
+    def _maybe_check_for_update(self) -> None:
+        """The daily check, a few seconds after start, only when it is turned on."""
+        import updates
+
+        if not updates.due(self.cfg):
+            return
+        self.cfg["update_last_check"] = time.time()
+        try:
+            config.save(self.cfg)
+        except OSError:
+            pass
+        updates.check_in_background(config.APP_VERSION, self._update_answered.emit)
+
+    def _on_update_answer(self, release, _error: str) -> None:
+        import updates
+
+        if release is None or not updates.is_newer(release.version, config.APP_VERSION):
+            return   # quiet: a failed or up-to-date daily check says nothing
+        self._update_url = release.url
+        self.tray.showMessage("ShadowSnip update", f"ShadowSnip {release.version} is out (you have "
+                              f"{config.APP_VERSION}). Click to open its release page.", build_icon(), 10000)
+
+    def _on_tray_message_clicked(self) -> None:
+        url = getattr(self, "_update_url", "")
+        if url:
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+
+            self._update_url = ""
+            QDesktopServices.openUrl(QUrl(url))
 
     def _replace_hotkeys(self, new_cfg: dict) -> bool:
         """Replace changed hotkeys atomically, restoring the old ones on error."""

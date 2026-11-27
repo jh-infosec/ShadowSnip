@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 APP_NAME = "ShadowSnip"
-APP_VERSION = "0.19.0"
+APP_VERSION = "0.20.0"
 
 
 def config_dir() -> Path:
@@ -148,6 +148,10 @@ DEFAULTS = {
     # The recent strip under the picture (0.19.0): the newest snips, a click
     # copies one again.
     "recent_strip": True,
+    # 0.20.0: ask GitHub once a day whether a newer release is out. Off
+    # unless turned on: see updates.py. When it last asked, as a timestamp.
+    "update_check": False,
+    "update_last_check": 0.0,
     # The list of the running lab's snips beside the image in the preview
     # window. Toggled with the Snip list button; remembered between runs.
     "lab_snip_list": True,
@@ -311,6 +315,7 @@ def _sanitise(cfg: dict) -> dict:
         "lab_encrypt_default",
         "lab_lock_with_session",
         "recent_strip",
+        "update_check",
         "prtsc_snip",
         "snip_magnifier",
         "clip_microphone",
@@ -351,6 +356,10 @@ def _sanitise(cfg: dict) -> dict:
     except (TypeError, ValueError):
         minutes = 10
     cfg["clip_max_minutes"] = min(60, max(1, minutes))
+    try:
+        cfg["update_last_check"] = max(0.0, float(cfg.get("update_last_check") or 0))
+    except (TypeError, ValueError):
+        cfg["update_last_check"] = 0.0
     try:
         idle = int(cfg.get("lab_autolock_minutes", 15))
     except (TypeError, ValueError):

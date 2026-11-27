@@ -29,6 +29,8 @@ a = Analysis(
         "winrt.windows.foundation",
         "winrt.windows.foundation.collections",
         "winrt.windows.globalization",
+        # Start at sign-in (0.20.0) makes its Startup shortcut through this.
+        "win32com.client",
     ] if sys.platform == "win32" else []) + [
         # Video clips (0.14.0): imported inside functions, and Qt's FFmpeg
         # plugin comes with this module.
